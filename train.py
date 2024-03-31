@@ -12,16 +12,20 @@ import argparse
 DATASET_CONFIGS = {
     "wikitext": {
         "subset": "wikitext-103-v1",
-        "train": "train",
-        "test": "test",
+        "train_split": "train",
+        "test_split": "test",
     }
 }
 
 
-def train(model_name: str, dataset_name: str, task: str):
+def train(model_name: str, dataset_name: str, task: str, debug: bool = False):
     # Load the dataset
     config = DATASET_CONFIGS[dataset_name]
     dataset = load_dataset(dataset_name, config["subset"])
+
+    if debug:
+        for split in dataset.keys():  # type: ignore
+            dataset[split] = dataset[split].select(range(500))  # type: ignore
 
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -64,6 +68,7 @@ def train(model_name: str, dataset_name: str, task: str):
         evaluation_strategy="steps",
         load_best_model_at_end=True,
         save_strategy="steps",
+        report_to=["tensorboard"],
     )
 
     # Initialize Trainer
@@ -90,12 +95,11 @@ if __name__ == "__main__":
         "--dataset_name", type=str, default="wikitext", help="Dataset name"
     )
     parser.add_argument(
-        "--task",
-        type=str,
-        default="language-modeling",
-        help="Task (default: language-modeling)",
+        "--debug",
+        action="store_true",
+        help="Use a smaller subset of the dataset for debugging",
     )
 
     args = parser.parse_args()
 
-    train(args.model_name, args.dataset_name, args.task)
+    train(args.model_name, args.dataset_name, "language-modeling", args.debug)
