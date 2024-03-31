@@ -1,4 +1,6 @@
 # from typing import Any, List, Optional
+from transformers import TrainerCallback, TrainerState, TrainerControl
+
 
 from transformers import (
     AutoModelForCausalLM,
@@ -18,6 +20,42 @@ DATASET_CONFIGS = {
         "test_split": "test",
     }
 }
+
+
+class LogSampleCallback(TrainerCallback):
+    """A custom callback to log a sample text from the model at the end of each epoch."""
+
+    def __init__(self, tokenizer, model_name):
+        self.tokenizer = tokenizer
+        self.model_name = model_name
+
+    def on_evaluate(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs
+    ):
+        # Generate a text sample at the end of each epoch
+        print("\nSample text generation at the end of epoch:", state.epoch)
+        input_ids = self.tokenizer.encode(
+            "The meaning of life is", return_tensors="pt"
+        ).to(args.device)
+
+        # Generate text using the trained model
+        sample_outputs = kwargs["model"].generate(
+            input_ids,
+            do_sample=True,
+            max_length=50,
+            top_k=50,
+            top_p=0.95,
+            num_return_sequences=1,
+        )
+
+        print(
+            "Generated text:\n",
+            self.tokenizer.decode(sample_outputs[0], skip_special_tokens=True),
+        )
 
 
 def train(model_name: str, dataset_name: str, task: str, debug: bool = False):
@@ -80,6 +118,7 @@ def train(model_name: str, dataset_name: str, task: str, debug: bool = False):
         data_collator=data_collator,
         train_dataset=train_dataset,  # type: ignore
         eval_dataset=eval_dataset,  # type: ignore
+        callbacks=[LogSampleCallback(tokenizer, model_name)],
     )
 
     # Train the model
@@ -87,9 +126,7 @@ def train(model_name: str, dataset_name: str, task: str, debug: bool = False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Train a model on a specified dataset for a specified task using Hugging Face Transformers."
-    )
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model_name", type=str, default="gpt2", help="Model name or path"
     )
