@@ -93,30 +93,6 @@ class RepNet(nn.Module):
                 child = getattr(parent, attr)
             return self._get_module(child, replacement_addr_list)
 
-    # def _set_module(
-    #     self,
-    #     model: nn.Module | nn.Sequential | nn.ModuleList,
-    #     replacement_addr_list: list[int | str],
-    #     replacement_layer: nn.Module,
-    # ) -> None:
-    #     """Sets attribute of `model` accessed via `replacement_addr_list` to `replacement_layer`"""
-    #     if isinstance(replacement_addr_list[-1], int):
-
-    #         if isinstance(model, (nn.Sequential, nn.ModuleList)):
-    #             self._get_module(model, replacement_addr_list[:-1])[
-    #                 replacement_addr_list[-1]
-    #             ] = replacement_layer
-    #         else:
-    #             raise TypeError(
-    #                 f"Index access attempted on non-indexable module: {type(parent)}"
-    #             )
-    #     else:
-    #         setattr(
-    #             self._get_module(model, replacement_addr_list[:-1]),
-    #             replacement_addr_list[-1],
-    #             replacement_layer,
-    #         )
-
     def _set_module(
         self,
         model: nn.Module,
