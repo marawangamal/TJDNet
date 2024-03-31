@@ -21,7 +21,17 @@ class RepNet(nn.Module):
         """
         super().__init__(*args, **kwargs)
         self.base_model = model
+        self.replacements = {}
         self._replace_base_model_layers(condition_func, replacement_func)
+
+    def replacement_report(self):
+        # Print replacement report
+        print("Replacement report:")
+        print(f"{'Layer':<30} {'Original':<30} {'Replacement':<30}")
+        for addr, replacement in self.replacements.items():
+            print(
+                f"{addr:<30} {type(self._get_module(self.base_model, addr)):<30} {type(replacement):<30}"
+            )
 
     def _replace_base_model_layers(
         self,
@@ -42,6 +52,7 @@ class RepNet(nn.Module):
             if condition_func(layer, name):
                 replacement_module = replacement_func(layer)
                 replacement_address = self._parse_model_addr(name)
+                self.replacements[replacement_address] = replacement_module
                 self._set_module(
                     self.base_model, replacement_address, replacement_module
                 )

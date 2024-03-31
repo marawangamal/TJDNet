@@ -1,4 +1,5 @@
 # from typing import Any, List, Optional
+from TJDNet import TJDNet
 from transformers import TrainerCallback, TrainerState, TrainerControl
 
 
@@ -95,20 +96,25 @@ def train(model_name: str, dataset_name: str, task: str, debug: bool = False):
     train_dataset = tokenized_datasets[config["train_split"]]  # type: ignore
     eval_dataset = tokenized_datasets[config["test_split"]]  # type: ignore
 
+    # Replace the base model layers
+    model = TJDNet(model, emb_size=128)
+    model.replacement_report()
+
     # Define training arguments
     training_args = TrainingArguments(
         output_dir="./results",
-        num_train_epochs=1,
+        num_train_epochs=5,
         per_device_train_batch_size=32,
         per_device_eval_batch_size=32,
         warmup_steps=500,
         weight_decay=0.01,
         logging_dir="./logs",
-        logging_steps=10,
-        evaluation_strategy="steps",
-        load_best_model_at_end=True,
-        save_strategy="steps",
-        report_to=["tensorboard"],
+        logging_strategy="epoch",
+        # logging_steps=10,
+        # evaluation_strategy="steps",
+        # load_best_model_at_end=True,
+        # save_strategy="steps",
+        report_to=["none"],
     )
 
     # Initialize Trainer
