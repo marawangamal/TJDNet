@@ -8,7 +8,7 @@ from transformers import (
     AutoTokenizer,
     DataCollatorForLanguageModeling,
 )
-from datasets import load_dataset
+from datasets import load_dataset, formatting
 
 from torch.utils.data import DataLoader
 import torch
@@ -24,12 +24,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def preprocess_wikitext_batch(examples: formatting.formatting.LazyBatch):
+    return examples["text"]
+
+
+def preprocess_e2e_nlg_batch(examples: formatting.formatting.LazyBatch):
+    in_out_pairs = zip(examples["meaning_representation"], examples["human_reference"])  # type: ignore
+    output = ["Input: {} Output: {}".format(x, y) for x, y in in_out_pairs]
+    return output
+
+
 DATASET_CONFIGS = {
     "wikitext": {
         "subset": "wikitext-103-v1",
         "train_split": "train",
         "test_split": "test",
-    }
+        "preprocess_batch_func": preprocess_wikitext_batch,
+        "eval_prompt": "The meaning of life is",
+    },
+    "e2e_nlg": {
+        "subset": None,
+        "train_split": "train",
+        "test_split": "test",
+        "preprocess_batch_func": preprocess_e2e_nlg_batch,
+        "eval_prompt": "name[The Vaults], eatType[pub], priceRange[more than £30], customer rating[5 out of 5], near[Café Adriatic]",
+    },
 }
 
 
@@ -39,7 +58,11 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
         f"Training model {model_name} on dataset {dataset_name} in {'debug' if debug else 'full'} mode"
     )
     config = DATASET_CONFIGS[dataset_name]
-    dataset = load_dataset(dataset_name, config["subset"])
+    dataset = (
+        load_dataset(dataset_name, config["subset"])
+        if config["subset"]
+        else load_dataset(dataset_name)
+    )
 
     if debug:
         for split in dataset.keys():  # type: ignore
@@ -61,9 +84,14 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
 
     # Preprocess the dataset
     def tokenize_function(examples):
-        return tokenizer(
-            examples["text"], padding="max_length", truncation=True, max_length=512
+        preprocessed = config["preprocess_batch_func"](examples)
+        result = tokenizer(
+            preprocessed,
+            # padding="max_length",
+            truncation=True,
+            max_length=512,
         )
+        return result
 
     tokenized_dataset_train = dataset[config["train_split"]].map(tokenize_function, batched=True)  # type: ignore
     tokenized_dataset_train = tokenized_dataset_train.remove_columns(dataset[config["train_split"]].column_names)  # type: ignore
@@ -97,7 +125,7 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
         optimizer=optimizer,
         num_warmup_steps=0,
         num_training_steps=num_training_steps,
-    )
+    )  # type: ignore
 
     progress_bar = tqdm(range(num_training_steps))
 
@@ -132,14 +160,12 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
             f"Epoch {epoch + 1} | Training Loss: {avg_train_loss:.4f} | Evaluation Loss: {avg_eval_loss:.4f}"
         )
 
-        generate_text_sample(model, tokenizer, device)
+        generate_text_sample(model, tokenizer, device, prompt=config["eval_prompt"])
 
 
-def generate_text_sample(model, tokenizer, device):
+def generate_text_sample(model, tokenizer, device, prompt="The meaning of life is"):
     logger.info("Generating text sample...")
-    input_ids = tokenizer.encode("The meaning of life is", return_tensors="pt").to(
-        device
-    )
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
     sample_outputs = model.generate(
         input_ids,
         do_sample=True,
@@ -169,3 +195,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     train(args.model_name, args.dataset_name, args.debug)
+
+    # --debug --dataset_name e2e_nlg
