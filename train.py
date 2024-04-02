@@ -98,7 +98,6 @@ def train(model_name: str, dataset_name: str, task: str, debug: bool = False):
 
     # Replace the base model layers
     model = TJDNet(model, emb_size=128)
-    model.replacement_report()
 
     # Define training arguments
     training_args = TrainingArguments(

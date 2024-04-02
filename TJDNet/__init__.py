@@ -1,2 +1,3 @@
 from .tjdnet import TJDNet
-from TJDLayer import TJDLayer
+from .RepNet import RepNet
+from .TJDLayer import TJDLayer

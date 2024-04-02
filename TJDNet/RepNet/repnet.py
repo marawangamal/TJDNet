@@ -1,4 +1,5 @@
-from typing import Callable, Any, Sequence
+from typing import Union, Callable, Any, Sequence
+import copy
 import torch.nn as nn
 
 
@@ -20,9 +21,26 @@ class RepNet(nn.Module):
 
         """
         super().__init__(*args, **kwargs)
-        self.base_model = model
-        self.replacements = {}
-        self._replace_base_model_layers(condition_func, replacement_func)
+        # Set _base_model as one of the first operations
+        self._base_model = copy.deepcopy(model)
+        self.base_model = copy.deepcopy(model)
+        self.condition_func = condition_func
+        self.replacement_func = replacement_func
+        # Now it's safer to call methods that use self._base_model
+        # self._replace__base_model_layers(condition_func, replacement_func)
+        # Verification step
+        assert hasattr(self, "_base_model"), "_base_model has not been set in RepNet."
+
+    def replace_base_model_layers(self):
+        self._replace__base_model_layers(self.condition_func, self.replacement_func)
+
+    def __getattr__(self, name: str) -> Any:
+        # Try to get from self first (e.g., attributes added in __init__)
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            # Try to get from _base_model if not found in self
+            return getattr(self._base_model, name)
 
     def replacement_report(self):
         # Print replacement report
@@ -30,10 +48,10 @@ class RepNet(nn.Module):
         print(f"{'Layer':<30} {'Original':<30} {'Replacement':<30}")
         for addr, replacement in self.replacements.items():
             print(
-                f"{addr:<30} {type(self._get_module(self.base_model, addr)):<30} {type(replacement):<30}"
+                f"{addr:<30} {type(self._get_module(self._base_model, addr)):<30} {type(replacement):<30}"
             )
 
-    def _replace_base_model_layers(
+    def _replace__base_model_layers(
         self,
         condition_func: Callable[[nn.Module, str], bool],
         replacement_func: Callable[[nn.Module], nn.Module],
@@ -48,13 +66,13 @@ class RepNet(nn.Module):
             self
 
         """
-        for name, layer in self.base_model.named_modules():
+        for name, layer in self._base_model.named_modules():
             if condition_func(layer, name):
                 replacement_module = replacement_func(layer)
                 replacement_address = self._parse_model_addr(name)
                 self.replacements[replacement_address] = replacement_module
                 self._set_module(
-                    self.base_model, replacement_address, replacement_module
+                    self._base_model, replacement_address, replacement_module
                 )
         return self
 
@@ -73,7 +91,7 @@ class RepNet(nn.Module):
 
     def _get_module(
         self,
-        parent: nn.Module | nn.Sequential | nn.ModuleList,
+        parent: Union[nn.Module, nn.Sequential, nn.ModuleList],
         replacement_addr_list: list,
     ) -> nn.Module:
         """Recursive function used to access child modules from a parent nn.Module object
@@ -107,7 +125,7 @@ class RepNet(nn.Module):
     def _set_module(
         self,
         model: nn.Module,
-        replacement_addr_list: list[int | str],
+        replacement_addr_list: list[Union[int, str]],
         replacement_layer: nn.Module,
     ) -> None:
         """Sets attribute of `model` accessed via `replacement_addr_list` to `replacement_layer`."""
@@ -128,9 +146,9 @@ class RepNet(nn.Module):
             setattr(parent, target, replacement_layer)
 
     @staticmethod
-    def _parse_model_addr(access_str: str) -> list[int | str]:
+    def _parse_model_addr(access_str: str) -> list[Union[int, str]]:
         """Parses path to child from a parent. E.g., layer1.0.conv2 ==> ['layer1', 0, 'conv2']"""
-        parsed: Sequence[int | str] = access_str.split(".")
+        parsed: Sequence[Union[int, str]] = access_str.split(".")
         for i in range(len(parsed)):
             try:
                 parsed[i] = int(parsed[i])  # type: ignore
@@ -139,4 +157,4 @@ class RepNet(nn.Module):
         return parsed  # type: ignore
 
     def forward(self, *args, **kwargs):
-        return self.base_model(*args, **kwargs)
+        return self._base_model(*args, **kwargs)

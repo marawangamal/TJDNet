@@ -1,15 +1,14 @@
-from typing import Any, Callable
+from typing import Any
 import torch.nn as nn
-import torch
-from TJDNet import TJDLayer
-from RepNet import RepNet
+from .TJDLayer import TJDLayer
+from .RepNet import RepNet
 
 
 class TJDNet(RepNet):
     def __init__(
         self,
         model: nn.Module,
-        emb_size,
+        emb_size: int = 32,
         rank: int = 32,
         vocab_size: int = 128,
         *args,
