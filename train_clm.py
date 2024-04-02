@@ -1,6 +1,7 @@
 from tqdm.auto import tqdm
 import argparse
 import logging
+import torch.nn as nn
 
 from transformers import (
     get_scheduler,
@@ -12,7 +13,6 @@ from datasets import load_dataset, formatting
 
 from torch.utils.data import DataLoader
 import torch
-from TJDNet import TJDNet
 from TJDNet import RepNet
 
 logging.basicConfig(
@@ -47,8 +47,19 @@ DATASET_CONFIGS = {
         "train_split": "train",
         "test_split": "test",
         "preprocess_batch_func": preprocess_e2e_nlg_batch,
-        "eval_prompt": "name[The Vaults], eatType[pub], priceRange[more than £30], customer rating[5 out of 5], near[Café Adriatic]",
+        "eval_prompt": "Input: name[The Vaults], eatType[pub], priceRange[more than £30], customer rating[5 out of 5], near[Café Adriatic] Output: ",
     },
+}
+
+
+TJD_MODEL_CONFIG = {
+    "gpt2": {
+        "head_name": "lm_head",
+        "emb_size": 768,
+        "vocab_size": 50257,
+        "condition_func": lambda lyr, lyr_name: lyr_name == "lm_head",
+        "replacement_func": lambda lyr: nn.Linear(768, 50257),
+    }
 }
 
 
@@ -58,6 +69,7 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
         f"Training model {model_name} on dataset {dataset_name} in {'debug' if debug else 'full'} mode"
     )
     config = DATASET_CONFIGS[dataset_name]
+    tjd_config = TJD_MODEL_CONFIG[model_name]
     dataset = (
         load_dataset(dataset_name, config["subset"])
         if config["subset"]
@@ -71,8 +83,11 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    model = TJDNet(model, emb_size=128)
-    # model = RepNet(model, condition_func=lambda x, y: False, replacement_func=lambda x: TJDNet(emb_size=128))  # type: ignore
+    model = RepNet(
+        model,
+        condition_func=tjd_config["condition_func"],
+        replacement_func=tjd_config["replacement_func"],
+    )
     model.replace_base_model_layers()
 
     # Ensure the tokenizer has a pad token

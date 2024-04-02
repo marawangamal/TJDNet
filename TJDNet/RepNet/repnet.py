@@ -26,9 +26,7 @@ class RepNet(nn.Module):
         self.base_model = copy.deepcopy(model)
         self.condition_func = condition_func
         self.replacement_func = replacement_func
-        # Now it's safer to call methods that use self._base_model
-        # self._replace__base_model_layers(condition_func, replacement_func)
-        # Verification step
+        self.replacements = {}
         assert hasattr(self, "_base_model"), "_base_model has not been set in RepNet."
 
     def replace_base_model_layers(self):
@@ -70,7 +68,7 @@ class RepNet(nn.Module):
             if condition_func(layer, name):
                 replacement_module = replacement_func(layer)
                 replacement_address = self._parse_model_addr(name)
-                self.replacements[replacement_address] = replacement_module
+                self.replacements[name] = replacement_module
                 self._set_module(
                     self._base_model, replacement_address, replacement_module
                 )
