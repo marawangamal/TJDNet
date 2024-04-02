@@ -13,7 +13,7 @@ from datasets import load_dataset, formatting
 
 from torch.utils.data import DataLoader
 import torch
-from TJDNet import RepNet
+from TJDNet import TJDNet, TJDLayer
 
 logging.basicConfig(
     format="%(message)s",
@@ -38,14 +38,14 @@ DATASET_CONFIGS = {
     "wikitext": {
         "subset": "wikitext-103-v1",
         "train_split": "train",
-        "test_split": "test",
+        "eval_split": "test",
         "preprocess_batch_func": preprocess_wikitext_batch,
         "eval_prompt": "The meaning of life is",
     },
     "e2e_nlg": {
         "subset": None,
         "train_split": "train",
-        "test_split": "test",
+        "eval_split": "test",
         "preprocess_batch_func": preprocess_e2e_nlg_batch,
         "eval_prompt": "Input: name[The Vaults], eatType[pub], priceRange[more than £30], customer rating[5 out of 5], near[Café Adriatic] Output: ",
     },
@@ -58,7 +58,9 @@ TJD_MODEL_CONFIG = {
         "emb_size": 768,
         "vocab_size": 50257,
         "condition_func": lambda lyr, lyr_name: lyr_name == "lm_head",
-        "replacement_func": lambda lyr: nn.Linear(768, 50257),
+        "replacement_func": lambda lyr: TJDLayer(
+            emb_size=768, rank=2, vocab_size=50257
+        ),
     }
 }
 
@@ -83,7 +85,7 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    model = RepNet(
+    model = TJDNet(
         model,
         condition_func=tjd_config["condition_func"],
         replacement_func=tjd_config["replacement_func"],
@@ -110,8 +112,8 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
 
     tokenized_dataset_train = dataset[config["train_split"]].map(tokenize_function, batched=True)  # type: ignore
     tokenized_dataset_train = tokenized_dataset_train.remove_columns(dataset[config["train_split"]].column_names)  # type: ignore
-    tokenized_dataset_eval = dataset[config["test_split"]].map(tokenize_function, batched=True)  # type: ignore
-    tokenized_dataset_eval = tokenized_dataset_eval.remove_columns(dataset[config["test_split"]].column_names)  # type: ignore
+    tokenized_dataset_eval = dataset[config["eval_split"]].map(tokenize_function, batched=True)  # type: ignore
+    tokenized_dataset_eval = tokenized_dataset_eval.remove_columns(dataset[config["eval_split"]].column_names)  # type: ignore
 
     # Language Modeling Data Collator
     data_collator = DataCollatorForLanguageModeling(
@@ -143,6 +145,10 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
     )  # type: ignore
 
     progress_bar = tqdm(range(num_training_steps))
+
+    # Print model layers
+    for name, module in model.named_modules():
+        logger.info(f"{name:<30} {type(module)}")
 
     # Train loop
     for epoch in range(num_epochs):

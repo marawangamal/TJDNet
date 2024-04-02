@@ -23,7 +23,6 @@ class RepNet(nn.Module):
         super().__init__(*args, **kwargs)
         # Set _base_model as one of the first operations
         self._base_model = copy.deepcopy(model)
-        self.base_model = copy.deepcopy(model)
         self.condition_func = condition_func
         self.replacement_func = replacement_func
         self.replacements = {}
