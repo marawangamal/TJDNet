@@ -23,7 +23,7 @@ class TestBTTNBeamSearch(unittest.TestCase):
     def test_beam_search_single_batch(self):
         """Test beam_search on a single batch."""
         n_beams = 5
-        beams, beam_probs = self.bttn.beam_search(n_beams=n_beams)
+        beams, beam_probs = self.bttn._beam_search(n_beams=n_beams)
 
         # Ensure that the method returns the correct number of beams
         self.assertEqual(len(beams), min(n_beams, self.vocab_size))

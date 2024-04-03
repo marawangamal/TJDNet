@@ -70,6 +70,10 @@ class BTTN:
         )  # [B, n_core_repititions]
 
     def beam_search(self, n_beams: int = 5):
+        beams, _ = self._beam_search(n_beams=n_beams)
+        return torch.tensor(beams)
+
+    def _beam_search(self, n_beams: int = 5):
 
         if n_beams > self.core.shape[2]:
             logger.warning(
@@ -209,7 +213,7 @@ class TJDLayer(nn.Module):
             probs: [output_size * vocab_size]
         """
         btn = BTTN(alpha, beta, core, output_size)
-        return btn.argmax()  # [B, output_size]
+        return btn.beam_search()  # [B, output_size]
 
     def get_preds(
         self,
@@ -281,5 +285,11 @@ class TJDLayer(nn.Module):
             .reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
             .mean(1)
         )
+
+        # Assert positive values
+        alpha = torch.abs(alpha)
+        beta = torch.abs(beta)
+        core = torch.abs(core)
+
         loss = self._compute_loss(alpha, beta, core, seq_len, y)
         return loss
