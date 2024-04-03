@@ -5,6 +5,8 @@ import torch.nn as nn
 
 from transformers import (
     get_scheduler,
+    PreTrainedModel,
+    PreTrainedTokenizer,
     AutoModelForCausalLM,
     AutoTokenizer,
     DataCollatorForLanguageModeling,
@@ -80,7 +82,7 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
 
     if debug:
         for split in dataset.keys():  # type: ignore
-            dataset[split] = dataset[split].select(range(500))  # type: ignore
+            dataset[split] = dataset[split].select(range(50))  # type: ignore
 
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -146,10 +148,6 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
 
     progress_bar = tqdm(range(num_training_steps))
 
-    # Print model layers
-    for name, module in model.named_modules():
-        logger.info(f"{name:<30} {type(module)}")
-
     # Train loop
     for epoch in range(num_epochs):
         model.train()
@@ -181,12 +179,17 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
             f"Epoch {epoch + 1} | Training Loss: {avg_train_loss:.4f} | Evaluation Loss: {avg_eval_loss:.4f}"
         )
 
-        generate_text_sample(model, tokenizer, device, prompt=config["eval_prompt"])
+        generate_text_sample(model, tokenizer, device, prompt=config["eval_prompt"])  # type: ignore
 
 
-def generate_text_sample(model, tokenizer, device, prompt="The meaning of life is"):
+def generate_text_sample(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer,
+    device: torch.device,
+    prompt: str = "The meaning of life is",
+):
     logger.info("Generating text sample...")
-    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)  # type: ignore
     sample_outputs = model.generate(
         input_ids,
         do_sample=True,

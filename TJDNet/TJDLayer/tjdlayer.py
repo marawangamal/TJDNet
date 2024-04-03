@@ -59,6 +59,11 @@ class BTTN:
 
         return torch.stack(results)  # [B,]
 
+    def argmax(self):
+        return torch.randint(
+            0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
+        )  # [B, n_core_repititions]
+
 
 class TJDLayer(nn.Module):
     def __init__(self, emb_size, rank: int = 2, vocab_size: int = 128, *args, **kwargs):
@@ -102,21 +107,65 @@ class TJDLayer(nn.Module):
         else:
             return loss
 
-    def predict(self, x: torch.Tensor, output_size: int = 100) -> torch.Tensor:
-        """Predict next token
+    def _get_preds(
+        self,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+        core: torch.Tensor,
+        output_size: int,
+    ) -> torch.Tensor:
+        """Get probabilities from Tensor Train representation of Joint Distribution
 
         Args:
-            x: [T, B, d]
+            alpha: [B, R]
+            beta: [B, R]
+            core: [B, R, D, R] // vocab_size
 
         Returns:
-            preds: [output_size]
+            probs: [output_size * vocab_size]
+        """
+        btn = BTTN(alpha, beta, core, output_size)
+        return btn.argmax()  # [B, output_size]
+
+    def get_preds(
+        self,
+        input_embs: torch.Tensor,
+        max_length: int = 100,
+        *args,
+        **kwargs,
+    ):
+        """Forward pass for TT JD layer
+
+        Args:
+            x: [B, T, D]
+
+        Returns:
+            preds: [B, output_size]
 
         """
-        raise NotImplementedError
+        x = input_embs
+        batch_size, seq_len, _ = x.shape
+        alpha = (
+            (x.reshape(-1, x.shape[-1]) @ self.w_alpha)
+            .reshape(batch_size, seq_len, self.rank)
+            .mean(1)
+        )
+        beta = (
+            (x.reshape(-1, x.shape[-1]) @ self.w_beta)
+            .reshape(batch_size, seq_len, self.rank)
+            .mean(1)
+        )
+        core = (
+            (x.reshape(-1, x.shape[-1]) @ self.w_vocab)
+            .reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
+            .mean(1)
+        )
+        preds = self._get_preds(alpha, beta, core, max_length)
+        return preds
 
     def forward(
         self,
-        input_ids: torch.Tensor,
+        input_embs: torch.Tensor,
         label_ids: torch.Tensor,
         *args,
         **kwargs,
@@ -124,13 +173,13 @@ class TJDLayer(nn.Module):
         """Forward pass for TT JD layer
 
         Args:
-            x: [B, T, d]
+            x: torch.Tensor([B, T, d])
 
         Returns:
-            probs: [output_size * vocab_size]
+            loss: torch.Tensor([1,])
 
         """
-        x = input_ids
+        x = input_embs
         y = label_ids
         batch_size, seq_len, _ = x.shape
         alpha = (

@@ -1,4 +1,10 @@
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple, Union, List
+from transformers import (
+    PreTrainedModel,
+    GenerationConfig,
+    StoppingCriteriaList,
+    LogitsProcessorList,
+)
 import torch.nn as nn
 import torch
 
@@ -81,3 +87,40 @@ class TJDNet(RepNet):
             shift_labels = labels[..., 1:].contiguous()
             loss = self.lm_head(shift_hidden, shift_labels)
         return TJDOutput(loss=loss)
+
+    @torch.no_grad()
+    def generate(
+        self,
+        inputs: Optional[torch.Tensor] = None,
+        generation_config: Optional[GenerationConfig] = None,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        prefix_allowed_tokens_fn: Optional[
+            Callable[[int, torch.Tensor], List[int]]
+        ] = None,
+        synced_gpus: Optional[bool] = None,
+        assistant_model: Optional["PreTrainedModel"] = None,
+        streamer=None,
+        negative_prompt_ids: Optional[torch.Tensor] = None,
+        negative_prompt_attention_mask: Optional[torch.Tensor] = None,
+        **kwargs,
+    ) -> torch.LongTensor:
+
+        generation_config, model_kwargs = self._prepare_generation_config(
+            generation_config, **kwargs
+        )
+        max_length = kwargs.get("max_length")
+
+        transformer_outputs = self.transformer(
+            inputs,
+            **model_kwargs,
+        )
+        hidden_states = transformer_outputs[0]
+
+        # Set device for model parallelism
+        if self.model_parallel:
+            torch.cuda.set_device(self.transformer.first_device)
+            hidden_states = hidden_states.to(self.lm_head.weight.device)
+
+        output = self.lm_head.get_preds(hidden_states, **kwargs)
+        return output
