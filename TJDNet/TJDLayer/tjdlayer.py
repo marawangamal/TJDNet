@@ -185,7 +185,7 @@ class TJDLayer(nn.Module):
             target: [B, output_size]
 
         Returns:
-            probs: [output_size * vocab_size]
+            loss: [B,]
         """
         bttn = BTTN(alpha, beta, core, output_size)
         probs = bttn.select(target)
