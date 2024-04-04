@@ -91,7 +91,9 @@ class BTTN:
         beta = self.beta[0]
         alpha = self.alpha[0]
         core = self.core[0]
-        core_marginalized = torch.einsum("ijk,j->ik", core, torch.ones(core.shape[1]))
+        core_marginalized = torch.einsum(
+            "ijk,j->ik", core, torch.ones(core.shape[1], device=core.device)
+        )
 
         for i_pos in range(self.n_core_repititions):
             for _ in range(n_beams):

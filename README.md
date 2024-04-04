@@ -14,8 +14,8 @@ Speeding up language model inference via tensorized joint distributions. This pr
 Start by cloning the repository to your local machine:
 
 ```bash
-git clone https://github.com/yourusername/tensor-llm.git
-cd tensor-llm
+git clone git@github.com:marawangamal/TJDNet.git
+cd TJDNet
 ```
 
 ### Set Up a Virtual Environment (Optional)
