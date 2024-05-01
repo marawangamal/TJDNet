@@ -8,6 +8,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool = True):
+    if torch.isnan(x).any() or torch.isinf(x).any():
+        if raise_error:
+            raise ValueError(f"NaN/Inf detected in tensor: {msg}")
+        else:
+            return True
+
+
 class TTProb:
     def __init__(
         self,
@@ -48,6 +56,11 @@ class TTProb:
 
         core_result = core_marginalized
         for i in range(self.n_core_repititions):
+            check_naninf(core_result, f"_get_normalization_constant:core_result_{i}")
+            check_naninf(
+                core_marginalized,
+                f"_get_normalization_constant:core_marginalized{i}",
+            )
             core_result = torch.einsum(
                 "bik, bkj->bij",
                 core_result,
@@ -60,6 +73,9 @@ class TTProb:
             core_result,
             self.beta,
         )
+
+        # Assert: postive normalization constant
+        assert torch.all(core_result > 0), "Normalization constant must be positive"
 
         return core_result
 
@@ -82,6 +98,8 @@ class TTProb:
 
         core_result = cores_after_selection[0]  # (B, R, R)
         for i in range(1, self.n_core_repititions):
+            check_naninf(core_result, f"core_result_{i}")
+            check_naninf(cores_after_selection[i], f"cores_after_selection_{i}")
             core_result = torch.einsum(
                 "bik, bkj->bij",
                 core_result,
@@ -96,40 +114,6 @@ class TTProb:
         )
 
         return core_result
-
-    def _select_old(self, indices: torch.Tensor) -> torch.Tensor:
-        """Multi-index selection.
-
-        Args:
-            indices (torch.Tensor): Shape: (B, n_core_repititions).
-
-        Returns:
-            torch.Tensor: Unnormalized probabilities of sequences corresponding to indices. Shape: (B,)
-        """
-
-        # Ensure that indices are in the correct range
-        # Normalize contract with all ones
-        assert torch.all(
-            indices < self.core.shape[2]
-        ), "Indices must be less than the core size"
-        assert torch.all(
-            indices[indices != -100] >= 0
-        ), "Indices must be greater than or equal to 0"
-        results = []
-        for b in range(self.batch_size):
-            cores = [
-                self.core[b, :, indices[b, k], :]
-                for k in range(self.n_core_repititions)
-            ]
-            # matrix multiplication all cores together
-            result = cores[0] @ self.alpha[b].reshape(-1, 1)
-
-            for core in cores[1:]:
-                result = core @ result  # [r, r] @ [r, 1] = [r, 1]
-            result = self.beta[b].reshape(-1, 1).T @ result  # [r, 1]
-            results.append(result.squeeze())
-
-        return torch.stack(results)  # [B,]
 
     def _beam_search(self, n_beams: int = 5):
 
@@ -214,7 +198,9 @@ class TTProb:
 
     def get_prob(self, indices):
         unormalized_probs = self._select(indices)
+        check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
         normalization_constant = self._get_normalization_constant()
+        check_naninf(normalization_constant, f"get_prob:normalization_constant")
         return unormalized_probs / normalization_constant
 
     def argmax(self):
@@ -222,15 +208,28 @@ class TTProb:
             0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
         )  # [B, n_core_repititions]
 
-    def beam_search(self, n_beams: int = 5):
+    def beam_search(self, n_beams: int = 5) -> torch.Tensor:
+        """Beam search using the TTProb joint distribution.
+
+        Args:
+            n_beams (int, optional): Number of beams. Defaults to 5.
+
+        Returns:
+            torch.Tensor: Beam search results. Shape: (B, n_core_repititions)
+        """
         beams, _ = self._beam_search(n_beams=n_beams)
         return torch.tensor(beams)
 
 
 class TJDLayer(nn.Module):
     def __init__(self, emb_size, rank: int = 2, vocab_size: int = 128, *args, **kwargs):
-        """Tensor Train Joint Distribution Layer"""
-        # Define TT JD parameters
+        """Tensor Train Joint Distribution Layer
+
+        Args:
+            emb_size (_type_): Embedding size.
+            rank (int, optional): Rank of the TT decomposition. Defaults to 2.
+            vocab_size (int, optional): Vocabulary size. Defaults to 128.
+        """
         super().__init__(*args, **kwargs)
         self.emb_size = emb_size
         self.rank = rank
@@ -261,7 +260,8 @@ class TJDLayer(nn.Module):
         """
         output_size = target.size(1)
         ttprob = TTProb(alpha, beta, core, output_size)
-        probs = ttprob.get_prob(target)
+        probs = ttprob.get_prob(target) + 1e-3
+        check_naninf(probs, f"compute_loss:probs")
 
         loss = -torch.log(probs)
         if reduction == "mean":
@@ -278,36 +278,13 @@ class TJDLayer(nn.Module):
         core: torch.Tensor,
         output_size: int,
     ) -> torch.Tensor:
-        """Get probabilities from Tensor Train representation of Joint Distribution
-
-        Args:
-            alpha: [B, R]
-            beta: [B, R]
-            core: [B, R, D, R] // vocab_size
-
-        Returns:
-            probs: [output_size * vocab_size]
-        """
         btn = TTProb(alpha, beta, core, output_size)
-        return btn.beam_search()  # [B, output_size]
+        return btn.beam_search()  # (B, output_size)
 
-    def get_preds(
-        self,
-        input_embs: torch.Tensor,
-        max_length: int = 100,
-        *args,
-        **kwargs,
-    ):
-        """Forward pass for TT JD layer
+    def _get_tt_params(
+        self, x: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
-        Args:
-            x: [B, T, D]
-
-        Returns:
-            preds: [B, output_size]
-
-        """
-        x = input_embs
         batch_size, seq_len, _ = x.shape
         alpha = (
             (x.reshape(-1, x.shape[-1]) @ self.w_alpha)
@@ -324,7 +301,34 @@ class TJDLayer(nn.Module):
             .reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
             .mean(1)
         )
-        preds = self._get_preds(alpha, beta, core, seq_len)
+
+        alpha = torch.sigmoid(alpha) + 1e-3
+        beta = torch.sigmoid(beta) + 1e-3
+        core = torch.sigmoid(core) * 1e-2 + 1e-3
+
+        return alpha, beta, core
+
+    def get_preds(
+        self,
+        input_embs: torch.Tensor,
+        max_length: int = 100,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        """Get predictions from TT JD layer
+
+        Args:
+            input_embs (torch.Tensor): Input embeddings. Shape: (B, T, D)
+            max_length (int, optional): Maximum length of the output. Defaults to 100.
+
+        Returns:
+            torch.Tensor: Prediction indices. Shape: (B, T)
+        """
+        x = input_embs
+        alpha, beta, core = self._get_tt_params(x)
+        for tensor, tensor_name in zip([alpha, beta, core], ["alpha", "beta", "core"]):
+            check_naninf(tensor, f"forward:{tensor_name}")
+        preds = self._get_preds(alpha, beta, core, max_length)
         return preds
 
     def forward(
@@ -346,27 +350,11 @@ class TJDLayer(nn.Module):
 
         x = input_embs
         y = label_ids
-        batch_size, seq_len, _ = x.shape
-        alpha = (
-            (x.reshape(-1, x.shape[-1]) @ self.w_alpha)
-            .reshape(batch_size, seq_len, self.rank)
-            .mean(1)
-        )
-        beta = (
-            (x.reshape(-1, x.shape[-1]) @ self.w_beta)
-            .reshape(batch_size, seq_len, self.rank)
-            .mean(1)
-        )
-        core = (
-            (x.reshape(-1, x.shape[-1]) @ self.w_vocab)
-            .reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
-            .mean(1)
-        )
 
-        # Assert positive values
-        alpha = torch.abs(alpha)
-        beta = torch.abs(beta)
-        core = torch.abs(core)
+        alpha, beta, core = self._get_tt_params(x)
+        for tensor, tensor_name in zip([alpha, beta, core], ["alpha", "beta", "core"]):
+            check_naninf(tensor, f"forward:{tensor_name}")
 
         loss = self._compute_loss(alpha, beta, core, y)
+        check_naninf(loss, f"forward:loss")
         return loss

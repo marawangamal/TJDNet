@@ -102,13 +102,13 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
         tokenizer.pad_token = tokenizer.eos_token
 
     # Preprocess the dataset
-    def tokenize_function(examples):
+    def tokenize_function(examples, max_length=2):
         preprocessed = config["preprocess_batch_func"](examples)
         result = tokenizer(
             preprocessed,
             # padding="max_length",
             truncation=True,
-            max_length=512,
+            max_length=max_length,
         )
         return result
 
@@ -154,6 +154,7 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
         train_loss = 0
         for batch in train_dataloader:
             batch = {k: v.to(device) for k, v in batch.items()}
+
             outputs = model(**batch)
             loss = outputs.loss
             train_loss += loss.item()
