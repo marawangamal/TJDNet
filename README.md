@@ -32,7 +32,7 @@ pip install -r requirements.txt
 pip install -e .  # Install the package in editable mode
 ```
 
-## Usage
+## Basic Usage
 
 ```python
 model = AutoModelForCausalLM.from_pretrained("gpt2")
@@ -50,4 +50,10 @@ for epoch in range(epochs):
 # Inference
 sample_prompt = "The meaning of life is"
 fast_model.generate(sample_prompt, max_length=50)
+```
+
+## Training
+
+```bash
+python train_clm.py
 ```

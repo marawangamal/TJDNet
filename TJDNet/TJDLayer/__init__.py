@@ -1,1 +1,1 @@
-from .tjdlayer import TJDLayer, BTTN
+from .tjdlayer import TJDLayer, TTProb

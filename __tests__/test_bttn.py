@@ -1,6 +1,6 @@
 import unittest
 import torch
-from TJDNet import BTTN
+from TJDNet import TTProb
 
 
 def normalize_matrix(matrix):
@@ -16,7 +16,7 @@ class TestBTTNBeamSearch(unittest.TestCase):
         alpha = torch.randn(B, R)
         beta = torch.randn(B, R)
         core = torch.randn(B, R, D, R)
-        self.bttn = BTTN(alpha, beta, core, n_core_repititions)
+        self.bttn = TTProb(alpha, beta, core, n_core_repititions)
         self.n_core_repititions = n_core_repititions
         self.vocab_size = D
 

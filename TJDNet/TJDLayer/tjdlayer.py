@@ -8,39 +8,107 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def normalize_matrix(matrix: torch.Tensor, dim: int = 0) -> torch.Tensor:
-    # Make matrix positive and all columns sum to 1
-    matrix = torch.abs(matrix)
-    return matrix / matrix.sum(dim=dim, keepdim=True)
+class TTProb:
+    def __init__(
+        self,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+        core: torch.Tensor,
+        n_core_repititions: int,
+    ) -> None:
+        """Tensor Train Parameterization of Joint Distribution.
 
-
-class BTTN:
-    def __init__(self, alpha, beta, core, n_core_repititions):
-        """Batch Tensor Train Network
+        The TTProb class provides a way to represent and use a joint distribution using a tensor train parameterization.
 
         Args:
-            alpha: [B, R]
-            beta: [B, R]
-            core: [B, R, D, R]
-
+            alpha (torch.Tensor): Shape: (B, R).
+            beta (torch.Tensor): Shape: (B, R).
+            core (torch.Tensor): Shape: (B, R, D, R).
+            n_core_repititions (int): Number of core repititions.
         """
+
         self.alpha = alpha
         self.beta = beta
         self.core = core
         self.batch_size = alpha.shape[0]
         self.n_core_repititions = n_core_repititions
 
-    def select(self, indices):
-        """Select elements from BTTN
-
-        Args:
-            indices: [B, n_core_repititions]
+    def _get_normalization_constant(self) -> torch.Tensor:
+        """Get the normalization constant for the TTProb
 
         Returns:
-            results: [B,] // probabilities of sequences corresponding to indices
-
+            torch.Tensor: normalization constant. Shape (B,)
         """
+
+        core_marginalized = torch.einsum(
+            "bijk,j->bik",
+            self.core,
+            torch.ones(self.core.shape[2], device=self.core.device),
+        )
+
+        core_result = core_marginalized
+        for i in range(self.n_core_repititions):
+            core_result = torch.einsum(
+                "bik, bkj->bij",
+                core_result,
+                core_marginalized,
+            )
+
+        core_result = torch.einsum(
+            "bi, bij, bj->b",
+            self.alpha,
+            core_result,
+            self.beta,
+        )
+
+        return core_result
+
+    def _select(self, indices: torch.Tensor) -> torch.Tensor:
+        """Multi-index selection.
+
+        Performs a multi-index selection on the TTProb object. Produces the unnormalized probability :math:`\tilde{P}(x_1, x_2, ..., x_n)` of the sequences corresponding to the indices.
+
+        Args:
+            indices (torch.Tensor): Shape: (B, n_core_repititions).
+
+        Returns:
+            torch.Tensor: Unnormalized probabilities of sequences corresponding to indices. Shape: (B,)
+        """
+        batch_size = indices.size(0)
+        cores_after_selection = [
+            torch.stack([self.core[b, :, indices[b, i], :] for b in range(batch_size)])
+            for i in range(self.n_core_repititions)
+        ]
+
+        core_result = cores_after_selection[0]  # (B, R, R)
+        for i in range(1, self.n_core_repititions):
+            core_result = torch.einsum(
+                "bik, bkj->bij",
+                core_result,
+                cores_after_selection[i],
+            )
+
+        core_result = torch.einsum(
+            "bi, bij, bj->b",
+            self.alpha,
+            core_result,
+            self.beta,
+        )
+
+        return core_result
+
+    def _select_old(self, indices: torch.Tensor) -> torch.Tensor:
+        """Multi-index selection.
+
+        Args:
+            indices (torch.Tensor): Shape: (B, n_core_repititions).
+
+        Returns:
+            torch.Tensor: Unnormalized probabilities of sequences corresponding to indices. Shape: (B,)
+        """
+
         # Ensure that indices are in the correct range
+        # Normalize contract with all ones
         assert torch.all(
             indices < self.core.shape[2]
         ), "Indices must be less than the core size"
@@ -54,24 +122,14 @@ class BTTN:
                 for k in range(self.n_core_repititions)
             ]
             # matrix multiplication all cores together
-            result = normalize_matrix(cores[0]) @ normalize_matrix(
-                self.alpha[b].reshape(-1, 1)
-            )  # [r, 1]
+            result = cores[0] @ self.alpha[b].reshape(-1, 1)
+
             for core in cores[1:]:
-                result = normalize_matrix(core) @ result  # [r, r] @ [r, 1] = [r, 1]
-            result = normalize_matrix(self.beta[b].reshape(-1, 1)).T @ result  # [r, 1]
+                result = core @ result  # [r, r] @ [r, 1] = [r, 1]
+            result = self.beta[b].reshape(-1, 1).T @ result  # [r, 1]
             results.append(result.squeeze())
 
         return torch.stack(results)  # [B,]
-
-    def argmax(self):
-        return torch.randint(
-            0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
-        )  # [B, n_core_repititions]
-
-    def beam_search(self, n_beams: int = 5):
-        beams, _ = self._beam_search(n_beams=n_beams)
-        return torch.tensor(beams)
 
     def _beam_search(self, n_beams: int = 5):
 
@@ -154,6 +212,20 @@ class BTTN:
             beams[i_beam] = beams[i_beam][1:]
         return beams, beam_probs
 
+    def get_prob(self, indices):
+        unormalized_probs = self._select(indices)
+        normalization_constant = self._get_normalization_constant()
+        return unormalized_probs / normalization_constant
+
+    def argmax(self):
+        return torch.randint(
+            0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
+        )  # [B, n_core_repititions]
+
+    def beam_search(self, n_beams: int = 5):
+        beams, _ = self._beam_search(n_beams=n_beams)
+        return torch.tensor(beams)
+
 
 class TJDLayer(nn.Module):
     def __init__(self, emb_size, rank: int = 2, vocab_size: int = 128, *args, **kwargs):
@@ -172,23 +244,25 @@ class TJDLayer(nn.Module):
         alpha: torch.Tensor,
         beta: torch.Tensor,
         core: torch.Tensor,
-        output_size: int,
         target: torch.Tensor,
         reduction: str = "mean",
     ) -> torch.Tensor:
-        """Get probabilities from Tensor Train representation of Joint Distribution
+        """Compute loss for TT JD layer
 
         Args:
-            alpha: [B, R]
-            beta: [B, R]
-            core: [B, R, D, R] // vocab_size
-            target: [B, output_size]
+            alpha (torch.Tensor): Shape: (B, R).
+            beta (torch.Tensor): Shape: (B, R).
+            core (torch.Tensor): Shape: (B, R, D, R).
+            target (torch.Tensor): Shape: (B, T).
+            reduction (str, optional): Reduction type. Defaults to "mean".
 
         Returns:
-            loss: [B,]
+            torch.Tensor: Loss. Shape: (B,)
         """
-        bttn = BTTN(alpha, beta, core, output_size)
-        probs = bttn.select(target)
+        output_size = target.size(1)
+        ttprob = TTProb(alpha, beta, core, output_size)
+        probs = ttprob.get_prob(target)
+
         loss = -torch.log(probs)
         if reduction == "mean":
             return loss.mean()
@@ -214,7 +288,7 @@ class TJDLayer(nn.Module):
         Returns:
             probs: [output_size * vocab_size]
         """
-        btn = BTTN(alpha, beta, core, output_size)
+        btn = TTProb(alpha, beta, core, output_size)
         return btn.beam_search()  # [B, output_size]
 
     def get_preds(
@@ -263,12 +337,13 @@ class TJDLayer(nn.Module):
         """Forward pass for TT JD layer
 
         Args:
-            x: torch.Tensor([B, T, d])
+            input_embs (torch.Tensor): Input embeddings. Shape: (B, T, D)
+            label_ids (torch.Tensor): Label ids. Shape: (B, T)
 
         Returns:
-            loss: torch.Tensor([1,])
-
+            torch.Tensor: Loss. Shape: (B,)
         """
+
         x = input_embs
         y = label_ids
         batch_size, seq_len, _ = x.shape
@@ -293,5 +368,5 @@ class TJDLayer(nn.Module):
         beta = torch.abs(beta)
         core = torch.abs(core)
 
-        loss = self._compute_loss(alpha, beta, core, seq_len, y)
+        loss = self._compute_loss(alpha, beta, core, y)
         return loss
