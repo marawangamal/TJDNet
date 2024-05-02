@@ -196,7 +196,7 @@ class TTDist:
             beams[i_beam] = beams[i_beam][1:]
         return beams, beam_probs
 
-    def get_prob(self, indices, normalize: bool = False) -> torch.Tensor:
+    def get_prob(self, indices, normalize: bool = True) -> torch.Tensor:
         unormalized_probs = self._select(indices)
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
         probs = unormalized_probs
@@ -263,7 +263,7 @@ class TJDLayer(nn.Module):
         """
         output_size = target.size(1)
         ttdist = TTDist(alpha, beta, core, output_size)
-        probs = ttdist.get_prob(target) + 1e-3
+        probs = ttdist.get_prob(target) + 1e-32
         check_naninf(probs, f"compute_loss:probs")
 
         loss = -torch.log(probs)

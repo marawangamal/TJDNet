@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os.path as osp
-
+import shutil
 
 from torch.utils.data import DataLoader
 from transformers import DataCollatorForLanguageModeling
@@ -71,6 +71,7 @@ def main(
     epochs: int = 20,
     batch_size: int = 4,
     checkpoint_dir: str = "checkpoints",
+    overwrite: bool = True,
 ):
 
     # 0. Create a unique experiment name
@@ -85,6 +86,10 @@ def main(
     experiment_name = get_experiment_name(experiment_config)
     logger.info(f"Experiment configuration\n: {experiment_config}")
     logger.info(f"Checkpoints will be saved to: {checkpoint_dir}/{experiment_name}")
+
+    # Remove existing checkpoints
+    if osp.exists(osp.join(checkpoint_dir, experiment_name)) and overwrite:
+        shutil.rmtree(osp.join(checkpoint_dir, experiment_name))
 
     # 1. Load data
     config = DATASET_CONFIGS[dataset_name]
@@ -144,7 +149,7 @@ def main(
     )
     trainer = Trainer(
         max_epochs=epochs,
-        callbacks=[checkpoint_callback],
+        # callbacks=[checkpoint_callback],
         overfit_batches=1,
         log_every_n_steps=1,
         logger=tb_logger,
@@ -169,6 +174,10 @@ if __name__ == "__main__":
         "--num_epochs", type=int, default=20, help="Number of training epochs"
     )
 
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
+
+    parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
+
     args = parser.parse_args()
 
     main(
@@ -176,4 +185,6 @@ if __name__ == "__main__":
         dataset_name=args.dataset_name,
         seq_len=args.max_seq_len,
         epochs=args.num_epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
     )
