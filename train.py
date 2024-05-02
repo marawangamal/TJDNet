@@ -161,6 +161,11 @@ def train(
         for batch in train_dataloader:
             batch = {k: v.to(device) for k, v in batch.items()}
 
+            # If batch has 0 length, skip it
+            if batch["input_ids"].size(1) == 0:
+                logger.warning("Skipping batch with 0 length")
+                continue
+
             outputs = model(**batch)
             loss = outputs.loss
             train_loss += loss.item()

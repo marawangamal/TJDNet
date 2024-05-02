@@ -16,7 +16,7 @@ def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool =
             return True
 
 
-class TTProb:
+class TTDist:
     def __init__(
         self,
         alpha: torch.Tensor,
@@ -26,7 +26,7 @@ class TTProb:
     ) -> None:
         """Tensor Train Parameterization of Joint Distribution.
 
-        The TTProb class provides a way to represent and use a joint distribution using a tensor train parameterization.
+        The TTDist class provides a way to represent and use a joint distribution using a tensor train parameterization.
 
         Args:
             alpha (torch.Tensor): Shape: (B, R).
@@ -42,7 +42,7 @@ class TTProb:
         self.n_core_repititions = n_core_repititions
 
     def _get_normalization_constant(self) -> torch.Tensor:
-        """Get the normalization constant for the TTProb
+        """Get the normalization constant for the TTDist
 
         Returns:
             torch.Tensor: normalization constant. Shape (B,)
@@ -82,7 +82,7 @@ class TTProb:
     def _select(self, indices: torch.Tensor) -> torch.Tensor:
         """Multi-index selection.
 
-        Performs a multi-index selection on the TTProb object. Produces the unnormalized probability :math:`\tilde{P}(x_1, x_2, ..., x_n)` of the sequences corresponding to the indices.
+        Performs a multi-index selection on the TTDist object. Produces the unnormalized probability :math:`\tilde{P}(x_1, x_2, ..., x_n)` of the sequences corresponding to the indices.
 
         Args:
             indices (torch.Tensor): Shape: (B, n_core_repititions).
@@ -196,12 +196,15 @@ class TTProb:
             beams[i_beam] = beams[i_beam][1:]
         return beams, beam_probs
 
-    def get_prob(self, indices):
+    def get_prob(self, indices, normalize: bool = False) -> torch.Tensor:
         unormalized_probs = self._select(indices)
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
-        normalization_constant = self._get_normalization_constant()
-        check_naninf(normalization_constant, f"get_prob:normalization_constant")
-        return unormalized_probs / normalization_constant
+        probs = unormalized_probs
+        if normalize:
+            normalization_constant = self._get_normalization_constant()
+            check_naninf(normalization_constant, f"get_prob:normalization_constant")
+            probs = unormalized_probs / normalization_constant
+        return probs
 
     def argmax(self):
         return torch.randint(
@@ -209,7 +212,7 @@ class TTProb:
         )  # [B, n_core_repititions]
 
     def beam_search(self, n_beams: int = 5) -> torch.Tensor:
-        """Beam search using the TTProb joint distribution.
+        """Beam search using the TTDist joint distribution.
 
         Args:
             n_beams (int, optional): Number of beams. Defaults to 5.
@@ -259,8 +262,8 @@ class TJDLayer(nn.Module):
             torch.Tensor: Loss. Shape: (B,)
         """
         output_size = target.size(1)
-        ttprob = TTProb(alpha, beta, core, output_size)
-        probs = ttprob.get_prob(target) + 1e-3
+        ttdist = TTDist(alpha, beta, core, output_size)
+        probs = ttdist.get_prob(target) + 1e-3
         check_naninf(probs, f"compute_loss:probs")
 
         loss = -torch.log(probs)
@@ -278,7 +281,7 @@ class TJDLayer(nn.Module):
         core: torch.Tensor,
         output_size: int,
     ) -> torch.Tensor:
-        btn = TTProb(alpha, beta, core, output_size)
+        btn = TTDist(alpha, beta, core, output_size)
         return btn.beam_search()  # (B, output_size)
 
     def _get_tt_params(
@@ -304,7 +307,7 @@ class TJDLayer(nn.Module):
 
         alpha = torch.sigmoid(alpha) + 1e-3
         beta = torch.sigmoid(beta) + 1e-3
-        core = torch.sigmoid(core) * 1e-2 + 1e-3
+        core = torch.sigmoid(core) * (1 / seq_len) + 1e-3
 
         return alpha, beta, core
 
