@@ -67,7 +67,14 @@ TJD_MODEL_CONFIG = {
 }
 
 
-def train(model_name: str, dataset_name: str, debug: bool = False):
+def train(
+    model_name: str,
+    dataset_name: str,
+    debug: bool = False,
+    max_seq_len: int = 4,
+    num_epochs: int = 3,
+    batch_size: int = 4,
+):
     # Load the dataset
     logger.info(
         f"Training model {model_name} on dataset {dataset_name} in {'debug' if debug else 'full'} mode"
@@ -102,7 +109,7 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
         tokenizer.pad_token = tokenizer.eos_token
 
     # Preprocess the dataset
-    def tokenize_function(examples, max_length=2):
+    def tokenize_function(examples, max_length=max_seq_len):
         preprocessed = config["preprocess_batch_func"](examples)
         result = tokenizer(
             preprocessed,
@@ -126,18 +133,17 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
     train_dataloader = DataLoader(
         tokenized_dataset_train,  # type: ignore
         shuffle=True,
-        batch_size=8,
+        batch_size=batch_size,
         collate_fn=data_collator,
     )
     eval_dataloader = DataLoader(
-        tokenized_dataset_eval, batch_size=8, collate_fn=data_collator  # type: ignore
+        tokenized_dataset_eval, batch_size=batch_size, collate_fn=data_collator  # type: ignore
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-5)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
-    num_epochs = 3
     num_training_steps = num_epochs * len(train_dataloader)
     lr_scheduler = get_scheduler(
         "linear",
@@ -164,6 +170,10 @@ def train(model_name: str, dataset_name: str, debug: bool = False):
             lr_scheduler.step()
             optimizer.zero_grad()
             progress_bar.update(1)
+
+            log_str = f"Epoch {epoch + 1} | Step {progress_bar.n}/{num_training_steps} | Loss: {loss.item():.4f}"
+            progress_bar.set_description_str(log_str)
+
         avg_train_loss = train_loss / len(train_dataloader)
 
         # Evaluation loop
@@ -217,8 +227,20 @@ if __name__ == "__main__":
         help="Use a smaller subset of the dataset for debugging",
     )
 
+    parser.add_argument(
+        "--max_seq_len", type=int, default=4, help="Maximum sequence length"
+    )
+
+    parser.add_argument(
+        "--num_epochs", type=int, default=3, help="Number of training epochs"
+    )
+
     args = parser.parse_args()
 
-    train(args.model_name, args.dataset_name, args.debug)
-
-    # --debug --dataset_name e2e_nlg
+    train(
+        model_name=args.model_name,
+        dataset_name=args.dataset_name,
+        debug=args.debug,
+        max_seq_len=args.max_seq_len,
+        num_epochs=args.num_epochs,
+    )

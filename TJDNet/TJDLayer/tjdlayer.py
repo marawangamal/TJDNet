@@ -94,7 +94,7 @@ class TTProb:
         cores_after_selection = [
             torch.stack([self.core[b, :, indices[b, i], :] for b in range(batch_size)])
             for i in range(self.n_core_repititions)
-        ]
+        ]  # [(B, R, R)] * n_core_repititions
 
         core_result = cores_after_selection[0]  # (B, R, R)
         for i in range(1, self.n_core_repititions):
