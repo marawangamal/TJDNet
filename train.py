@@ -1,21 +1,18 @@
-from tqdm.auto import tqdm
 import argparse
 import logging
-import torch.nn as nn
+import os.path as osp
 
-from transformers import (
-    get_scheduler,
-    PreTrainedModel,
-    PreTrainedTokenizer,
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    DataCollatorForLanguageModeling,
-)
-from datasets import load_dataset, formatting
 
 from torch.utils.data import DataLoader
-import torch
-from TJDNet import TJDNet, TJDLayer
+from transformers import DataCollatorForLanguageModeling
+from datasets import load_dataset, formatting
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
+
+from TJDNet import TJDLayer
+from littjdnet import LitTJDNet
+from utils.utils import get_experiment_name
 
 logging.basicConfig(
     format="%(message)s",
@@ -53,7 +50,6 @@ DATASET_CONFIGS = {
     },
 }
 
-
 TJD_MODEL_CONFIG = {
     "gpt2": {
         "head_name": "lm_head",
@@ -67,18 +63,30 @@ TJD_MODEL_CONFIG = {
 }
 
 
-def train(
+def main(
     model_name: str,
     dataset_name: str,
-    debug: bool = False,
-    max_seq_len: int = 4,
-    num_epochs: int = 3,
+    lr: float = 5e-5,
+    seq_len: int = 4,
+    epochs: int = 20,
     batch_size: int = 4,
+    checkpoint_dir: str = "checkpoints",
 ):
-    # Load the dataset
-    logger.info(
-        f"Training model {model_name} on dataset {dataset_name} in {'debug' if debug else 'full'} mode"
-    )
+
+    # 0. Create a unique experiment name
+    experiment_config = {
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "seq_len": seq_len,
+        "lr": lr,
+        "model_name": model_name,
+        "dataset_name": dataset_name,
+    }
+    experiment_name = get_experiment_name(experiment_config)
+    logger.info(f"Experiment configuration\n: {experiment_config}")
+    logger.info(f"Checkpoints will be saved to: {checkpoint_dir}/{experiment_name}")
+
+    # 1. Load data
     config = DATASET_CONFIGS[dataset_name]
     tjd_config = TJD_MODEL_CONFIG[model_name]
     dataset = (
@@ -86,30 +94,11 @@ def train(
         if config["subset"]
         else load_dataset(dataset_name)
     )
-
-    if debug:
-        for split in dataset.keys():  # type: ignore
-            dataset[split] = dataset[split].select(range(50))  # type: ignore
-
-    # Load tokenizer and model
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    model = TJDNet(
-        model,
-        condition_func=tjd_config["condition_func"],
-        replacement_func=tjd_config["replacement_func"],
-    )
-    model.replace_base_model_layers()
-
-    # Ensure the tokenizer has a pad token
-    if tokenizer.pad_token is None:
-        logger.info(
-            "Tokenizer does not have a pad token set. Setting pad_token to eos_token."
-        )
-        tokenizer.pad_token = tokenizer.eos_token
+    lit_model = LitTJDNet(model_name=model_name, lr=lr, tjd_config=tjd_config)
+    tokenizer = lit_model.tokenizer
 
     # Preprocess the dataset
-    def tokenize_function(examples, max_length=max_seq_len):
+    def tokenize_function(examples, max_length=seq_len):
         preprocessed = config["preprocess_batch_func"](examples)
         result = tokenizer(
             preprocessed,
@@ -140,82 +129,27 @@ def train(
         tokenized_dataset_eval, batch_size=batch_size, collate_fn=data_collator  # type: ignore
     )
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-5)
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    model.to(device)
-
-    num_training_steps = num_epochs * len(train_dataloader)
-    lr_scheduler = get_scheduler(
-        "linear",
-        optimizer=optimizer,
-        num_warmup_steps=0,
-        num_training_steps=num_training_steps,
-    )  # type: ignore
-
-    progress_bar = tqdm(range(num_training_steps))
-
-    # Train loop
-    for epoch in range(num_epochs):
-        model.train()
-        train_loss = 0
-        for batch in train_dataloader:
-            batch = {k: v.to(device) for k, v in batch.items()}
-
-            # If batch has 0 length, skip it
-            if batch["input_ids"].size(1) == 0:
-                logger.warning("Skipping batch with 0 length")
-                continue
-
-            outputs = model(**batch)
-            loss = outputs.loss
-            train_loss += loss.item()
-            loss.backward()
-
-            optimizer.step()
-            lr_scheduler.step()
-            optimizer.zero_grad()
-            progress_bar.update(1)
-
-            log_str = f"Epoch {epoch + 1} | Step {progress_bar.n}/{num_training_steps} | Loss: {loss.item():.4f}"
-            progress_bar.set_description_str(log_str)
-
-        avg_train_loss = train_loss / len(train_dataloader)
-
-        # Evaluation loop
-        model.eval()
-        total_eval_loss = 0
-        for batch in eval_dataloader:
-            batch = {k: v.to(device) for k, v in batch.items()}
-            with torch.no_grad():
-                outputs = model(**batch)
-            total_eval_loss += outputs.loss.item()
-        avg_eval_loss = total_eval_loss / len(eval_dataloader)
-
-        logger.info(
-            f"Epoch {epoch + 1} | Training Loss: {avg_train_loss:.4f} | Evaluation Loss: {avg_eval_loss:.4f}"
-        )
-
-        generate_text_sample(model, tokenizer, device, prompt=config["eval_prompt"])  # type: ignore
-
-
-def generate_text_sample(
-    model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizer,
-    device: torch.device,
-    prompt: str = "The meaning of life is",
-):
-    logger.info("Generating text sample...")
-    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)  # type: ignore
-    sample_outputs = model.generate(
-        input_ids,
-        do_sample=True,
-        max_length=50,
-        top_k=50,
-        top_p=0.95,
-        num_return_sequences=1,
+    checkpoint_callback = ModelCheckpoint(
+        monitor="val_loss",  # Monitor validation loss to determine the best model
+        mode="min",  # `min` mode will save the model with the lowest val_loss
+        dirpath=osp.join(checkpoint_dir, experiment_name),
+        filename="best",
+        save_top_k=1,
+        verbose=True,
+        enable_version_counter=False,
+        save_last=True,  # Additionally, save the most recent checkpoint after each epoch
     )
-    generated_text = tokenizer.decode(sample_outputs[0], skip_special_tokens=True)
-    logger.info(f"Generated text:\n{generated_text}\n")
+    tb_logger = TensorBoardLogger(
+        osp.join(checkpoint_dir, experiment_name), name="", version=""
+    )
+    trainer = Trainer(
+        max_epochs=epochs,
+        callbacks=[checkpoint_callback],
+        overfit_batches=1,
+        log_every_n_steps=1,
+        logger=tb_logger,
+    )
+    trainer.fit(lit_model, train_dataloader, eval_dataloader, ckpt_path="last")
 
 
 if __name__ == "__main__":
@@ -226,26 +160,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset_name", type=str, default="wikitext", help="Dataset name"
     )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Use a smaller subset of the dataset for debugging",
-    )
 
     parser.add_argument(
         "--max_seq_len", type=int, default=4, help="Maximum sequence length"
     )
 
     parser.add_argument(
-        "--num_epochs", type=int, default=3, help="Number of training epochs"
+        "--num_epochs", type=int, default=20, help="Number of training epochs"
     )
 
     args = parser.parse_args()
 
-    train(
+    main(
         model_name=args.model_name,
         dataset_name=args.dataset_name,
-        debug=args.debug,
-        max_seq_len=args.max_seq_len,
-        num_epochs=args.num_epochs,
+        seq_len=args.max_seq_len,
+        epochs=args.num_epochs,
     )

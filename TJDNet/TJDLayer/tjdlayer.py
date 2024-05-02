@@ -206,7 +206,7 @@ class TTDist:
             probs = unormalized_probs / normalization_constant
         return probs
 
-    def argmax(self):
+    def sample(self):
         return torch.randint(
             0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
         )  # [B, n_core_repititions]
@@ -281,8 +281,8 @@ class TJDLayer(nn.Module):
         core: torch.Tensor,
         output_size: int,
     ) -> torch.Tensor:
-        btn = TTDist(alpha, beta, core, output_size)
-        return btn.beam_search()  # (B, output_size)
+        ttdist = TTDist(alpha, beta, core, output_size)
+        return ttdist.sample()  # (B, output_size)
 
     def _get_tt_params(
         self, x: torch.Tensor
