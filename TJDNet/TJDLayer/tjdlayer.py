@@ -5,7 +5,10 @@ from torch import Tensor
 
 import logging
 
+from .utils import create_core_ident, apply_id_transform
+
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Set to DEBUG to capture all levels of logs
 
 
 def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool = True):
@@ -90,6 +93,15 @@ class TTDist:
         Returns:
             torch.Tensor: Unnormalized probabilities of sequences corresponding to indices. Shape: (B,)
         """
+
+        # Assert: indices are within the core size
+        assert torch.all(
+            indices < self.core.shape[2]
+        ), "Indices must be within the core size"
+
+        # Assert: indices are non-negative
+        assert torch.all(indices >= 0), "Indices must be non-negative"
+
         batch_size = indices.size(0)
         cores_after_selection = [
             torch.stack([self.core[b, :, indices[b, i], :] for b in range(batch_size)])
@@ -200,10 +212,20 @@ class TTDist:
         unormalized_probs = self._select(indices)
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
         probs = unormalized_probs
+        normalization_constant = 1.0
         if normalize:
             normalization_constant = self._get_normalization_constant()
             check_naninf(normalization_constant, f"get_prob:normalization_constant")
             probs = unormalized_probs / normalization_constant
+        max_unorm_prob = torch.max(torch.abs(unormalized_probs)).item()
+        min_unorm_prob = torch.min(torch.abs(unormalized_probs)).item()
+        max_prob = torch.max(probs).item()
+        min_prob = torch.min(probs).item()
+        logger.debug(f"Max unnormalized prob: {max_unorm_prob:.4f}")
+        logger.debug(f"Min unnormalized prob: {min_unorm_prob:.4f}")
+        logger.debug(f"Max prob: {max_prob:.4f}")
+        logger.debug(f"Min prob: {min_prob:.4f}")
+        logger.debug(f"Normalization constant: {normalization_constant}")
         return probs
 
     def sample(self):
@@ -225,7 +247,16 @@ class TTDist:
 
 
 class TJDLayer(nn.Module):
-    def __init__(self, emb_size, rank: int = 2, vocab_size: int = 128, *args, **kwargs):
+    def __init__(
+        self,
+        emb_size,
+        rank: int = 2,
+        vocab_size: int = 128,
+        identity_transform_ids: list[int] = [50256],
+        identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
+        *args,
+        **kwargs,
+    ):
         """Tensor Train Joint Distribution Layer
 
         Args:
@@ -240,6 +271,8 @@ class TJDLayer(nn.Module):
         self.w_alpha = nn.Parameter(torch.randn(emb_size, rank))
         self.w_beta = nn.Parameter(torch.randn(emb_size, rank))
         self.w_vocab = nn.Parameter(torch.randn(emb_size, vocab_size * rank * rank))
+        self.identity_transform_ids = identity_transform_ids
+        self.identity_transform_label_id_token_id = identity_transform_label_id_token_id
 
     def _compute_loss(
         self,
@@ -261,6 +294,15 @@ class TJDLayer(nn.Module):
         Returns:
             torch.Tensor: Loss. Shape: (B,)
         """
+
+        # Transform target using self.identity_transform_label_id_token_id
+        if self.identity_transform_label_id_token_id is not None:
+            # target [B, T] tensor
+            # elementwise transform target[k] = self.identity_transform_label_id_token_id[target[k]] if target[k] in self.identity_transform_label_id_token_id
+            target = apply_id_transform(
+                target, self.identity_transform_label_id_token_id
+            )
+
         output_size = target.size(1)
         ttdist = TTDist(alpha, beta, core, output_size)
         probs = ttdist.get_prob(target) + 1e-32
@@ -299,15 +341,31 @@ class TJDLayer(nn.Module):
             .reshape(batch_size, seq_len, self.rank)
             .mean(1)
         )
-        core = (
+        dcore = (
             (x.reshape(-1, x.shape[-1]) @ self.w_vocab)
             .reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
             .mean(1)
-        )
+        )  # (B, R, D, R)
 
         alpha = torch.sigmoid(alpha) + 1e-3
         beta = torch.sigmoid(beta) + 1e-3
-        core = torch.sigmoid(core) * (1 / seq_len) + 1e-3
+        dcore = torch.sigmoid(dcore) * (1 / seq_len) + 1e-3
+
+        # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
+        core_ident = create_core_ident(
+            batch_size=batch_size, vocab_size=self.vocab_size, rank=self.rank
+        ).to(dcore.device)
+        mask = torch.ones_like(core_ident).to(dcore.device)
+        mask[:, :, self.identity_transform_ids, :] = 0
+        core = core_ident + mask * dcore
+
+        alpha_min, alpha_max = torch.min(torch.abs(alpha)), torch.max(torch.abs(alpha))
+        beta_min, beta_max = torch.min(torch.abs(beta)), torch.max(torch.abs(beta))
+        core_min, core_max = torch.min(torch.abs(core)), torch.max(torch.abs(core))
+
+        logger.debug(f"Alpha min: {alpha_min:.4f}, Alpha max: {alpha_max:.4f}")
+        logger.debug(f"Beta min: {beta_min:.4f}, Beta max: {beta_max:.4f}")
+        logger.debug(f"Core min: {core_min:.4f}, Core max: {core_max:.4f}")
 
         return alpha, beta, core
 

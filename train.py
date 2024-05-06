@@ -87,8 +87,8 @@ def main(
     logger.info(f"Experiment configuration\n: {experiment_config}")
     logger.info(f"Checkpoints will be saved to: {checkpoint_dir}/{experiment_name}")
 
-    # Remove existing checkpoints
     if osp.exists(osp.join(checkpoint_dir, experiment_name)) and overwrite:
+        logger.info("Overwriting existing checkpoints...")
         shutil.rmtree(osp.join(checkpoint_dir, experiment_name))
 
     # 1. Load data
@@ -149,10 +149,11 @@ def main(
     )
     trainer = Trainer(
         max_epochs=epochs,
-        # callbacks=[checkpoint_callback],
+        callbacks=[checkpoint_callback],
         overfit_batches=1,
         log_every_n_steps=1,
         logger=tb_logger,
+        gradient_clip_val=1.0,
     )
     trainer.fit(lit_model, train_dataloader, eval_dataloader, ckpt_path="last")
 
@@ -176,7 +177,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
 
-    parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
 
     args = parser.parse_args()
 
