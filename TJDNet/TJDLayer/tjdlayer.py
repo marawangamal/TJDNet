@@ -208,25 +208,20 @@ class TTDist:
             beams[i_beam] = beams[i_beam][1:]
         return beams, beam_probs
 
-    def get_prob(self, indices, normalize: bool = True) -> torch.Tensor:
+    def get_prob_and_norm(self, indices) -> Tuple[Tensor, Tensor]:
         unormalized_probs = self._select(indices)
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
-        probs = unormalized_probs
-        normalization_constant = 1.0
-        if normalize:
-            normalization_constant = self._get_normalization_constant()
-            check_naninf(normalization_constant, f"get_prob:normalization_constant")
-            probs = unormalized_probs / normalization_constant
-        max_unorm_prob = torch.max(torch.abs(unormalized_probs)).item()
-        min_unorm_prob = torch.min(torch.abs(unormalized_probs)).item()
-        max_prob = torch.max(probs).item()
-        min_prob = torch.min(probs).item()
-        logger.debug(f"Max unnormalized prob: {max_unorm_prob:.4f}")
-        logger.debug(f"Min unnormalized prob: {min_unorm_prob:.4f}")
-        logger.debug(f"Max prob: {max_prob:.4f}")
-        logger.debug(f"Min prob: {min_prob:.4f}")
-        logger.debug(f"Normalization constant: {normalization_constant}")
-        return probs
+
+        normalization_constant = self._get_normalization_constant()
+        check_naninf(normalization_constant, f"get_prob:normalization_constant")
+
+        # max_unorm_prob = torch.max(torch.abs(unormalized_probs)).item()
+        # min_unorm_prob = torch.min(torch.abs(unormalized_probs)).item()
+        # logger.debug(f"Max unnormalized prob: {max_unorm_prob:.4f}")
+        # logger.debug(f"Min unnormalized prob: {min_unorm_prob:.4f}")
+        # logger.debug(f"Normalization constant: {normalization_constant}")
+
+        return unormalized_probs, normalization_constant
 
     def sample(self):
         return torch.randint(
@@ -305,10 +300,9 @@ class TJDLayer(nn.Module):
 
         output_size = target.size(1)
         ttdist = TTDist(alpha, beta, core, output_size)
-        probs = ttdist.get_prob(target) + 1e-32
-        check_naninf(probs, f"compute_loss:probs")
-
-        loss = -torch.log(probs)
+        prob_tilde, norm_constant = ttdist.get_prob_and_norm(target)
+        log_prob = torch.log(prob_tilde) - torch.log(norm_constant)
+        loss = -log_prob
         if reduction == "mean":
             return loss.mean()
         elif reduction == "sum":
@@ -347,9 +341,9 @@ class TJDLayer(nn.Module):
             .mean(1)
         )  # (B, R, D, R)
 
-        alpha = torch.sigmoid(alpha) + 1e-3
-        beta = torch.sigmoid(beta) + 1e-3
-        dcore = torch.sigmoid(dcore) * (1 / seq_len) + 1e-3
+        alpha = torch.relu(alpha) + 1e-3
+        beta = torch.relu(beta) + 1e-3
+        dcore = torch.relu(dcore) * (1 / seq_len) + 1e-3
 
         # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
         core_ident = create_core_ident(

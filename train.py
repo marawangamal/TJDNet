@@ -168,7 +168,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--max_seq_len", type=int, default=4, help="Maximum sequence length"
+        "--max_seq_len", type=int, default=2, help="Maximum sequence length"
     )
 
     parser.add_argument(
