@@ -2,6 +2,7 @@ from typing import Any, Callable, Optional, Tuple
 import torch.nn as nn
 import torch
 from torch import Tensor
+from torch.nn import CrossEntropyLoss
 
 import logging
 
@@ -249,6 +250,7 @@ class TJDLayer(nn.Module):
         vocab_size: int = 128,
         identity_transform_ids: list[int] = [50256],
         identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
+        mode: str = "tjd",  # ["tjd", "lm"]
         *args,
         **kwargs,
     ):
@@ -260,14 +262,29 @@ class TJDLayer(nn.Module):
             vocab_size (int, optional): Vocabulary size. Defaults to 128.
         """
         super().__init__(*args, **kwargs)
+        self._validate_init_args(
+            emb_size=emb_size,
+            rank=rank,
+            vocab_size=vocab_size,
+            identity_transform_ids=identity_transform_ids,
+            identity_transform_label_id_token_id=identity_transform_label_id_token_id,
+            mode=mode,
+            *args,
+            **kwargs,
+        )
         self.emb_size = emb_size
         self.rank = rank
         self.vocab_size = vocab_size
-        self.w_alpha = nn.Parameter(torch.randn(emb_size, rank))
-        self.w_beta = nn.Parameter(torch.randn(emb_size, rank))
-        self.w_vocab = nn.Parameter(torch.randn(emb_size, vocab_size * rank * rank))
         self.identity_transform_ids = identity_transform_ids
         self.identity_transform_label_id_token_id = identity_transform_label_id_token_id
+        self.mode = mode
+
+        if self.mode == "lm":
+            self.w_vocab = nn.Parameter(torch.randn(emb_size, vocab_size))
+        else:
+            self.w_alpha = nn.Parameter(torch.randn(emb_size, rank))
+            self.w_beta = nn.Parameter(torch.randn(emb_size, rank))
+            self.w_vocab = nn.Parameter(torch.randn(emb_size, vocab_size * rank * rank))
 
     def _compute_loss(
         self,
@@ -363,6 +380,28 @@ class TJDLayer(nn.Module):
 
         return alpha, beta, core
 
+    def _validate_init_args(
+        self,
+        emb_size,
+        rank: int = 2,
+        vocab_size: int = 128,
+        identity_transform_ids: list[int] = [50256],
+        identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
+        mode: str = "tjd",  # ["tjd", "lm"]
+        *args,
+        **kwargs,
+    ):
+        assert emb_size > 0, "emb_size must be positive"
+        assert rank > 0, "rank must be positive"
+        assert vocab_size > 0, "vocab_size must be positive"
+        assert mode in ["tjd", "lm"], "mode must be either 'tjd' or 'lm'"
+
+    def _validate_forward_args(self, input_embs: torch.Tensor, label_ids: torch.Tensor):
+        # Assert: input_embs and label_ids have the same batch size
+        assert input_embs.size(0) == label_ids.size(
+            0
+        ), "Batch size mismatch between input_embs and label_ids"
+
     def get_preds(
         self,
         input_embs: torch.Tensor,
@@ -402,6 +441,15 @@ class TJDLayer(nn.Module):
         Returns:
             torch.Tensor: Loss. Shape: (B,)
         """
+
+        self._validate_forward_args(input_embs, label_ids)
+
+        if self.mode == "lm":
+            # Compute regular CE loss
+            loss_fct = CrossEntropyLoss()
+            logits = input_embs @ self.w_vocab
+            loss = loss_fct(logits.view(-1, logits.size(-1)), label_ids.view(-1))
+            return loss
 
         x = input_embs
         y = label_ids

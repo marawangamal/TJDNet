@@ -21,19 +21,20 @@ class LitTJDNet(LightningModule):
     def __init__(
         self,
         model_name: str,
-        tjd_config: dict,
+        model_params: dict,
         lr: float = 5e-5,
+        generate_on_epoch_end: bool = False,
     ):
         super().__init__()
         model = AutoModelForCausalLM.from_pretrained(model_name)
         model = TJDNet(
             model,
-            condition_func=tjd_config["condition_func"],
-            replacement_func=tjd_config["replacement_func"],
+            **model_params,
         )
         model.replace_base_model_layers()
         self.model = model
         self.lr = lr
+        self.generate_on_epoch_end = generate_on_epoch_end
 
         # Ensure the tokenizer has a pad token
         tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -80,19 +81,20 @@ class LitTJDNet(LightningModule):
         return optimizer
 
     def on_train_epoch_end(self) -> None:
-        logger.info("Generating text sample...")
-        prompt = "The meaning of life is"
-        device = next(self.model.parameters()).device
-        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(device)  # type: ignore
-        sample_outputs = self.model.generate(
-            input_ids,
-            do_sample=True,
-            max_length=50,
-            top_k=50,
-            top_p=0.95,
-            num_return_sequences=1,
-        )
-        generated_text = self.tokenizer.decode(
-            sample_outputs[0], skip_special_tokens=True
-        )
-        logger.info(f"Generated text:\n{generated_text}\n")
+        if self.generate_on_epoch_end:
+            logger.info("Generating text sample...")
+            prompt = "The meaning of life is"
+            device = next(self.model.parameters()).device
+            input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(device)  # type: ignore
+            sample_outputs = self.model.generate(
+                input_ids,
+                do_sample=True,
+                max_length=50,
+                top_k=50,
+                top_p=0.95,
+                num_return_sequences=1,
+            )
+            generated_text = self.tokenizer.decode(
+                sample_outputs[0], skip_special_tokens=True
+            )
+            logger.info(f"Generated text:\n{generated_text}\n")

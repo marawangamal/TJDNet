@@ -57,7 +57,7 @@ TJD_MODEL_CONFIG = {
         "vocab_size": 50257,
         "condition_func": lambda lyr, lyr_name: lyr_name == "lm_head",
         "replacement_func": lambda lyr: TJDLayer(
-            emb_size=768, rank=2, vocab_size=50257
+            emb_size=768, rank=2, vocab_size=50257, mode="lm"
         ),
     }
 }
@@ -99,7 +99,13 @@ def main(
         if config["subset"]
         else load_dataset(dataset_name)
     )
-    lit_model = LitTJDNet(model_name=model_name, lr=lr, tjd_config=tjd_config)
+
+    model_params = {
+        "condition_func": tjd_config["condition_func"],
+        "replacement_func": tjd_config["replacement_func"],
+    }
+
+    lit_model = LitTJDNet(model_params=model_params, model_name=model_name, lr=lr)
     tokenizer = lit_model.tokenizer
 
     # Preprocess the dataset
