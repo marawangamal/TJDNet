@@ -57,7 +57,7 @@ TJD_MODEL_CONFIG = {
         "vocab_size": 50257,
         "condition_func": lambda lyr, lyr_name: lyr_name == "lm_head",
         "replacement_func": lambda lyr: TJDLayer(
-            emb_size=768, rank=2, vocab_size=50257, mode="lm"
+            emb_size=768, rank=2, vocab_size=50257, mode="tjd"  # ["tjd", "lm"]
         ),
     }
 }
@@ -178,12 +178,20 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--num_epochs", type=int, default=20, help="Number of training epochs"
+        "--num_epochs", type=int, default=100, help="Number of training epochs"
+    )
+
+    parser.add_argument(
+        "-c",
+        "--checkpoint_dir",
+        type=str,
+        default="checkpoints",
+        help="Directory to save model checkpoints",
     )
 
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
 
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate")
 
     args = parser.parse_args()
 
@@ -194,4 +202,5 @@ if __name__ == "__main__":
         epochs=args.num_epochs,
         batch_size=args.batch_size,
         lr=args.lr,
+        checkpoint_dir=args.checkpoint_dir,
     )

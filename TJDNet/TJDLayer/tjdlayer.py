@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch
 from torch import Tensor
 from torch.nn import CrossEntropyLoss
+from torch.nn import init
 
 import logging
 
@@ -86,7 +87,8 @@ class TTDist:
     def _select(self, indices: torch.Tensor) -> torch.Tensor:
         """Multi-index selection.
 
-        Performs a multi-index selection on the TTDist object. Produces the unnormalized probability :math:`\tilde{P}(x_1, x_2, ..., x_n)` of the sequences corresponding to the indices.
+        Performs a multi-index selection on the TTDist object. Produces the unnormalized probability :math:`\tilde{P}(x_1, x_2, ..., x_n)` of the sequences
+        corresponding to the indices.
 
         Args:
             indices (torch.Tensor): Shape: (B, n_core_repititions).
@@ -209,7 +211,15 @@ class TTDist:
             beams[i_beam] = beams[i_beam][1:]
         return beams, beam_probs
 
-    def get_prob_and_norm(self, indices) -> Tuple[Tensor, Tensor]:
+    def get_prob_and_norm(self, indices: torch.Tensor) -> Tuple[Tensor, Tensor]:
+        """Get the unnormalized probability and normalization constant of the TTDist.
+
+        Args:
+            indices (torch.Tensor): Indices of the sequences. Shape: (B, n_core_repititions).
+
+        Returns:
+            Tuple[Tensor, Tensor]: Unnormalized probabilities and normalization constant. Shapes: (B,), (B,)
+        """
         unormalized_probs = self._select(indices)
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
 
@@ -280,11 +290,17 @@ class TJDLayer(nn.Module):
         self.mode = mode
 
         if self.mode == "lm":
-            self.w_vocab = nn.Parameter(torch.randn(emb_size, vocab_size))
+            self.w_vocab = nn.Parameter(torch.empty(emb_size, vocab_size))
+            init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
         else:
-            self.w_alpha = nn.Parameter(torch.randn(emb_size, rank))
-            self.w_beta = nn.Parameter(torch.randn(emb_size, rank))
-            self.w_vocab = nn.Parameter(torch.randn(emb_size, vocab_size * rank * rank))
+            self.w_alpha = nn.Parameter(torch.empty(emb_size, rank))
+            self.w_beta = nn.Parameter(torch.empty(emb_size, rank))
+            self.w_vocab = nn.Parameter(torch.empty(emb_size, vocab_size * rank * rank))
+
+            # Initialize with Kaiming Normal for ReLU activations
+            init.kaiming_normal_(self.w_alpha, mode="fan_out", nonlinearity="relu")
+            init.kaiming_normal_(self.w_beta, mode="fan_out", nonlinearity="relu")
+            init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
 
     def _compute_loss(
         self,
@@ -320,6 +336,10 @@ class TJDLayer(nn.Module):
         prob_tilde, norm_constant = ttdist.get_prob_and_norm(target)
         log_prob = torch.log(prob_tilde) - torch.log(norm_constant)
         loss = -log_prob
+        logger.debug(f"Target: {target.detach().cpu().numpy().tolist()}")
+        logger.debug(f"Prob Tilde: {prob_tilde.detach().cpu().numpy().tolist()}")
+        logger.debug(f"Norm Constant: {norm_constant.detach().cpu().numpy().tolist()}")
+        logger.debug(f"Loss: {loss.detach().cpu().numpy().tolist()}")
         if reduction == "mean":
             return loss.mean()
         elif reduction == "sum":
@@ -340,27 +360,25 @@ class TJDLayer(nn.Module):
     def _get_tt_params(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Get TT parameters of joint distribution from input embeddings
+
+        Args:
+            x (torch.Tensor): Input embeddings. Shape: (B, T, D)
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Alpha, beta, core. Shapes: (B, R), (B, R), (B, R, D, R)
+        """
 
         batch_size, seq_len, _ = x.shape
-        alpha = (
-            (x.reshape(-1, x.shape[-1]) @ self.w_alpha)
-            .reshape(batch_size, seq_len, self.rank)
-            .mean(1)
-        )
-        beta = (
-            (x.reshape(-1, x.shape[-1]) @ self.w_beta)
-            .reshape(batch_size, seq_len, self.rank)
-            .mean(1)
-        )
-        dcore = (
-            (x.reshape(-1, x.shape[-1]) @ self.w_vocab)
-            .reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
-            .mean(1)
-        )  # (B, R, D, R)
+        z_alpha = x[:, -1, :] @ self.w_alpha  # (B, R)
+        z_beta = x[:, -1, :] @ self.w_beta  # (B, R)
+        z_core = (x[:, -1, :] @ self.w_vocab).reshape(
+            batch_size, self.rank, self.vocab_size, self.rank
+        )  # (B, D * R * R)
 
-        alpha = torch.relu(alpha) + 1e-3
-        beta = torch.relu(beta) + 1e-3
-        dcore = torch.relu(dcore) * (1 / seq_len) + 1e-3
+        alpha = torch.relu(z_alpha) + 1e-3
+        beta = torch.relu(z_beta) + 1e-3
+        dcore = torch.relu(z_core) * (1 / seq_len) + 1e-3
 
         # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
         core_ident = create_core_ident(
@@ -370,13 +388,17 @@ class TJDLayer(nn.Module):
         mask[:, :, self.identity_transform_ids, :] = 0
         core = core_ident + mask * dcore
 
-        alpha_min, alpha_max = torch.min(torch.abs(alpha)), torch.max(torch.abs(alpha))
-        beta_min, beta_max = torch.min(torch.abs(beta)), torch.max(torch.abs(beta))
-        core_min, core_max = torch.min(torch.abs(core)), torch.max(torch.abs(core))
-
-        logger.debug(f"Alpha min: {alpha_min:.4f}, Alpha max: {alpha_max:.4f}")
-        logger.debug(f"Beta min: {beta_min:.4f}, Beta max: {beta_max:.4f}")
-        logger.debug(f"Core min: {core_min:.4f}, Core max: {core_max:.4f}")
+        for tens_name, tens_val in zip(["alpha", "beta", "core"], [alpha, beta, core]):
+            check_naninf(tens_val, f"_get_tt_params:{tens_name}")
+            tens_min, tens_max, tens_mean, tens_std = (
+                torch.min(tens_val),
+                torch.max(tens_val),
+                torch.mean(tens_val),
+                torch.std(tens_val),
+            )
+            logger.debug(
+                f"{tens_name}: min: {tens_min:.4f} | max: {tens_max:.4f} | mean: {tens_mean:.4f} | std: {tens_std:.4f}"
+            )
 
         return alpha, beta, core
 
@@ -429,6 +451,7 @@ class TJDLayer(nn.Module):
         self,
         input_embs: torch.Tensor,
         label_ids: torch.Tensor,
+        debug: bool = True,
         *args,
         **kwargs,
     ) -> torch.Tensor:
@@ -454,7 +477,37 @@ class TJDLayer(nn.Module):
         x = input_embs
         y = label_ids
 
-        alpha, beta, core = self._get_tt_params(x)
+        alpha, beta, core = self._get_tt_params(x)  # (B, R), (B, R), (B, R, D, R)
+
+        # Grad estimation
+        # a-G-b
+        if debug:
+            idx = label_ids[0, 0]
+            grad_core_coeff_1 = (1 / torch.einsum("bi,bidj,bj->bd", alpha, core, beta))[
+                0, idx
+            ]
+            ident = torch.zeros(self.vocab_size, device=core.device)
+            ident[idx] = 1
+            grad_core_outer_product_1 = torch.einsum(
+                "bi,d,bj->bidj", alpha, ident, beta
+            )[0]
+            grad_core_1 = grad_core_coeff_1 * grad_core_outer_product_1
+
+            ones = torch.ones(core.size(0), self.vocab_size, device=core.device)
+            grad_core_coeff_2 = (
+                1 / torch.einsum("bi,bidj,bj,bd->b", alpha, core, beta, ones)[0]
+            )
+            grad_core_outer_product_2 = torch.einsum(
+                "bi,bd,bj->bidj", alpha, ones, beta
+            )[0]
+            grad_core_2 = grad_core_coeff_2 * grad_core_outer_product_2
+
+            grad_tot = -grad_core_1 + grad_core_2
+            logger.debug(f"dl/dcore (min): {torch.min(grad_tot):.4f}")
+            logger.debug(f"dl/dcore (max): {torch.max(grad_tot):.4f}")
+            logger.debug(f"dl/dcore (mean): {torch.mean(grad_tot):.4f}")
+            logger.debug(f"dl/dcore (std): {torch.std(grad_tot):.4f}")
+
         for tensor, tensor_name in zip([alpha, beta, core], ["alpha", "beta", "core"]):
             check_naninf(tensor, f"forward:{tensor_name}")
 
