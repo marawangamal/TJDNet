@@ -57,7 +57,7 @@ TJD_MODEL_CONFIG = {
         "vocab_size": 50257,
         "condition_func": lambda lyr, lyr_name: lyr_name == "lm_head",
         "replacement_func": lambda lyr: TJDLayer(
-            emb_size=768, rank=2, vocab_size=50257, mode="tjd"  # ["tjd", "lm"]
+            emb_size=768, rank=2, vocab_size=50257, mode="tjd-lm"  # ["tjd", "lm"]
         ),
     }
 }
@@ -189,7 +189,7 @@ if __name__ == "__main__":
         help="Directory to save model checkpoints",
     )
 
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=2, help="Batch size")
 
     parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate")
 

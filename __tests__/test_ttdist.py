@@ -9,7 +9,7 @@ def normalize_matrix(matrix):
     return matrix / norm_factor
 
 
-class TestBTTNBeamSearch(unittest.TestCase):
+class TestTTDist(unittest.TestCase):
     def setUp(self):
         # Setup for BTTN instance
         R, D, B, n_core_repititions = 4, 3, 1, 2  # Example dimensions

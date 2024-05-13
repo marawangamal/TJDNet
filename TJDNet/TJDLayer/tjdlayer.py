@@ -54,9 +54,9 @@ class TTDist:
         """
 
         core_marginalized = torch.einsum(
-            "bijk,j->bik",
+            "bijk,bj->bik",
             self.core,
-            torch.ones(self.core.shape[2], device=self.core.device),
+            torch.ones(self.core.shape[0], self.core.shape[2], device=self.core.device),
         )
 
         core_result = core_marginalized
@@ -260,7 +260,7 @@ class TJDLayer(nn.Module):
         vocab_size: int = 128,
         identity_transform_ids: list[int] = [50256],
         identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
-        mode: str = "tjd",  # ["tjd", "lm"]
+        mode: str = "tjd",  #  ["tjd", "lm", "tjd-lm", "tjd-lm-slice"]
         *args,
         **kwargs,
     ):
@@ -293,13 +293,13 @@ class TJDLayer(nn.Module):
             self.w_vocab = nn.Parameter(torch.empty(emb_size, vocab_size))
             init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
         else:
-            self.w_alpha = nn.Parameter(torch.empty(emb_size, rank))
-            self.w_beta = nn.Parameter(torch.empty(emb_size, rank))
+            # self.w_alpha = nn.Parameter(torch.empty(emb_size, rank))
+            # self.w_beta = nn.Parameter(torch.empty(emb_size, rank))
             self.w_vocab = nn.Parameter(torch.empty(emb_size, vocab_size * rank * rank))
 
             # Initialize with Kaiming Normal for ReLU activations
-            init.kaiming_normal_(self.w_alpha, mode="fan_out", nonlinearity="relu")
-            init.kaiming_normal_(self.w_beta, mode="fan_out", nonlinearity="relu")
+            # init.kaiming_normal_(self.w_alpha, mode="fan_out", nonlinearity="relu")
+            # init.kaiming_normal_(self.w_beta, mode="fan_out", nonlinearity="relu")
             init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
 
     def _compute_loss(
@@ -370,14 +370,16 @@ class TJDLayer(nn.Module):
         """
 
         batch_size, seq_len, _ = x.shape
-        z_alpha = x[:, -1, :] @ self.w_alpha  # (B, R)
-        z_beta = x[:, -1, :] @ self.w_beta  # (B, R)
+        # z_alpha = x[:, -1, :] @ self.w_alpha  # (B, R)
+        # z_beta = x[:, -1, :] @ self.w_beta  # (B, R)
         z_core = (x[:, -1, :] @ self.w_vocab).reshape(
             batch_size, self.rank, self.vocab_size, self.rank
         )  # (B, D * R * R)
 
-        alpha = torch.relu(z_alpha) + 1e-3
-        beta = torch.relu(z_beta) + 1e-3
+        # alpha = torch.relu(z_alpha) + 1e-3
+        # beta = torch.relu(z_beta) + 1e-3
+        alpha = torch.ones(batch_size, self.rank, device=z_core.device)
+        beta = torch.ones(batch_size, self.rank, device=z_core.device)
         dcore = torch.relu(z_core) * (1 / seq_len) + 1e-3
 
         # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
@@ -416,7 +418,12 @@ class TJDLayer(nn.Module):
         assert emb_size > 0, "emb_size must be positive"
         assert rank > 0, "rank must be positive"
         assert vocab_size > 0, "vocab_size must be positive"
-        assert mode in ["tjd", "lm"], "mode must be either 'tjd' or 'lm'"
+        assert mode in [
+            "tjd",
+            "lm",
+            "tjd-lm",
+            "tjd-lm-slice",
+        ], "mode must be either 'tjd' or 'lm'"
 
     def _validate_forward_args(self, input_embs: torch.Tensor, label_ids: torch.Tensor):
         # Assert: input_embs and label_ids have the same batch size
@@ -470,7 +477,30 @@ class TJDLayer(nn.Module):
         if self.mode == "lm":
             # Compute regular CE loss
             loss_fct = CrossEntropyLoss()
-            logits = input_embs @ self.w_vocab
+            logits = input_embs @ self.w_vocab  # (B, T, V)
+            loss = loss_fct(logits.view(-1, logits.size(-1)), label_ids.view(-1))
+            return loss
+        elif self.mode == "tjd-lm":
+            batch_size, seq_len, _ = input_embs.shape
+            z_core = (
+                input_embs.reshape(batch_size * seq_len, -1) @ self.w_vocab
+            ).reshape(
+                batch_size * seq_len, self.rank, self.vocab_size, self.rank
+            )  # (B*T, R, V, R)
+            z_alpha = torch.ones(batch_size * seq_len, self.rank, device=z_core.device)
+            z_beta = torch.ones(batch_size * seq_len, self.rank, device=z_core.device)
+            logits = torch.einsum("bi, bidj, bj->bd", z_alpha, z_core, z_beta)
+            loss_fct = CrossEntropyLoss()
+            loss = loss_fct(logits.view(-1, logits.size(-1)), label_ids.view(-1))
+            return loss
+        elif self.mode == "tjd-lm-slice":
+            batch_size, seq_len, _ = input_embs.shape
+            logits = (
+                input_embs.reshape(batch_size * seq_len, -1) @ self.w_vocab
+            ).reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)[
+                :, :, -1, :, -1
+            ]  # (B, T, V)
+            loss_fct = CrossEntropyLoss()
             loss = loss_fct(logits.view(-1, logits.size(-1)), label_ids.view(-1))
             return loss
 
