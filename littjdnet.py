@@ -50,6 +50,9 @@ class LitTJDNet(LightningModule):
         return self.model(**batch)
 
     def training_step(self, batch, batch_idx):
+        if batch["input_ids"].shape[0] < 2 or batch["input_ids"].shape[1] < 1:
+            return None
+
         outputs = self(**batch)
         # self.tokenizer.decode(batch["input_ids"][0], skip_special_tokens=True)
         loss = outputs.loss
@@ -61,9 +64,10 @@ class LitTJDNet(LightningModule):
         if self.trainer.global_step % 5 == 0:  # don't make the tf file huge
 
             for k, v in self.named_parameters():
-                self.logger.experiment.add_histogram(  # type: ignore
-                    f"{k}_grad", values=v.grad, global_step=self.trainer.global_step
-                )
+                if v.grad is not None:  # Check if the gradient exists
+                    self.logger.experiment.add_histogram(  # type: ignore
+                        f"{k}_grad", values=v.grad, global_step=self.trainer.global_step
+                    )
 
             for k, v in self.named_parameters():
                 self.logger.experiment.add_histogram(  # type: ignore

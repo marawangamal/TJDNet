@@ -50,18 +50,6 @@ DATASET_CONFIGS = {
     },
 }
 
-TJD_MODEL_CONFIG = {
-    "gpt2": {
-        "head_name": "lm_head",
-        "emb_size": 768,
-        "vocab_size": 50257,
-        "condition_func": lambda lyr, lyr_name: lyr_name == "lm_head",
-        "replacement_func": lambda lyr: TJDLayer(
-            emb_size=768, rank=2, vocab_size=50257, mode="tjd-lm"  # ["tjd", "lm"]
-        ),
-    }
-}
-
 
 def main(
     model_name: str,
@@ -72,7 +60,23 @@ def main(
     batch_size: int = 4,
     checkpoint_dir: str = "checkpoints",
     overwrite: bool = True,
+    tjd_mode: str = "tjd-lm-plus",
 ):
+
+    TJD_MODEL_CONFIG = {
+        "gpt2": {
+            "head_name": "lm_head",
+            "emb_size": 768,
+            "vocab_size": 50257,
+            "condition_func": lambda lyr, lyr_name: lyr_name == "lm_head",
+            "replacement_func": lambda lyr: TJDLayer(
+                emb_size=768,
+                rank=2,
+                vocab_size=50257,
+                mode=tjd_mode,  # ["tjd", "lm"]
+            ),
+        }
+    }
 
     # 0. Create a unique experiment name
     experiment_config = {
@@ -82,6 +86,7 @@ def main(
         "lr": lr,
         "model_name": model_name,
         "dataset_name": dataset_name,
+        "tjd_mode": tjd_mode,
     }
     experiment_name = get_experiment_name(experiment_config)
     logger.info(f"Experiment configuration\n: {experiment_config}")
@@ -189,6 +194,19 @@ if __name__ == "__main__":
         help="Directory to save model checkpoints",
     )
 
+    parser.add_argument(
+        "-t",
+        "--tjd_mode",
+        type=str,
+        default="tjd-lm-plus-log",
+        # options=[
+        #     "lm",
+        #     "tjd",
+        #     "tjd-lm",
+        #     "tjd-lm-plus",
+        # ],
+    )
+
     parser.add_argument("--batch_size", type=int, default=2, help="Batch size")
 
     parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate")
@@ -203,4 +221,5 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         lr=args.lr,
         checkpoint_dir=args.checkpoint_dir,
+        tjd_mode=args.tjd_mode,
     )

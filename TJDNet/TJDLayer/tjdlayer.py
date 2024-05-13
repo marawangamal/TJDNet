@@ -260,7 +260,7 @@ class TJDLayer(nn.Module):
         vocab_size: int = 128,
         identity_transform_ids: list[int] = [50256],
         identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
-        mode: str = "tjd",  #  ["tjd", "lm", "tjd-lm", "tjd-lm-slice"]
+        mode: str = "tjd",  #  ["tjd", "lm", "tjd-lm", "tjd-lm-plus"]
         *args,
         **kwargs,
     ):
@@ -422,7 +422,8 @@ class TJDLayer(nn.Module):
             "tjd",
             "lm",
             "tjd-lm",
-            "tjd-lm-slice",
+            "tjd-lm-plus",
+            "tjd-lm-plus-log",
         ], "mode must be either 'tjd' or 'lm'"
 
     def _validate_forward_args(self, input_embs: torch.Tensor, label_ids: torch.Tensor):
@@ -474,11 +475,19 @@ class TJDLayer(nn.Module):
 
         self._validate_forward_args(input_embs, label_ids)
 
+        # Transform target using self.identity_transform_label_id_token_id
+        if self.identity_transform_label_id_token_id is not None:
+            # target [B, T] tensor
+            # elementwise transform target[k] = self.identity_transform_label_id_token_id[target[k]] if target[k] in self.identity_transform_label_id_token_id
+            y = apply_id_transform(label_ids, self.identity_transform_label_id_token_id)
+        else:
+            y = label_ids
+
         if self.mode == "lm":
             # Compute regular CE loss
             loss_fct = CrossEntropyLoss()
             logits = input_embs @ self.w_vocab  # (B, T, V)
-            loss = loss_fct(logits.view(-1, logits.size(-1)), label_ids.view(-1))
+            loss = loss_fct(logits.view(-1, logits.size(-1)), y.view(-1))
             return loss
         elif self.mode == "tjd-lm":
             batch_size, seq_len, _ = input_embs.shape
@@ -491,56 +500,75 @@ class TJDLayer(nn.Module):
             z_beta = torch.ones(batch_size * seq_len, self.rank, device=z_core.device)
             logits = torch.einsum("bi, bidj, bj->bd", z_alpha, z_core, z_beta)
             loss_fct = CrossEntropyLoss()
-            loss = loss_fct(logits.view(-1, logits.size(-1)), label_ids.view(-1))
+            loss = loss_fct(logits.view(-1, logits.size(-1)), y.view(-1))
             return loss
-        elif self.mode == "tjd-lm-slice":
-            batch_size, seq_len, _ = input_embs.shape
-            logits = (
-                input_embs.reshape(batch_size * seq_len, -1) @ self.w_vocab
-            ).reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)[
-                :, :, -1, :, -1
-            ]  # (B, T, V)
+        elif self.mode == "tjd-lm-plus":
+            x = input_embs
+            alpha, beta, core = self._get_tt_params(x)  # (B, R), (B, R), (B, R, D, R)
+            prob_tilde = torch.einsum("bi, bidj, bj->bd", alpha, core, beta)
             loss_fct = CrossEntropyLoss()
-            loss = loss_fct(logits.view(-1, logits.size(-1)), label_ids.view(-1))
+            loss = loss_fct(prob_tilde.view(-1, prob_tilde.size(-1)), y.view(-1))
             return loss
 
-        x = input_embs
-        y = label_ids
+        elif self.mode == "tjd-lm-plus-log":
+            x = input_embs
+            alpha, beta, core = self._get_tt_params(x)  # (B, R), (B, R), (B, R, D, R)
+            prob_tilde = torch.einsum("bi, bidj, bj->bd", alpha, core, beta)  # (B, D)
+            prob_tilde_indexed = torch.stack(
+                [prob_tilde[i, y.reshape(-1)[i]] for i in range(prob_tilde.size(0))]
+            )  # (B,)
+            norm_constant = torch.einsum(
+                "bi, bidj, bj, bd->b",
+                alpha,
+                core,
+                beta,
+                torch.ones_like(prob_tilde, device=prob_tilde.device),
+            )  # (B,)
+            log_prob = torch.log(prob_tilde_indexed) - torch.log(norm_constant)
+            loss = -log_prob
+            return loss.mean()
 
-        alpha, beta, core = self._get_tt_params(x)  # (B, R), (B, R), (B, R, D, R)
+        elif self.mode == "tjd-lm-plus-log-softmax":
+            raise NotImplementedError("tjd-lm-plus-log-softmax not implemented")
 
-        # Grad estimation
-        # a-G-b
-        if debug:
-            idx = label_ids[0, 0]
-            grad_core_coeff_1 = (1 / torch.einsum("bi,bidj,bj->bd", alpha, core, beta))[
-                0, idx
-            ]
-            ident = torch.zeros(self.vocab_size, device=core.device)
-            ident[idx] = 1
-            grad_core_outer_product_1 = torch.einsum(
-                "bi,d,bj->bidj", alpha, ident, beta
-            )[0]
-            grad_core_1 = grad_core_coeff_1 * grad_core_outer_product_1
+        else:
+            x = input_embs
+            alpha, beta, core = self._get_tt_params(x)  # (B, R), (B, R), (B, R, D, R)
 
-            ones = torch.ones(core.size(0), self.vocab_size, device=core.device)
-            grad_core_coeff_2 = (
-                1 / torch.einsum("bi,bidj,bj,bd->b", alpha, core, beta, ones)[0]
-            )
-            grad_core_outer_product_2 = torch.einsum(
-                "bi,bd,bj->bidj", alpha, ones, beta
-            )[0]
-            grad_core_2 = grad_core_coeff_2 * grad_core_outer_product_2
+            # Grad estimation
+            # a-G-b
+            if debug:
+                idx = y[0, 0]
+                grad_core_coeff_1 = (
+                    1 / torch.einsum("bi,bidj,bj->bd", alpha, core, beta)
+                )[0, idx]
+                ident = torch.zeros(self.vocab_size, device=core.device)
+                ident[idx] = 1
+                grad_core_outer_product_1 = torch.einsum(
+                    "bi,d,bj->bidj", alpha, ident, beta
+                )[0]
+                grad_core_1 = grad_core_coeff_1 * grad_core_outer_product_1
 
-            grad_tot = -grad_core_1 + grad_core_2
-            logger.debug(f"dl/dcore (min): {torch.min(grad_tot):.4f}")
-            logger.debug(f"dl/dcore (max): {torch.max(grad_tot):.4f}")
-            logger.debug(f"dl/dcore (mean): {torch.mean(grad_tot):.4f}")
-            logger.debug(f"dl/dcore (std): {torch.std(grad_tot):.4f}")
+                ones = torch.ones(core.size(0), self.vocab_size, device=core.device)
+                grad_core_coeff_2 = (
+                    1 / torch.einsum("bi,bidj,bj,bd->b", alpha, core, beta, ones)[0]
+                )
+                grad_core_outer_product_2 = torch.einsum(
+                    "bi,bd,bj->bidj", alpha, ones, beta
+                )[0]
+                grad_core_2 = grad_core_coeff_2 * grad_core_outer_product_2
 
-        for tensor, tensor_name in zip([alpha, beta, core], ["alpha", "beta", "core"]):
-            check_naninf(tensor, f"forward:{tensor_name}")
+                grad_tot = -grad_core_1 + grad_core_2
+                logger.debug(f"dl/dcore (min): {torch.min(grad_tot):.4f}")
+                logger.debug(f"dl/dcore (max): {torch.max(grad_tot):.4f}")
+                logger.debug(f"dl/dcore (mean): {torch.mean(grad_tot):.4f}")
+                logger.debug(f"dl/dcore (std): {torch.std(grad_tot):.4f}")
 
-        loss = self._compute_loss(alpha, beta, core, y)
-        check_naninf(loss, f"forward:loss")
-        return loss
+            for tensor, tensor_name in zip(
+                [alpha, beta, core], ["alpha", "beta", "core"]
+            ):
+                check_naninf(tensor, f"forward:{tensor_name}")
+
+            loss = self._compute_loss(alpha, beta, core, y)
+            check_naninf(loss, f"forward:loss")
+            return loss
