@@ -423,6 +423,7 @@ class TJDLayer(nn.Module):
             "lm",
             "tjd-lm",
             "tjd-lm-plus",
+            "tjd-lm-plus-softmax",
             "tjd-lm-plus-log",
         ], "mode must be either 'tjd' or 'lm'"
 
@@ -502,7 +503,7 @@ class TJDLayer(nn.Module):
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(logits.view(-1, logits.size(-1)), y.view(-1))
             return loss
-        elif self.mode == "tjd-lm-plus":
+        elif self.mode == "tjd-lm-plus":  # works
             x = input_embs
             alpha, beta, core = self._get_tt_params(x)  # (B, R), (B, R), (B, R, D, R)
             prob_tilde = torch.einsum("bi, bidj, bj->bd", alpha, core, beta)
@@ -510,7 +511,15 @@ class TJDLayer(nn.Module):
             loss = loss_fct(prob_tilde.view(-1, prob_tilde.size(-1)), y.view(-1))
             return loss
 
-        elif self.mode == "tjd-lm-plus-log":
+        elif self.mode == "tjd-lm-plus-softmax":
+            x = input_embs
+            alpha, beta, core = self._get_tt_params(x)  # (B, R), (B, R), (B, R, D, R)
+            prob_tilde = torch.einsum("bi, bidj, bj->bd", alpha, core, beta)  # (B, D)
+            log_prob = torch.nn.functional.log_softmax(prob_tilde, dim=-1)
+            loss = -log_prob
+            return loss.mean()
+
+        elif self.mode == "tjd-lm-plus-log":  # fails
             x = input_embs
             alpha, beta, core = self._get_tt_params(x)  # (B, R), (B, R), (B, R, D, R)
             prob_tilde = torch.einsum("bi, bidj, bj->bd", alpha, core, beta)  # (B, D)
