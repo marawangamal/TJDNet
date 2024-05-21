@@ -183,7 +183,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--num_epochs", type=int, default=10, help="Number of training epochs"
+        "--num_epochs", type=int, default=50, help="Number of training epochs"
     )
 
     parser.add_argument(
@@ -198,7 +198,7 @@ if __name__ == "__main__":
         "-t",
         "--tjd_mode",
         type=str,
-        default="tjd-lm-plus-softmax",
+        default="ce",  # [ "ce", "log-softmax", "log-prob"]
     )
 
     parser.add_argument("--batch_size", type=int, default=2, help="Batch size")
