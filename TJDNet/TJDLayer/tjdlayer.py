@@ -380,27 +380,27 @@ class TJDLayer(nn.Module):
         # beta = torch.relu(z_beta) + 1e-3
         alpha = torch.ones(batch_size, self.rank, device=z_core.device)
         beta = torch.ones(batch_size, self.rank, device=z_core.device)
-        dcore = torch.relu(z_core) * (1 / seq_len) + 1e-3
+        core = torch.relu(z_core) * (1 / seq_len) + 1e-3
 
         # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
-        core_ident = create_core_ident(
-            batch_size=batch_size, vocab_size=self.vocab_size, rank=self.rank
-        ).to(dcore.device)
-        mask = torch.ones_like(core_ident).to(dcore.device)
-        mask[:, :, self.identity_transform_ids, :] = 0
-        core = core_ident + mask * dcore
+        # core_ident = create_core_ident(
+        #     batch_size=batch_size, vocab_size=self.vocab_size, rank=self.rank
+        # ).to(dcore.device)
+        # mask = torch.ones_like(core_ident).to(dcore.device)
+        # mask[:, :, self.identity_transform_ids, :] = 0
+        # core = core_ident + mask * dcore
 
-        for tens_name, tens_val in zip(["alpha", "beta", "core"], [alpha, beta, core]):
-            check_naninf(tens_val, f"_get_tt_params:{tens_name}")
-            tens_min, tens_max, tens_mean, tens_std = (
-                torch.min(tens_val),
-                torch.max(tens_val),
-                torch.mean(tens_val),
-                torch.std(tens_val),
-            )
-            logger.debug(
-                f"{tens_name}: min: {tens_min:.4f} | max: {tens_max:.4f} | mean: {tens_mean:.4f} | std: {tens_std:.4f}"
-            )
+        # for tens_name, tens_val in zip(["alpha", "beta", "core"], [alpha, beta, core]):
+        #     check_naninf(tens_val, f"_get_tt_params:{tens_name}")
+        #     tens_min, tens_max, tens_mean, tens_std = (
+        #         torch.min(tens_val),
+        #         torch.max(tens_val),
+        #         torch.mean(tens_val),
+        #         torch.std(tens_val),
+        #     )
+        #     logger.debug(
+        #         f"{tens_name}: min: {tens_min:.4f} | max: {tens_max:.4f} | mean: {tens_mean:.4f} | std: {tens_std:.4f}"
+        #     )
 
         return alpha, beta, core
 
@@ -489,6 +489,7 @@ class TJDLayer(nn.Module):
             ).reshape(
                 batch_size * seq_len, self.rank, self.vocab_size, self.rank
             )  # (B*T, R, V, R)
+
             z_alpha = torch.ones(batch_size * seq_len, self.rank, device=z_core.device)
             z_beta = torch.ones(batch_size * seq_len, self.rank, device=z_core.device)
             logits = torch.einsum("bi, bidj, bj->bd", z_alpha, z_core, z_beta)
