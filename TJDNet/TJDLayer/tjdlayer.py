@@ -298,6 +298,35 @@ class TJDLayer(nn.Module):
         init.kaiming_normal_(self.w_beta, mode="fan_out", nonlinearity="relu")
         init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
 
+    def _validate_init_args(
+        self,
+        emb_size,
+        rank: int = 2,
+        vocab_size: int = 128,
+        identity_transform_ids: list[int] = [50256],
+        identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
+        mode: str = "tjd",  # ["tjd", "lm"]
+        *args,
+        **kwargs,
+    ):
+        assert emb_size > 0, "emb_size must be positive"
+        assert rank > 0, "rank must be positive"
+        assert vocab_size > 0, "vocab_size must be positive"
+        assert mode in [
+            "tjd",
+            "tjd-ident",
+            "ce",
+            "ce-plus",
+            "log-softmax",
+            "log-prob",
+        ], "mode must be either 'ce', 'log-softmax', or 'log-prob'"
+
+    def _validate_forward_args(self, input_embs: torch.Tensor, label_ids: torch.Tensor):
+        # Assert: input_embs and label_ids have the same batch size
+        assert input_embs.size(0) == label_ids.size(
+            0
+        ), "Batch size mismatch between input_embs and label_ids"
+
     def _compute_loss(
         self,
         alpha: torch.Tensor,
@@ -376,57 +405,34 @@ class TJDLayer(nn.Module):
         beta = torch.relu(z_beta) + 1e-3
         # alpha = torch.ones(batch_size, self.rank, device=z_core.device)
         # beta = torch.ones(batch_size, self.rank, device=z_core.device)
-        core = torch.relu(z_core) * (1 / seq_len) + 1e-3
+        dcore = torch.relu(z_core) * (1 / seq_len) + 1e-3
 
-        # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
-        # core_ident = create_core_ident(
-        #     batch_size=batch_size, vocab_size=self.vocab_size, rank=self.rank
-        # ).to(dcore.device)
-        # mask = torch.ones_like(core_ident).to(dcore.device)
-        # mask[:, :, self.identity_transform_ids, :] = 0
-        # core = core_ident + mask * dcore
+        if self.mode == "tjd-ident":
+            # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
+            core_ident = create_core_ident(
+                batch_size=batch_size, vocab_size=self.vocab_size, rank=self.rank
+            ).to(dcore.device)
+            mask = torch.ones_like(core_ident).to(dcore.device)
+            mask[:, :, self.identity_transform_ids, :] = 0
+            core = core_ident + mask * dcore
 
-        # for tens_name, tens_val in zip(["alpha", "beta", "core"], [alpha, beta, core]):
-        #     check_naninf(tens_val, f"_get_tt_params:{tens_name}")
-        #     tens_min, tens_max, tens_mean, tens_std = (
-        #         torch.min(tens_val),
-        #         torch.max(tens_val),
-        #         torch.mean(tens_val),
-        #         torch.std(tens_val),
-        #     )
-        #     logger.debug(
-        #         f"{tens_name}: min: {tens_min:.4f} | max: {tens_max:.4f} | mean: {tens_mean:.4f} | std: {tens_std:.4f}"
-        #     )
+            for tens_name, tens_val in zip(
+                ["alpha", "beta", "core"], [alpha, beta, core]
+            ):
+                check_naninf(tens_val, f"_get_tt_params:{tens_name}")
+                tens_min, tens_max, tens_mean, tens_std = (
+                    torch.min(tens_val),
+                    torch.max(tens_val),
+                    torch.mean(tens_val),
+                    torch.std(tens_val),
+                )
+                logger.debug(
+                    f"{tens_name}: min: {tens_min:.4f} | max: {tens_max:.4f} | mean: {tens_mean:.4f} | std: {tens_std:.4f}"
+                )
+        else:
+            core = dcore
 
         return alpha, beta, core
-
-    def _validate_init_args(
-        self,
-        emb_size,
-        rank: int = 2,
-        vocab_size: int = 128,
-        identity_transform_ids: list[int] = [50256],
-        identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
-        mode: str = "tjd",  # ["tjd", "lm"]
-        *args,
-        **kwargs,
-    ):
-        assert emb_size > 0, "emb_size must be positive"
-        assert rank > 0, "rank must be positive"
-        assert vocab_size > 0, "vocab_size must be positive"
-        assert mode in [
-            "tjd",
-            "ce",
-            "ce-plus",
-            "log-softmax",
-            "log-prob",
-        ], "mode must be either 'ce', 'log-softmax', or 'log-prob'"
-
-    def _validate_forward_args(self, input_embs: torch.Tensor, label_ids: torch.Tensor):
-        # Assert: input_embs and label_ids have the same batch size
-        assert input_embs.size(0) == label_ids.size(
-            0
-        ), "Batch size mismatch between input_embs and label_ids"
 
     def get_preds(
         self,
