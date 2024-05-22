@@ -60,7 +60,7 @@ class TTDist:
         )
 
         core_result = core_marginalized
-        for i in range(self.n_core_repititions):
+        for i in range(max(self.n_core_repititions - 1, 0)):
             check_naninf(core_result, f"_get_normalization_constant:core_result_{i}")
             check_naninf(
                 core_marginalized,
@@ -419,6 +419,7 @@ class TJDLayer(nn.Module):
         assert rank > 0, "rank must be positive"
         assert vocab_size > 0, "vocab_size must be positive"
         assert mode in [
+            "tjd",
             "ce",
             "ce-plus",
             "log-softmax",

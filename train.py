@@ -198,7 +198,7 @@ if __name__ == "__main__":
         "-t",
         "--tjd_mode",
         type=str,
-        default="ce-plus",  # [ "ce", "log-softmax", "log-prob"]
+        default="tjd",  # [ "ce", "log-softmax", "log-prob"]
     )
 
     parser.add_argument("--batch_size", type=int, default=2, help="Batch size")
