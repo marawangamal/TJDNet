@@ -1,6 +1,6 @@
 import unittest
 import torch
-from TJDNet import TTDist
+from TJDNet import TTDist, sample_from_tensor_dist
 
 
 def normalize_matrix(matrix):
@@ -69,18 +69,74 @@ class TestTTDist(unittest.TestCase):
     #     #   assert(contraction.isFinite())
     #     raise NotImplementedError("Test not implemented yet.")
 
-    # def test_ttdist_leanrable(self):
-    #     """Test get_prob_and_norm method."""
-    #     # alpa, beta = ones
-    #     # core = randn(mu=0, std=std) // BxRxDxR
-    #     # gt_idx = torch.randint(0, D, (B, T))
-    #     # for i in range(100):
-    #     #   probs = ttdist(alpha, beta, core, gt_idx)
-    #     #   loss = -torch.log(probs).mean()
-    #     #   loss.backward()
-    #     #   optimizer.step()
-    #     #  assert(loss.item() < 0.1)
-    #     raise NotImplementedError("Test not implemented yet.")
+    def test_sample_from_true_dist(self):
+
+        non_zero_indices_list = [
+            [
+                [0],
+            ],
+            [
+                [0, 1, 0, 1],
+                [0, 0, 1, 1],
+            ],
+        ]
+        for non_zero_indices in non_zero_indices_list:
+
+            non_zero_indices = torch.tensor(non_zero_indices)
+
+            vocab_size = 4
+            n_dims = non_zero_indices.size(1)
+            n_samples = 10
+            prob_tensor = torch.zeros(*[vocab_size for _ in range(n_dims)])
+            prob_tensor[0, 1, 0, 1] = 1.0
+            prob_tensor[0, 0, 1, 1] = 1.0
+            prob_tensor = prob_tensor / prob_tensor.sum()
+
+            samples = sample_from_tensor_dist(prob_tensor, n_samples)
+            for sample in samples:
+                self.assertTrue(
+                    any(
+                        torch.equal(sample, valid_sample)
+                        for valid_sample in non_zero_indices.tolist()
+                    )
+                )
+
+    def test_ttdist_leanrable(self):
+        """Test get_prob_and_norm method."""
+        n_iters = 1000
+        batch_size = 5
+        rank = 2
+        vocab_size = 10
+        output_size = 1
+
+        true_dist = torch.abs(torch.randn(*[vocab_size for _ in range(output_size)]))
+        true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
+
+        # Sample `batch_size` random samples from the true distribution
+        samples = sample_from_tensor_dist(true_dist, batch_size)
+
+        alpha = torch.nn.Parameter(torch.randn(batch_size, rank))
+        beta = torch.nn.Parameter(torch.randn(batch_size, rank))
+        core = torch.nn.Parameter(torch.randn(batch_size, rank, vocab_size, rank))
+
+        optimizer = torch.optim.Adam([alpha, beta, core], lr=1e-2)
+
+        for i in range(n_iters):
+            optimizer.zero_grad()
+
+            # Forward pass:
+            alpha_pos = torch.nn.functional.relu(alpha) + 1e-6
+            beta_pos = torch.nn.functional.relu(beta) + 1e-6
+            core_pos = torch.nn.functional.relu(core) + 1e-6
+            ttdist = TTDist(alpha_pos, beta_pos, core_pos, output_size)
+            probs_tilde, norm_constant = ttdist.get_prob_and_norm(samples)
+            loss = (-torch.log(probs_tilde) + torch.log(norm_constant)).mean()
+            # Backward pass:
+            loss.backward()
+            optimizer.step()
+
+            if i % 100 == 0:
+                print(f"Iteration {i}: Loss = {loss.item()}")
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ setup(
     version="1.0",
     packages=["TJDNet"],
     install_requires=[
-        "torch>=2.3.0",
+        "torch>=2.0.0",
         "tqdm>=4.66.4",
         "transformers>=4.40.1",
         "hydra-core>=1.3.2",

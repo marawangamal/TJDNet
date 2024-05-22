@@ -54,3 +54,27 @@ def apply_id_transform(target, id_map):
 
 
 # Test the function as described earlier in the test setup.
+def sample_from_tensor_dist(dist: torch.Tensor, n_samples: int) -> torch.Tensor:
+    """Sample from a tensor distribution.
+
+    Args:
+        dist (torch.Tensor): Tensor of probabilities to sample from. Shape: (D1, D2, ..., DN).
+        n_samples (int): Number of samples to draw from the distribution.
+
+    Returns:
+        torch.Tensor: Samples drawn from the distribution. Shape: (n_samples, N).
+    """
+
+    # Flatten the probability tensor
+    flattened_dist = dist.view(-1)
+
+    # Sample indices from the flattened distribution
+    sampled_indices = torch.multinomial(flattened_dist, n_samples, replacement=True)
+
+    # Convert the flat indices back to the original multi-dimensional indices
+    sampled_multi_indices = torch.unravel_index(sampled_indices, dist.shape)
+
+    # Stack the multi-dimensional indices to get the final samples
+    samples = torch.stack(sampled_multi_indices, dim=-1)
+
+    return samples

@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Dict
 import torch.nn as nn
 import torch
 from torch import Tensor
@@ -139,8 +139,8 @@ class TTDist:
             n_beams = self.core.shape[2]
 
         # Initialize beams
-        beams: list[list[Tensor]] = [[torch.tensor(0)] for _ in range(n_beams)]
-        beam_probs: list[Tensor] = [torch.tensor(1.0) for _ in range(n_beams)]
+        beams: List[List[Tensor]] = [[torch.tensor(0)] for _ in range(n_beams)]
+        beam_probs: List[Tensor] = [torch.tensor(1.0) for _ in range(n_beams)]
 
         # Assert only batch size of 1 is supported
         assert self.batch_size == 1, "Batch size must be 1 for beam search"
@@ -258,8 +258,8 @@ class TJDLayer(nn.Module):
         emb_size,
         rank: int = 2,
         vocab_size: int = 128,
-        identity_transform_ids: list[int] = [50256],
-        identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
+        identity_transform_ids: List[int] = [50256],
+        identity_transform_label_id_token_id: Dict[int, int] = {-100: 50256},
         mode: str = "tjd",  #  ["tjd", "lm", "tjd-lm", "tjd-lm-plus"]
         *args,
         **kwargs,
@@ -303,8 +303,8 @@ class TJDLayer(nn.Module):
         emb_size,
         rank: int = 2,
         vocab_size: int = 128,
-        identity_transform_ids: list[int] = [50256],
-        identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
+        identity_transform_ids: List[int] = [50256],
+        identity_transform_label_id_token_id: Dict[int, int] = {-100: 50256},
         mode: str = "tjd",  # ["tjd", "lm"]
         *args,
         **kwargs,
@@ -315,6 +315,7 @@ class TJDLayer(nn.Module):
         assert mode in [
             "tjd",
             "tjd-ident",
+            "tjd-bounded",
             "ce",
             "ce-plus",
             "log-softmax",
@@ -359,8 +360,31 @@ class TJDLayer(nn.Module):
         output_size = target.size(1)
         ttdist = TTDist(alpha, beta, core, output_size)
         prob_tilde, norm_constant = ttdist.get_prob_and_norm(target)
-        log_prob = torch.log(prob_tilde) - torch.log(norm_constant)
-        loss = -log_prob
+
+        if self.mode == "tjd-bounded":
+            # Take another random target and compute triplet loss
+            target_neg = torch.randint_like(
+                target, 0, self.vocab_size, device=target.device
+            )
+            prob_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(target_neg)
+            prob_tilde_neg_bounded = torch.clamp(prob_tilde_neg, 0, 1)
+            prob_tilde_bounded = torch.clamp(prob_tilde, 0, 1)
+
+            # loss_inv = prob_tilde_bounded + torch.abs(
+            #     prob_tilde_bounded - prob_tilde_neg_bounded
+            # )
+            # loss = -loss_inv
+
+            loss = torch.nn.functional.triplet_margin_loss(
+                torch.ones_like(prob_tilde_bounded),
+                prob_tilde_bounded,
+                prob_tilde_neg_bounded,
+            )
+
+        else:
+            log_prob = torch.log(prob_tilde) - torch.log(norm_constant)
+            loss = -log_prob
+
         logger.debug(f"Target: {target.detach().cpu().numpy().tolist()}")
         logger.debug(f"Prob Tilde: {prob_tilde.detach().cpu().numpy().tolist()}")
         logger.debug(f"Norm Constant: {norm_constant.detach().cpu().numpy().tolist()}")
