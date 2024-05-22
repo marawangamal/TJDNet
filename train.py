@@ -203,7 +203,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_size", type=int, default=2, help="Batch size")
 
-    parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
 
     args = parser.parse_args()
 

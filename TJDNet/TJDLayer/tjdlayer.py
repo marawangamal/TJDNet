@@ -289,18 +289,14 @@ class TJDLayer(nn.Module):
         self.identity_transform_label_id_token_id = identity_transform_label_id_token_id
         self.mode = mode
 
-        if self.mode == "lm":
-            self.w_vocab = nn.Parameter(torch.empty(emb_size, vocab_size))
-            init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
-        else:
-            # self.w_alpha = nn.Parameter(torch.empty(emb_size, rank))
-            # self.w_beta = nn.Parameter(torch.empty(emb_size, rank))
-            self.w_vocab = nn.Parameter(torch.empty(emb_size, vocab_size * rank * rank))
+        self.w_alpha = nn.Parameter(torch.empty(emb_size, rank))
+        self.w_beta = nn.Parameter(torch.empty(emb_size, rank))
+        self.w_vocab = nn.Parameter(torch.empty(emb_size, vocab_size * rank * rank))
 
-            # Initialize with Kaiming Normal for ReLU activations
-            # init.kaiming_normal_(self.w_alpha, mode="fan_out", nonlinearity="relu")
-            # init.kaiming_normal_(self.w_beta, mode="fan_out", nonlinearity="relu")
-            init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
+        # Initialize with Kaiming Normal for ReLU activations
+        init.kaiming_normal_(self.w_alpha, mode="fan_out", nonlinearity="relu")
+        init.kaiming_normal_(self.w_beta, mode="fan_out", nonlinearity="relu")
+        init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
 
     def _compute_loss(
         self,
@@ -370,16 +366,16 @@ class TJDLayer(nn.Module):
         """
 
         batch_size, seq_len, _ = x.shape
-        # z_alpha = x[:, -1, :] @ self.w_alpha  # (B, R)
-        # z_beta = x[:, -1, :] @ self.w_beta  # (B, R)
+        z_alpha = x[:, -1, :] @ self.w_alpha  # (B, R)
+        z_beta = x[:, -1, :] @ self.w_beta  # (B, R)
         z_core = (x[:, -1, :] @ self.w_vocab).reshape(
             batch_size, self.rank, self.vocab_size, self.rank
         )  # (B, D * R * R)
 
-        # alpha = torch.relu(z_alpha) + 1e-3
-        # beta = torch.relu(z_beta) + 1e-3
-        alpha = torch.ones(batch_size, self.rank, device=z_core.device)
-        beta = torch.ones(batch_size, self.rank, device=z_core.device)
+        alpha = torch.relu(z_alpha) + 1e-3
+        beta = torch.relu(z_beta) + 1e-3
+        # alpha = torch.ones(batch_size, self.rank, device=z_core.device)
+        # beta = torch.ones(batch_size, self.rank, device=z_core.device)
         core = torch.relu(z_core) * (1 / seq_len) + 1e-3
 
         # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
