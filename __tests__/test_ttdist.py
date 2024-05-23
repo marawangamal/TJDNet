@@ -88,8 +88,7 @@ class TestTTDist(unittest.TestCase):
             n_dims = non_zero_indices.size(1)
             n_samples = 10
             prob_tensor = torch.zeros(*[vocab_size for _ in range(n_dims)])
-            prob_tensor[0, 1, 0, 1] = 1.0
-            prob_tensor[0, 0, 1, 1] = 1.0
+            prob_tensor[tuple(non_zero_indices.t())] = 1.0
             prob_tensor = prob_tensor / prob_tensor.sum()
 
             samples = sample_from_tensor_dist(prob_tensor, n_samples)
@@ -97,7 +96,7 @@ class TestTTDist(unittest.TestCase):
                 self.assertTrue(
                     any(
                         torch.equal(sample, valid_sample)
-                        for valid_sample in non_zero_indices.tolist()
+                        for valid_sample in non_zero_indices
                     )
                 )
 
@@ -131,12 +130,15 @@ class TestTTDist(unittest.TestCase):
             ttdist = TTDist(alpha_pos, beta_pos, core_pos, output_size)
             probs_tilde, norm_constant = ttdist.get_prob_and_norm(samples)
             loss = (-torch.log(probs_tilde) + torch.log(norm_constant)).mean()
+
             # Backward pass:
             loss.backward()
             optimizer.step()
 
             if i % 100 == 0:
                 print(f"Iteration {i}: Loss = {loss.item()}")
+
+        self.assertTrue(loss.item() < 1e-2)
 
 
 if __name__ == "__main__":

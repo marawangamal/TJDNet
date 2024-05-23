@@ -79,8 +79,11 @@ class TTDist:
             self.beta,
         )
 
-        # Assert: postive normalization constant
-        assert torch.all(core_result > 0), "Normalization constant must be positive"
+        # Get mask where core_result is zero and set to e-10
+        zero_mask = core_result == 0
+        if zero_mask.any():
+            logger.warning(f"Normalization constant has zeros. Setting to 1e-10")
+        core_result[zero_mask] = 1e-10
 
         return core_result
 
@@ -96,14 +99,6 @@ class TTDist:
         Returns:
             torch.Tensor: Unnormalized probabilities of sequences corresponding to indices. Shape: (B,)
         """
-
-        # Assert: indices are within the core size
-        assert torch.all(
-            indices < self.core.shape[2]
-        ), "Indices must be within the core size"
-
-        # Assert: indices are non-negative
-        assert torch.all(indices >= 0), "Indices must be non-negative"
 
         batch_size = indices.size(0)
         cores_after_selection = [
@@ -220,6 +215,15 @@ class TTDist:
         Returns:
             Tuple[Tensor, Tensor]: Unnormalized probabilities and normalization constant. Shapes: (B,), (B,)
         """
+
+        # Assert: indices are within the core size
+        assert torch.all(
+            indices < self.core.shape[2]
+        ), "Indices must be within the core size"
+
+        # Assert: indices are non-negative
+        assert torch.all(indices >= 0), "Indices must be non-negative"
+
         unormalized_probs = self._select(indices)
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
 
@@ -425,11 +429,9 @@ class TJDLayer(nn.Module):
             batch_size, self.rank, self.vocab_size, self.rank
         )  # (B, D * R * R)
 
-        alpha = torch.relu(z_alpha) + 1e-3
-        beta = torch.relu(z_beta) + 1e-3
-        # alpha = torch.ones(batch_size, self.rank, device=z_core.device)
-        # beta = torch.ones(batch_size, self.rank, device=z_core.device)
-        dcore = torch.relu(z_core) * (1 / seq_len) + 1e-3
+        alpha = torch.abs(z_alpha)
+        beta = torch.abs(z_beta)
+        dcore = torch.abs(z_core) * (1 / seq_len)
 
         if self.mode == "tjd-ident":
             # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
