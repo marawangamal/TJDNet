@@ -113,6 +113,9 @@ def main(
     lit_model = LitTJDNet(model_params=model_params, model_name=model_name, lr=lr)
     tokenizer = lit_model.tokenizer
 
+    if tokenizer is None:
+        raise ValueError("No tokenizer found")
+
     # Preprocess the dataset
     def tokenize_function(examples, max_length=seq_len):
         preprocessed = config["preprocess_batch_func"](examples)

@@ -41,5 +41,9 @@ for epoch in range(epochs):
 ## Training
 
 ```bash
-python train.py  --model_name gpt2 --dataset_name wikitext --max_seq_len 128 --num_epochs 3
+python train.py  \
+    --model_name gpt2 \
+    --dataset_name wikitext  \
+    --max_seq_len 128 \
+    --num_epochs 3
 ```

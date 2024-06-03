@@ -140,6 +140,58 @@ class TestTTDist(unittest.TestCase):
 
         self.assertTrue(loss.item() < 1e-2)
 
+    # def test_ttdist_leanrable_triplet(self):
+    #     """Test get_prob_and_norm method."""
+    #     n_iters = 1000
+    #     batch_size = 5
+    #     rank = 2
+    #     vocab_size = 10
+    #     output_size = 1
+
+    #     true_dist = torch.abs(torch.randn(*[vocab_size for _ in range(output_size)]))
+    #     true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
+
+    #     # Sample `batch_size` random samples from the true distribution
+    #     samples = sample_from_tensor_dist(true_dist, batch_size)
+
+    #     alpha = torch.nn.Parameter(torch.randn(batch_size, rank))
+    #     beta = torch.nn.Parameter(torch.randn(batch_size, rank))
+    #     core = torch.nn.Parameter(torch.randn(batch_size, rank, vocab_size, rank))
+
+    #     optimizer = torch.optim.Adam([alpha, beta, core], lr=1e-2)
+
+    #     for i in range(n_iters):
+    #         optimizer.zero_grad()
+
+    #         # Forward pass:
+    #         alpha_pos = torch.nn.functional.relu(alpha) + 1e-6
+    #         beta_pos = torch.nn.functional.relu(beta) + 1e-6
+    #         core_pos = torch.nn.functional.relu(core) + 1e-6
+    #         ttdist = TTDist(alpha_pos, beta_pos, core_pos, output_size)
+    #         probs_tilde, norm_constant = ttdist.get_prob_and_norm(samples)
+
+    #         target_neg = torch.randint_like(
+    #             target, 0, self.vocab_size, device=target.device
+    #         )
+    #         prob_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(target_neg)
+    #         prob_tilde_neg_bounded = torch.clamp(prob_tilde_neg, 0, 1)
+    #         prob_tilde_bounded = torch.clamp(prob_tilde, 0, 1)
+
+    #         loss = torch.nn.functional.triplet_margin_loss(
+    #             torch.ones_like(prob_tilde_bounded),
+    #             prob_tilde_bounded,
+    #             prob_tilde_neg_bounded,
+    #         )
+
+    #         # Backward pass:
+    #         loss.backward()
+    #         optimizer.step()
+
+    #         if i % 100 == 0:
+    #             print(f"Iteration {i}: Loss = {loss.item()}")
+
+    #     self.assertTrue(loss.item() < 1e-2)
+
 
 if __name__ == "__main__":
     unittest.main()
