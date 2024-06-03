@@ -48,6 +48,7 @@ class LitTJDNet(LightningModule):
             self.tokenizer = tokenizer
 
         self.model = model
+        self.model_name = model_name.lower()
         self.lr = lr
         self.generate_on_epoch_end = generate_on_epoch_end
 
@@ -55,8 +56,8 @@ class LitTJDNet(LightningModule):
         return self.model(**batch)
 
     def training_step(self, batch, batch_idx):
-        if batch["label_ids"].shape[0] < 2 or batch["label_ids"].shape[1] < 1:
-            return None
+        # if batch["label_ids"].shape[0] < 2 or batch["label_ids"].shape[1] < 1:
+        #     return None
 
         outputs = self(**batch)
         # self.tokenizer.decode(batch["input_ids"][0], skip_special_tokens=True)
@@ -83,6 +84,11 @@ class LitTJDNet(LightningModule):
         outputs = self(**batch)
         loss = outputs.loss
         self.log("val_loss", loss, on_step=False, prog_bar=False)
+        if self.model_name == "basic-tjd-layer":
+            # Calc accuracy
+            device = batch["label_ids"].device
+            acc = (outputs.pred.to(device) == batch["label_ids"]).float().mean()
+            self.log("val_acc", acc, on_step=False, prog_bar=False)
         return {"val_loss": loss}
 
     def configure_optimizers(self):

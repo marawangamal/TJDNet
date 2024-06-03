@@ -604,9 +604,12 @@ class TJDLayer(nn.Module):
 
 
 class BasicTJDLayerOutput:
-    def __init__(self, loss: torch.Tensor, prob: torch.Tensor) -> None:
+    def __init__(
+        self, loss: torch.Tensor, prob: torch.Tensor, pred: torch.Tensor
+    ) -> None:
         self.loss = loss
         self.prob = prob
+        self.pred = pred
 
 
 class BasicTJDLayer(nn.Module):
@@ -622,6 +625,26 @@ class BasicTJDLayer(nn.Module):
         prob_tilde, norm_constant = ttdist.get_prob_and_norm(target)
         return prob_tilde / norm_constant
 
+    def beam_argmax(
+        self,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+        core: torch.Tensor,
+        n_repetitions: int,
+    ):
+        """Computes argmax_x P(x1, x2, ... xN).
+
+        Probability is parameterized with a TT distribution.
+
+        Args:
+            alpha (torch.Tensor): Shape: (B, R).
+            beta (torch.Tensor): Shape: (B, R).
+            core (torch.Tensor): Shape: (B, R, V, R).
+        """
+        ttdist = TTDist(alpha, beta, core, n_repetitions)
+        max_seqs = ttdist.beam_search(n_beams=1)
+        return max_seqs
+
     def forward(self, label_ids: torch.Tensor) -> BasicTJDLayerOutput:
         batch_size, n_repetitions = label_ids.shape
         batched_alpha = self.alpha.repeat(batch_size, 1)
@@ -630,4 +653,7 @@ class BasicTJDLayer(nn.Module):
         ttdist = TTDist(batched_alpha, batched_beta, batched_core, n_repetitions)
         prob_tilde, norm_constant = ttdist.get_prob_and_norm(label_ids)
         loss = -torch.log(prob_tilde) + torch.log(norm_constant)
-        return BasicTJDLayerOutput(loss.mean(), prob_tilde / norm_constant)
+        pred = self.beam_argmax(
+            batched_alpha, batched_beta, batched_core, n_repetitions
+        )
+        return BasicTJDLayerOutput(loss.mean(), prob_tilde / norm_constant, pred)

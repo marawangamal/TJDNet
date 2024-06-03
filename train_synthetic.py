@@ -125,7 +125,7 @@ if __name__ == "__main__":
         help="Directory to save model checkpoints",
     )
 
-    parser.add_argument("--batch_size", type=int, default=2, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
 
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
 
