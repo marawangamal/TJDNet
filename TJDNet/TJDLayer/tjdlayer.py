@@ -28,6 +28,8 @@ class TTDist:
         beta: torch.Tensor,
         core: torch.Tensor,
         n_core_repititions: int,
+        repeat_batch_size: Optional[int] = None,
+        eps: float = 1e-10,
     ) -> None:
         """Tensor Train Parameterization of Joint Distribution.
 
@@ -40,11 +42,16 @@ class TTDist:
             n_core_repititions (int): Number of core repititions.
         """
 
-        self.alpha = torch.relu(alpha)
-        self.beta = torch.relu(beta)
-        self.core = torch.relu(core)
+        self.alpha = torch.relu(alpha) + eps
+        self.beta = torch.relu(beta) + eps
+        self.core = torch.relu(core) + eps
         self.batch_size = alpha.shape[0]
         self.n_core_repititions = n_core_repititions
+
+        if repeat_batch_size:
+            self.alpha = self.alpha.repeat(repeat_batch_size, 1)
+            self.beta = self.beta.repeat(repeat_batch_size, 1)
+            self.core = self.core.repeat(repeat_batch_size, 1, 1, 1)
 
     def _get_normalization_constant(self) -> torch.Tensor:
         """Get the normalization constant for the TTDist
@@ -83,7 +90,6 @@ class TTDist:
         zero_mask = core_result == 0
         if zero_mask.any():
             logger.warning(f"Normalization constant has zeros.")
-        # core_result[zero_mask] = 1e-10
 
         return core_result
 
@@ -242,6 +248,43 @@ class TTDist:
         return torch.randint(
             0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
         )  # [B, n_core_repititions]
+
+    def materialize(self):
+        """Materialize the TTDist object.
+
+        Returns:
+            torch.Tensor: Materialized joint distribution. Shape: (B, D, D, ..., D)
+        """
+
+        rank_size = self.core.shape[1]
+        batch_size = self.core.shape[0]
+        vocab_size = self.core.shape[2]
+
+        result = torch.einsum(
+            "bi, bidj->bdj",
+            self.alpha,
+            self.core,
+        )
+
+        for i in range(1, self.n_core_repititions):
+            result = torch.einsum(
+                "bdi, bivj->bdvj",
+                result,
+                self.core,
+            )
+            result.reshape(batch_size, -1, rank_size)
+
+        result = torch.einsum(
+            "bdj, bj->bd",
+            result,
+            self.beta,
+        )
+
+        # Break out all vocab_size dimensions
+        result = result.reshape(
+            batch_size, *[vocab_size for _ in range(self.n_core_repititions)]
+        )
+        return result
 
     def beam_search(self, n_beams: int = 5) -> torch.Tensor:
         """Beam search using the TTDist joint distribution.
