@@ -272,7 +272,7 @@ class TTDist:
                 result,
                 self.core,
             )
-            result.reshape(batch_size, -1, rank_size)
+            result = result.reshape(batch_size, -1, rank_size)
 
         result = torch.einsum(
             "bdj, bj->bd",
