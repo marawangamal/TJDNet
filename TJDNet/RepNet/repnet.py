@@ -1,4 +1,4 @@
-from typing import Union, Callable, Any, Sequence
+from typing import Union, Callable, Any, Sequence, List
 import copy
 import torch.nn as nn
 
@@ -122,7 +122,7 @@ class RepNet(nn.Module):
     def _set_module(
         self,
         model: nn.Module,
-        replacement_addr_list: list[Union[int, str]],
+        replacement_addr_list: List[Union[int, str]],
         replacement_layer: nn.Module,
     ) -> None:
         """Sets attribute of `model` accessed via `replacement_addr_list` to `replacement_layer`."""
@@ -143,7 +143,7 @@ class RepNet(nn.Module):
             setattr(parent, target, replacement_layer)
 
     @staticmethod
-    def _parse_model_addr(access_str: str) -> list[Union[int, str]]:
+    def _parse_model_addr(access_str: str) -> List[Union[int, str]]:
         """Parses path to child from a parent. E.g., layer1.0.conv2 ==> ['layer1', 0, 'conv2']"""
         parsed: Sequence[Union[int, str]] = access_str.split(".")
         for i in range(len(parsed)):

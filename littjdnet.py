@@ -4,7 +4,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from pytorch_lightning import LightningModule
 
-from TJDNet import TJDNet
+from TJDNet import TJDNet, BasicTJDLayer
 
 
 logger = logging.getLogger(__name__)
@@ -20,38 +20,44 @@ logging.basicConfig(
 class LitTJDNet(LightningModule):
     def __init__(
         self,
-        model_name: str,
+        model_name: str,  # [tjd-layer, any other model HF supports]
         model_params: dict,
         lr: float = 5e-5,
         generate_on_epoch_end: bool = False,
     ):
         super().__init__()
-        model = AutoModelForCausalLM.from_pretrained(model_name)
-        model = TJDNet(
-            model,
-            **model_params,
-        )
-        model.replace_base_model_layers()
+        if model_name.lower() == "basic-tjd-layer":
+            model = BasicTJDLayer(**model_params)
+            self.tokenizer = None
+        else:
+            model = AutoModelForCausalLM.from_pretrained(model_name)
+            model = TJDNet(
+                model,
+                **model_params,
+            )
+            model.replace_base_model_layers()
+
+            # Ensure the tokenizer has a pad token
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            if tokenizer.pad_token is None:
+                logger.info(
+                    "Tokenizer does not have a pad token set. Setting pad_token to eos_token."
+                )
+                tokenizer.pad_token = tokenizer.eos_token
+
+            self.tokenizer = tokenizer
+
         self.model = model
+        self.model_name = model_name.lower()
         self.lr = lr
         self.generate_on_epoch_end = generate_on_epoch_end
-
-        # Ensure the tokenizer has a pad token
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        if tokenizer.pad_token is None:
-            logger.info(
-                "Tokenizer does not have a pad token set. Setting pad_token to eos_token."
-            )
-            tokenizer.pad_token = tokenizer.eos_token
-
-        self.tokenizer = tokenizer
 
     def forward(self, **batch):
         return self.model(**batch)
 
     def training_step(self, batch, batch_idx):
-        if batch["input_ids"].shape[0] < 2 or batch["input_ids"].shape[1] < 1:
-            return None
+        # if batch["label_ids"].shape[0] < 2 or batch["label_ids"].shape[1] < 1:
+        #     return None
 
         outputs = self(**batch)
         # self.tokenizer.decode(batch["input_ids"][0], skip_special_tokens=True)
@@ -85,7 +91,7 @@ class LitTJDNet(LightningModule):
         return optimizer
 
     def on_train_epoch_end(self) -> None:
-        if self.generate_on_epoch_end:
+        if self.generate_on_epoch_end and self.tokenizer is not None:
             logger.info("Generating text sample...")
             prompt = "The meaning of life is"
             device = next(self.model.parameters()).device

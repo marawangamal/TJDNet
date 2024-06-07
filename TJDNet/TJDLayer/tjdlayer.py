@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Dict
 import torch.nn as nn
 import torch
 from torch import Tensor
@@ -40,9 +40,9 @@ class TTDist:
             n_core_repititions (int): Number of core repititions.
         """
 
-        self.alpha = alpha
-        self.beta = beta
-        self.core = core
+        self.alpha = torch.relu(alpha)
+        self.beta = torch.relu(beta)
+        self.core = torch.relu(core)
         self.batch_size = alpha.shape[0]
         self.n_core_repititions = n_core_repititions
 
@@ -79,8 +79,11 @@ class TTDist:
             self.beta,
         )
 
-        # Assert: postive normalization constant
-        assert torch.all(core_result > 0), "Normalization constant must be positive"
+        # Get mask where core_result is zero and set to e-10
+        zero_mask = core_result == 0
+        if zero_mask.any():
+            logger.warning(f"Normalization constant has zeros.")
+        # core_result[zero_mask] = 1e-10
 
         return core_result
 
@@ -96,14 +99,6 @@ class TTDist:
         Returns:
             torch.Tensor: Unnormalized probabilities of sequences corresponding to indices. Shape: (B,)
         """
-
-        # Assert: indices are within the core size
-        assert torch.all(
-            indices < self.core.shape[2]
-        ), "Indices must be within the core size"
-
-        # Assert: indices are non-negative
-        assert torch.all(indices >= 0), "Indices must be non-negative"
 
         batch_size = indices.size(0)
         cores_after_selection = [
@@ -139,8 +134,8 @@ class TTDist:
             n_beams = self.core.shape[2]
 
         # Initialize beams
-        beams: list[list[Tensor]] = [[torch.tensor(0)] for _ in range(n_beams)]
-        beam_probs: list[Tensor] = [torch.tensor(1.0) for _ in range(n_beams)]
+        beams: List[List[Tensor]] = [[torch.tensor(0)] for _ in range(n_beams)]
+        beam_probs: List[Tensor] = [torch.tensor(1.0) for _ in range(n_beams)]
 
         # Assert only batch size of 1 is supported
         assert self.batch_size == 1, "Batch size must be 1 for beam search"
@@ -220,6 +215,15 @@ class TTDist:
         Returns:
             Tuple[Tensor, Tensor]: Unnormalized probabilities and normalization constant. Shapes: (B,), (B,)
         """
+
+        # Assert: indices are within the core size
+        assert torch.all(
+            indices < self.core.shape[2]
+        ), "Indices must be within the core size"
+
+        # Assert: indices are non-negative
+        assert torch.all(indices >= 0), "Indices must be non-negative"
+
         unormalized_probs = self._select(indices)
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
 
@@ -252,14 +256,66 @@ class TTDist:
         return torch.tensor(beams)
 
 
+class BasicTJDLayerOutput:
+    def __init__(self, loss: torch.Tensor, prob: torch.Tensor) -> None:
+        self.loss = loss
+        self.prob = prob
+
+
+class BasicTJDLayer(nn.Module):
+    def __init__(self, rank: int, vocab_size: int, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.alpha = nn.Parameter(torch.abs(torch.randn(rank)))
+        self.beta = nn.Parameter(torch.abs(torch.randn(rank)))
+        self.core = nn.Parameter(torch.abs(torch.randn(rank, vocab_size, rank)))
+        self.eps = 1e-10
+
+    def get_prob(self, target: torch.Tensor) -> torch.Tensor:
+        ttdist = TTDist(self.alpha, self.beta, self.core, 1)
+        prob_tilde, norm_constant = ttdist.get_prob_and_norm(target)
+        return prob_tilde / norm_constant
+
+    def beam_argmax(
+        self,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+        core: torch.Tensor,
+        n_repetitions: int,
+    ):
+        """Computes argmax_x P(x1, x2, ... xN).
+
+        Probability is parameterized with a TT distribution.
+
+        Args:
+            alpha (torch.Tensor): Shape: (B, R).
+            beta (torch.Tensor): Shape: (B, R).
+            core (torch.Tensor): Shape: (B, R, V, R).
+        """
+
+        ttdist = TTDist(alpha, beta, core, n_repetitions)
+        max_seqs = ttdist.beam_search(n_beams=1)
+        return max_seqs
+
+    def forward(self, label_ids: torch.Tensor) -> BasicTJDLayerOutput:
+        batch_size, n_repetitions = label_ids.shape
+        batched_alpha = self.alpha.repeat(batch_size, 1)
+        batched_beta = self.beta.repeat(batch_size, 1)
+        batched_core = self.core.repeat(batch_size, 1, 1, 1)
+        ttdist = TTDist(batched_alpha, batched_beta, batched_core, n_repetitions)
+        prob_tilde, norm_constant = ttdist.get_prob_and_norm(label_ids)
+        loss = -torch.log(prob_tilde + self.eps) + torch.log(norm_constant + self.eps)
+        return BasicTJDLayerOutput(loss.mean(), prob_tilde / norm_constant)
+
+
 class TJDLayer(nn.Module):
     def __init__(
         self,
         emb_size,
         rank: int = 2,
         vocab_size: int = 128,
-        identity_transform_ids: list[int] = [50256],
-        identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
+        identity_transform_ids: List[int] = [50256],
+        identity_transform_label_id_token_id: Dict[int, int] = {-100: 50256},
         mode: str = "tjd",  #  ["tjd", "lm", "tjd-lm", "tjd-lm-plus"]
         *args,
         **kwargs,
@@ -298,6 +354,36 @@ class TJDLayer(nn.Module):
         init.kaiming_normal_(self.w_beta, mode="fan_out", nonlinearity="relu")
         init.kaiming_normal_(self.w_vocab, mode="fan_out", nonlinearity="relu")
 
+    def _validate_init_args(
+        self,
+        emb_size,
+        rank: int = 2,
+        vocab_size: int = 128,
+        identity_transform_ids: List[int] = [50256],
+        identity_transform_label_id_token_id: Dict[int, int] = {-100: 50256},
+        mode: str = "tjd",  # ["tjd", "lm"]
+        *args,
+        **kwargs,
+    ):
+        assert emb_size > 0, "emb_size must be positive"
+        assert rank > 0, "rank must be positive"
+        assert vocab_size > 0, "vocab_size must be positive"
+        assert mode in [
+            "tjd",
+            "tjd-ident",
+            "tjd-bounded",
+            "ce",
+            "ce-plus",
+            "log-softmax",
+            "log-prob",
+        ], "mode must be either 'ce', 'log-softmax', or 'log-prob'"
+
+    def _validate_forward_args(self, input_embs: torch.Tensor, label_ids: torch.Tensor):
+        # Assert: input_embs and label_ids have the same batch size
+        assert input_embs.size(0) == label_ids.size(
+            0
+        ), "Batch size mismatch between input_embs and label_ids"
+
     def _compute_loss(
         self,
         alpha: torch.Tensor,
@@ -330,8 +416,31 @@ class TJDLayer(nn.Module):
         output_size = target.size(1)
         ttdist = TTDist(alpha, beta, core, output_size)
         prob_tilde, norm_constant = ttdist.get_prob_and_norm(target)
-        log_prob = torch.log(prob_tilde) - torch.log(norm_constant)
-        loss = -log_prob
+
+        if self.mode == "tjd-bounded":
+            # Take another random target and compute triplet loss
+            target_neg = torch.randint_like(
+                target, 0, self.vocab_size, device=target.device
+            )
+            prob_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(target_neg)
+            prob_tilde_neg_bounded = torch.clamp(prob_tilde_neg, 0, 1)
+            prob_tilde_bounded = torch.clamp(prob_tilde, 0, 1)
+
+            # loss_inv = prob_tilde_bounded + torch.abs(
+            #     prob_tilde_bounded - prob_tilde_neg_bounded
+            # )
+            # loss = -loss_inv
+
+            loss = torch.nn.functional.triplet_margin_loss(
+                torch.ones_like(prob_tilde_bounded),
+                prob_tilde_bounded,
+                prob_tilde_neg_bounded,
+            )
+
+        else:
+            log_prob = torch.log(prob_tilde) - torch.log(norm_constant)
+            loss = -log_prob
+
         logger.debug(f"Target: {target.detach().cpu().numpy().tolist()}")
         logger.debug(f"Prob Tilde: {prob_tilde.detach().cpu().numpy().tolist()}")
         logger.debug(f"Norm Constant: {norm_constant.detach().cpu().numpy().tolist()}")
@@ -372,61 +481,36 @@ class TJDLayer(nn.Module):
             batch_size, self.rank, self.vocab_size, self.rank
         )  # (B, D * R * R)
 
-        alpha = torch.relu(z_alpha) + 1e-3
-        beta = torch.relu(z_beta) + 1e-3
-        # alpha = torch.ones(batch_size, self.rank, device=z_core.device)
-        # beta = torch.ones(batch_size, self.rank, device=z_core.device)
-        core = torch.relu(z_core) * (1 / seq_len) + 1e-3
+        alpha = torch.abs(z_alpha)
+        beta = torch.abs(z_beta)
+        dcore = torch.abs(z_core) * (1 / seq_len)
 
-        # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
-        # core_ident = create_core_ident(
-        #     batch_size=batch_size, vocab_size=self.vocab_size, rank=self.rank
-        # ).to(dcore.device)
-        # mask = torch.ones_like(core_ident).to(dcore.device)
-        # mask[:, :, self.identity_transform_ids, :] = 0
-        # core = core_ident + mask * dcore
+        if self.mode == "tjd-ident":
+            # Alter core s.t core[b, :, d, :] = I for d in identity_transform_ids
+            core_ident = create_core_ident(
+                batch_size=batch_size, vocab_size=self.vocab_size, rank=self.rank
+            ).to(dcore.device)
+            mask = torch.ones_like(core_ident).to(dcore.device)
+            mask[:, :, self.identity_transform_ids, :] = 0
+            core = core_ident + mask * dcore
 
-        # for tens_name, tens_val in zip(["alpha", "beta", "core"], [alpha, beta, core]):
-        #     check_naninf(tens_val, f"_get_tt_params:{tens_name}")
-        #     tens_min, tens_max, tens_mean, tens_std = (
-        #         torch.min(tens_val),
-        #         torch.max(tens_val),
-        #         torch.mean(tens_val),
-        #         torch.std(tens_val),
-        #     )
-        #     logger.debug(
-        #         f"{tens_name}: min: {tens_min:.4f} | max: {tens_max:.4f} | mean: {tens_mean:.4f} | std: {tens_std:.4f}"
-        #     )
+            for tens_name, tens_val in zip(
+                ["alpha", "beta", "core"], [alpha, beta, core]
+            ):
+                check_naninf(tens_val, f"_get_tt_params:{tens_name}")
+                tens_min, tens_max, tens_mean, tens_std = (
+                    torch.min(tens_val),
+                    torch.max(tens_val),
+                    torch.mean(tens_val),
+                    torch.std(tens_val),
+                )
+                logger.debug(
+                    f"{tens_name}: min: {tens_min:.4f} | max: {tens_max:.4f} | mean: {tens_mean:.4f} | std: {tens_std:.4f}"
+                )
+        else:
+            core = dcore
 
         return alpha, beta, core
-
-    def _validate_init_args(
-        self,
-        emb_size,
-        rank: int = 2,
-        vocab_size: int = 128,
-        identity_transform_ids: list[int] = [50256],
-        identity_transform_label_id_token_id: dict[int, int] = {-100: 50256},
-        mode: str = "tjd",  # ["tjd", "lm"]
-        *args,
-        **kwargs,
-    ):
-        assert emb_size > 0, "emb_size must be positive"
-        assert rank > 0, "rank must be positive"
-        assert vocab_size > 0, "vocab_size must be positive"
-        assert mode in [
-            "tjd",
-            "ce",
-            "ce-plus",
-            "log-softmax",
-            "log-prob",
-        ], "mode must be either 'ce', 'log-softmax', or 'log-prob'"
-
-    def _validate_forward_args(self, input_embs: torch.Tensor, label_ids: torch.Tensor):
-        # Assert: input_embs and label_ids have the same batch size
-        assert input_embs.size(0) == label_ids.size(
-            0
-        ), "Batch size mismatch between input_embs and label_ids"
 
     def get_preds(
         self,

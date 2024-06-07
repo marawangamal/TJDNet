@@ -1,1 +1,1 @@
-from .tjdlayer import TJDLayer, TTDist
+from .tjdlayer import TJDLayer, TTDist, BasicTJDLayer
