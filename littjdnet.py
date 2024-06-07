@@ -84,11 +84,6 @@ class LitTJDNet(LightningModule):
         outputs = self(**batch)
         loss = outputs.loss
         self.log("val_loss", loss, on_step=False, prog_bar=False)
-        if self.model_name == "basic-tjd-layer":
-            # Calc accuracy
-            device = batch["label_ids"].device
-            acc = (outputs.pred.to(device) == batch["label_ids"]).float().mean()
-            self.log("val_acc", acc, on_step=False, prog_bar=False)
         return {"val_loss": loss}
 
     def configure_optimizers(self):

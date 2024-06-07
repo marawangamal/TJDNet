@@ -66,6 +66,7 @@ def main(
     batch_size: int = 4,
     checkpoint_dir: str = "checkpoints",
     overwrite: bool = True,
+    vocab_size: int = 3,
 ):
 
     # 0. Create a unique experiment name
@@ -74,6 +75,7 @@ def main(
         "batch_size": batch_size,
         "lr": lr,
         "model_name": model_name,
+        "vocab_size": vocab_size,
     }
     experiment_name = get_experiment_name(experiment_config)
     logger.info(f"Experiment configuration\n: {experiment_config}")
@@ -87,7 +89,7 @@ def main(
     dataset = SequenceDataset()
     model_params = {
         "rank": 2,
-        "vocab_size": 3,
+        "vocab_size": vocab_size,
     }
     train_dataloader = DataLoader(
         dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
@@ -127,6 +129,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
 
+    parser.add_argument("--vocab_size", type=int, default=3, help="Batch size")
+
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
 
     args = parser.parse_args()
@@ -137,4 +141,5 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         lr=args.lr,
         checkpoint_dir=args.checkpoint_dir,
+        vocab_size=args.vocab_size,
     )
