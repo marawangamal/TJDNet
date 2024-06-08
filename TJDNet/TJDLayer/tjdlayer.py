@@ -1,4 +1,4 @@
-from typing import Any, List, Optional, Tuple, Dict
+from typing import Any, List, Optional, Tuple, Dict, Union
 import torch.nn as nn
 import torch
 from torch import Tensor
@@ -30,6 +30,7 @@ class TTDist:
         n_core_repititions: int,
         repeat_batch_size: Optional[int] = None,
         eps: float = 1e-10,
+        norm_method: str = "relu",
     ) -> None:
         """Tensor Train Parameterization of Joint Distribution.
 
@@ -42,9 +43,24 @@ class TTDist:
             n_core_repititions (int): Number of core repititions.
         """
 
-        self.alpha = torch.relu(alpha) + eps
-        self.beta = torch.relu(beta) + eps
-        self.core = torch.relu(core) + eps
+        assert norm_method in [
+            "relu",
+            "abs",
+            "softmax",
+            "sigmoid",
+        ], f"Normalization method must be one of {norm_method}"
+        self.norm_method = norm_method
+
+        self.precond_func = {
+            "relu": torch.relu,
+            "abs": torch.abs,
+            "sigmoid": torch.sigmoid,
+            "softmax": lambda x: x,
+        }[self.norm_method]
+
+        self.alpha = self.precond_func(alpha) + eps
+        self.beta = self.precond_func(beta) + eps
+        self.core = self.precond_func(core) + eps
         self.batch_size = alpha.shape[0]
         self.n_core_repititions = n_core_repititions
 
@@ -243,6 +259,9 @@ class TTDist:
         # logger.debug(f"Normalization constant: {normalization_constant}")
 
         return unormalized_probs, normalization_constant
+
+    def get_softmax_prob(self, indices) -> Tuple[Tensor, Tensor]:
+        raise NotImplementedError
 
     def sample(self):
         return torch.randint(

@@ -12,23 +12,37 @@ class BasicTJDLayerOutput:
 
 
 class BasicTJDLayer(torch.nn.Module):
-    def __init__(self, vocab_size: int, model_rank: int, *args, **kwargs) -> None:
+    def __init__(
+        self, vocab_size: int, model_rank: int, norm_method: str, *args, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.alpha = torch.nn.Parameter(torch.randn(1, model_rank))
         self.beta = torch.nn.Parameter(torch.randn(1, model_rank))
         self.core = torch.nn.Parameter(
             torch.randn(1, model_rank, vocab_size, model_rank)
         )
+        self.norm_method = norm_method
 
     def forward(self, target: torch.Tensor):
-        loss = compute_log_prob_and_norm(self.alpha, self.beta, self.core, target)
+        ttdist = TTDist(
+            self.alpha,
+            self.beta,
+            self.core,
+            target.size(1),
+            repeat_batch_size=target.size(0),
+            norm_method=self.norm_method,
+        )
+        probs_tilde, norm_constant = ttdist.get_prob_and_norm(target)
+        loss = (-torch.log(probs_tilde) + torch.log(norm_constant)).mean()
         return BasicTJDLayerOutput(loss)
 
 
 class Litmodel(LightningModule):
-    def __init__(self, model_rank, vocab_size, lr=1e-3):
+    def __init__(self, model_rank, vocab_size, lr=1e-3, norm_method="relu"):
         super().__init__()
-        self.model = BasicTJDLayer(model_rank=model_rank, vocab_size=vocab_size)
+        self.model = BasicTJDLayer(
+            model_rank=model_rank, vocab_size=vocab_size, norm_method=norm_method
+        )
         self.lr = lr
 
     def forward(self, **batch):
@@ -81,15 +95,8 @@ def make_batched_alpha_beta_core(alpha, beta, core, batch_size):
     return alpha, beta, core
 
 
-def compute_log_prob_and_norm(alpha, beta, core, target):
-    ttdist = TTDist(alpha, beta, core, target.size(1), repeat_batch_size=target.size(0))
-    probs_tilde, norm_constant = ttdist.get_prob_and_norm(target)
-    loss = (-torch.log(probs_tilde) + torch.log(norm_constant)).mean()
-    return loss
-
-
 def main():
-    n_epochs = 500
+    n_epochs = 10
     batch_size = 8
     n_train_samples = 8 * 100
     n_test_samples = 8 * 10
@@ -97,8 +104,9 @@ def main():
     model_rank = 2
     vocab_size = 4
     seq_len = 4
-    lr = 1e-3
+    lr = 1e-4
     checkpoint_dir = "checkpoints"
+    norm_method = "sigmoid"  # relu, abs, sigmoid
 
     experiment_conf = {
         "epochs": n_epochs,
@@ -109,6 +117,7 @@ def main():
         "model_rank": model_rank,
         "vocab_size": vocab_size,
         "seq_len": seq_len,
+        "norm_method": norm_method,
     }
     experiment_name = get_experiment_name(experiment_conf)
 
@@ -116,7 +125,12 @@ def main():
     true_beta = torch.randn(1, true_rank)
     true_core = torch.randn(1, true_rank, vocab_size, true_rank)
     true_ttdist = TTDist(
-        true_alpha, true_beta, true_core, seq_len, repeat_batch_size=batch_size
+        true_alpha,
+        true_beta,
+        true_core,
+        seq_len,
+        repeat_batch_size=batch_size,
+        norm_method=norm_method,
     )
     true_dist = true_ttdist.materialize().squeeze()
     true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
@@ -133,7 +147,9 @@ def main():
         test_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
     )
 
-    lit_model = Litmodel(vocab_size=vocab_size, model_rank=model_rank, lr=lr)
+    lit_model = Litmodel(
+        vocab_size=vocab_size, model_rank=model_rank, lr=lr, norm_method=norm_method
+    )
 
     tb_logger = TensorBoardLogger(
         osp.join(checkpoint_dir, experiment_name), name="", version=""
