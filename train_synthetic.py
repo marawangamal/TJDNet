@@ -1,145 +1,151 @@
-from typing import List
-import argparse
-import logging
 import os.path as osp
-import shutil
-
 import torch
-import numpy as np
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
-from torch.utils.data import DataLoader, Dataset
-
-from littjdnet import LitTJDNet
+from pytorch_lightning import LightningModule, Trainer
+from TJDNet import TTDist, sample_from_tensor_dist
 from utils.utils import get_experiment_name
 
 
-logging.basicConfig(
-    format="%(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
-)
-
-logger = logging.getLogger(__name__)
+class BasicTJDLayerOutput:
+    def __init__(self, loss: torch.Tensor):
+        self.loss = loss
 
 
-class SequenceDataset(Dataset):
-    """Dataset wrapping lists of sequences."""
+class BasicTJDLayer(torch.nn.Module):
+    def __init__(self, vocab_size: int, model_rank: int, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.alpha = torch.nn.Parameter(torch.randn(1, model_rank))
+        self.beta = torch.nn.Parameter(torch.randn(1, model_rank))
+        self.core = torch.nn.Parameter(
+            torch.randn(1, model_rank, vocab_size, model_rank)
+        )
 
-    def __init__(
-        self,
-        non_zero_prob_indices: List[List[int]] = [
-            [0, 1, 0, 1],
-            [0, 0, 1, 1],
-            [0, 1, 1, 0],
-        ],
-        num_samples: int = 100,
-    ) -> None:
-        """Initialize the dataset.
-        Args:
-            non_zero_prob_indices (List[List[int]], optional): List of sequences with non-zero probability. Defaults to [[0, 1, 0, 1], [0, 0, 1, 1], [0, 1, 1, 0]].
-            num_samples (int, optional): Number of samples to generate. Defaults to 100.
-        """
-        self.sequences = [
-            non_zero_prob_indices[np.random.randint(len(non_zero_prob_indices))]
-            for _ in range(num_samples)
-        ]
+    def forward(self, target: torch.Tensor):
+        loss = compute_log_prob_and_norm(self.alpha, self.beta, self.core, target)
+        return BasicTJDLayerOutput(loss)
 
-    def __len__(self):
-        return len(self.sequences)
 
-    def __getitem__(self, idx):
-        return {"label_ids": self.sequences[idx]}
+class Litmodel(LightningModule):
+    def __init__(self, model_rank, vocab_size, lr=1e-3):
+        super().__init__()
+        self.model = BasicTJDLayer(model_rank=model_rank, vocab_size=vocab_size)
+        self.lr = lr
+
+    def forward(self, **batch):
+        return self.model(**batch)
+
+    def training_step(self, batch, batch_idx):
+        outputs = self(**batch)
+        loss = outputs.loss
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        return loss
+
+    def on_before_optimizer_step(self, optimizer):
+        if self.trainer.global_step % 5 == 0:  # don't make the tf file huge
+            for k, v in self.named_parameters():
+                if v.grad is not None:  # Check if the gradient exists
+                    self.logger.experiment.add_histogram(  # type: ignore
+                        f"{k}_grad", values=v.grad, global_step=self.trainer.global_step
+                    )
+            for k, v in self.named_parameters():
+                self.logger.experiment.add_histogram(  # type: ignore
+                    k, values=v.data, global_step=self.trainer.global_step
+                )
+
+    def validation_step(self, batch, batch_idx):
+        outputs = self(**batch)
+        loss = outputs.loss
+        self.log("val_loss", loss, on_step=False, prog_bar=False)
+        return {"val_loss": loss}
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        return optimizer
 
 
 def collate_fn(batch):
-    return {
-        "label_ids": torch.tensor([item["label_ids"] for item in batch]),
-    }
+    target = [item[0] for item in batch]
+    return {"target": torch.stack(target)}
 
 
-def main(
-    model_name: str,
-    lr: float = 5e-5,
-    epochs: int = 20,
-    batch_size: int = 4,
-    checkpoint_dir: str = "checkpoints",
-    overwrite: bool = True,
-    vocab_size: int = 3,
-):
+def normalize_matrix(matrix):
+    """Placeholder normalization function, replace with the actual implementation."""
+    norm_factor = torch.norm(matrix, dim=0, keepdim=True)
+    return matrix / norm_factor
 
-    # 0. Create a unique experiment name
-    experiment_config = {
-        "epochs": epochs,
+
+def make_batched_alpha_beta_core(alpha, beta, core, batch_size):
+    alpha = alpha.repeat(batch_size, 1)
+    beta = beta.repeat(batch_size, 1)
+    core = core.repeat(batch_size, 1, 1, 1)
+    return alpha, beta, core
+
+
+def compute_log_prob_and_norm(alpha, beta, core, target):
+    ttdist = TTDist(alpha, beta, core, target.size(1), repeat_batch_size=target.size(0))
+    probs_tilde, norm_constant = ttdist.get_prob_and_norm(target)
+    loss = (-torch.log(probs_tilde) + torch.log(norm_constant)).mean()
+    return loss
+
+
+def main():
+    n_epochs = 500
+    batch_size = 8
+    n_train_samples = 8 * 100
+    n_test_samples = 8 * 10
+    true_rank = 4
+    model_rank = 2
+    vocab_size = 4
+    seq_len = 4
+    lr = 1e-3
+    checkpoint_dir = "checkpoints"
+
+    experiment_conf = {
+        "epochs": n_epochs,
         "batch_size": batch_size,
-        "lr": lr,
-        "model_name": model_name,
+        "n_train_samples": n_train_samples,
+        "n_test_samples": n_test_samples,
+        "true_rank": true_rank,
+        "model_rank": model_rank,
         "vocab_size": vocab_size,
+        "seq_len": seq_len,
     }
-    experiment_name = get_experiment_name(experiment_config)
-    logger.info(f"Experiment configuration\n: {experiment_config}")
-    logger.info(f"Checkpoints will be saved to: {checkpoint_dir}/{experiment_name}")
+    experiment_name = get_experiment_name(experiment_conf)
 
-    if osp.exists(osp.join(checkpoint_dir, experiment_name)) and overwrite:
-        logger.info("Overwriting existing checkpoints...")
-        shutil.rmtree(osp.join(checkpoint_dir, experiment_name))
+    true_alpha = torch.randn(1, true_rank)
+    true_beta = torch.randn(1, true_rank)
+    true_core = torch.randn(1, true_rank, vocab_size, true_rank)
+    true_ttdist = TTDist(
+        true_alpha, true_beta, true_core, seq_len, repeat_batch_size=batch_size
+    )
+    true_dist = true_ttdist.materialize().squeeze()
+    true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
 
-    # 1. Load data
-    dataset = SequenceDataset()
-    model_params = {
-        "rank": 2,
-        "vocab_size": vocab_size,
-    }
-    train_dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
+    # Sample `batch_size` random samples from the true distribution
+    train_samples = sample_from_tensor_dist(true_dist[0], n_train_samples)
+    train_dataset = torch.utils.data.TensorDataset(train_samples)  # type: ignore
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)  # type: ignore
+
+    # Sample `batch_size` random samples from the true distribution
+    test_samples = sample_from_tensor_dist(true_dist[0], n_test_samples)
+    test_dataset = torch.utils.data.TensorDataset(test_samples)  # type: ignore
+    test_dataloader = torch.utils.data.DataLoader(  # type: ignore
+        test_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
     )
-    eval_dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
-    )
-    lit_model = LitTJDNet(model_params=model_params, model_name=model_name, lr=lr)
+
+    lit_model = Litmodel(vocab_size=vocab_size, model_rank=model_rank, lr=lr)
 
     tb_logger = TensorBoardLogger(
         osp.join(checkpoint_dir, experiment_name), name="", version=""
     )
-
     trainer = Trainer(
-        max_epochs=epochs,
+        max_epochs=n_epochs,
         log_every_n_steps=1,
         logger=tb_logger,
         gradient_clip_val=1.0,
     )
-    trainer.fit(lit_model, train_dataloader, eval_dataloader, ckpt_path="last")
+    trainer.fit(lit_model, train_dataloader, test_dataloader, ckpt_path="last")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--num_epochs", type=int, default=50, help="Number of training epochs"
-    )
-
-    parser.add_argument(
-        "-c",
-        "--checkpoint_dir",
-        type=str,
-        default="checkpoints",
-        help="Directory to save model checkpoints",
-    )
-
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
-
-    parser.add_argument("--vocab_size", type=int, default=3, help="Batch size")
-
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
-
-    args = parser.parse_args()
-
-    main(
-        model_name="basic-tjd-layer",
-        epochs=args.num_epochs,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        checkpoint_dir=args.checkpoint_dir,
-        vocab_size=args.vocab_size,
-    )
+    main()
