@@ -103,10 +103,10 @@ def main():
     true_rank = 4
     model_rank = 2
     vocab_size = 4
-    seq_len = 4
+    seq_len = 1
     lr = 1e-4
     checkpoint_dir = "checkpoints"
-    norm_method = "sigmoid"  # relu, abs, sigmoid
+    norm_method = "softmax"  # relu, abs, sigmoid, softmax
 
     experiment_conf = {
         "epochs": n_epochs,
