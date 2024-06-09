@@ -1,4 +1,5 @@
 import os.path as osp
+import argparse
 import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import LightningModule, Trainer
@@ -13,7 +14,13 @@ class BasicTJDLayerOutput:
 
 class BasicTJDLayer(torch.nn.Module):
     def __init__(
-        self, vocab_size: int, model_rank: int, norm_method: str, *args, **kwargs
+        self,
+        vocab_size: int,
+        model_rank: int,
+        norm_method: str,
+        seq_len: int,
+        *args,
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.alpha = torch.nn.Parameter(torch.randn(1, model_rank))
@@ -36,12 +43,72 @@ class BasicTJDLayer(torch.nn.Module):
         loss = (-torch.log(probs_tilde) + torch.log(norm_constant)).mean()
         return BasicTJDLayerOutput(loss)
 
+    def materialize(self):
+        return (
+            TTDist(
+                self.alpha,
+                self.beta,
+                self.core,
+                1,
+                repeat_batch_size=1,
+                norm_method=self.norm_method,
+            )
+            .materialize()
+            .squeeze()
+        )
+
+
+class FJDLayer(torch.nn.Module):
+    def __init__(
+        self, vocab_size: int, seq_len: int, norm_method: str, *args, **kwargs
+    ):
+        super().__init__()
+        self.norm_method = norm_method
+        self.prob_dist_unnorm = torch.nn.Parameter(torch.randn([vocab_size] * seq_len))
+        self.precond_func = {
+            "relu": torch.relu,
+            "abs": torch.abs,
+            "sigmoid": torch.sigmoid,
+            "softmax": torch.exp,
+        }[self.norm_method]
+
+    def forward(self, target: torch.Tensor):
+        """Compute the loss for the model.
+
+        Args:
+            target (torch.Tensor): Shape: (batch_size, seq_len)
+
+        Returns:
+            BasicTJDLayerOutput: Object containing the loss value
+        """
+        batch_unnorm_probs = self.precond_func(
+            self.prob_dist_unnorm[target]
+        )  # Shape: (batch_size, seq_len)
+        batch_unnorm_probs = torch.stack([self.prob_dist_unnorm[t] for t in target])
+        norm_consts = self.precond_func(self.prob_dist_unnorm).sum()  # Shape: (1,)
+        loss = (-torch.log(batch_unnorm_probs) + torch.log(norm_consts)).mean()
+        return BasicTJDLayerOutput(loss)
+
 
 class Litmodel(LightningModule):
-    def __init__(self, model_rank, vocab_size, lr=1e-3, norm_method="relu"):
+    def __init__(
+        self,
+        model_rank,
+        vocab_size,
+        true_dist: torch.Tensor,
+        lr=1e-3,
+        norm_method="relu",
+        model_name="tjd",
+        seq_len=1,
+    ):
         super().__init__()
-        self.model = BasicTJDLayer(
-            model_rank=model_rank, vocab_size=vocab_size, norm_method=norm_method
+        self.true_dist = true_dist
+        self.model_cls = {"tjd": BasicTJDLayer, "fjd": FJDLayer}[model_name]
+        self.model = self.model_cls(
+            model_rank=model_rank,
+            vocab_size=vocab_size,
+            norm_method=norm_method,
+            seq_len=seq_len,
         )
         self.lr = lr
 
@@ -70,6 +137,16 @@ class Litmodel(LightningModule):
         outputs = self(**batch)
         loss = outputs.loss
         self.log("val_loss", loss, on_step=False, prog_bar=False)
+
+        # Compute the KL divergence between the true and estimated distributions
+        estimated_dist = self.model.materialize()  # P(d1, d2, ..., dN)
+        self.true_dist = self.true_dist.to(estimated_dist.device)
+        kl_div_abs = torch.abs(
+            torch.nn.functional.kl_div(
+                torch.log(estimated_dist), self.true_dist, reduction="batchmean"
+            )
+        )
+        self.log("kl_div_abs", kl_div_abs, on_step=False, prog_bar=False)
         return {"val_loss": loss}
 
     def configure_optimizers(self):
@@ -95,18 +172,20 @@ def make_batched_alpha_beta_core(alpha, beta, core, batch_size):
     return alpha, beta, core
 
 
-def main():
-    n_epochs = 10
-    batch_size = 8
-    n_train_samples = 8 * 100
-    n_test_samples = 8 * 10
-    true_rank = 4
-    model_rank = 2
-    vocab_size = 4
-    seq_len = 1
-    lr = 1e-4
-    checkpoint_dir = "checkpoints"
-    norm_method = "softmax"  # relu, abs, sigmoid, softmax
+def main(
+    n_epochs: int = 100,
+    batch_size: int = 8,
+    n_train_samples: int = 8 * 100,
+    n_test_samples: int = 8 * 10,
+    true_rank: int = 4,
+    model_rank: int = 2,
+    vocab_size: int = 4,
+    seq_len: int = 1,
+    lr: float = 1e-4,
+    checkpoint_dir: str = "checkpoints",
+    norm_method: str = "relu",  # relu, abs, sigmoid, softmax
+    model_name: str = "tjd",  # tjd, fjd
+):
 
     experiment_conf = {
         "epochs": n_epochs,
@@ -118,13 +197,14 @@ def main():
         "vocab_size": vocab_size,
         "seq_len": seq_len,
         "norm_method": norm_method,
+        "model_name": model_name,
     }
     experiment_name = get_experiment_name(experiment_conf)
 
     true_alpha = torch.randn(1, true_rank)
     true_beta = torch.randn(1, true_rank)
     true_core = torch.randn(1, true_rank, vocab_size, true_rank)
-    true_ttdist = TTDist(
+    true_ttdist_repeated = TTDist(
         true_alpha,
         true_beta,
         true_core,
@@ -132,23 +212,30 @@ def main():
         repeat_batch_size=batch_size,
         norm_method=norm_method,
     )
-    true_dist = true_ttdist.materialize().squeeze()
+    true_dist_repeated = true_ttdist_repeated.materialize().squeeze()
+    true_dist = true_dist_repeated[0]
     true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
 
     # Sample `batch_size` random samples from the true distribution
-    train_samples = sample_from_tensor_dist(true_dist[0], n_train_samples)
+    train_samples = sample_from_tensor_dist(true_dist, n_train_samples)
     train_dataset = torch.utils.data.TensorDataset(train_samples)  # type: ignore
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)  # type: ignore
 
     # Sample `batch_size` random samples from the true distribution
-    test_samples = sample_from_tensor_dist(true_dist[0], n_test_samples)
+    test_samples = sample_from_tensor_dist(true_dist, n_test_samples)
     test_dataset = torch.utils.data.TensorDataset(test_samples)  # type: ignore
     test_dataloader = torch.utils.data.DataLoader(  # type: ignore
         test_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
     )
 
     lit_model = Litmodel(
-        vocab_size=vocab_size, model_rank=model_rank, lr=lr, norm_method=norm_method
+        vocab_size=vocab_size,
+        model_rank=model_rank,
+        lr=lr,
+        norm_method=norm_method,
+        true_dist=true_dist,
+        seq_len=seq_len,
+        model_name=model_name,
     )
 
     tb_logger = TensorBoardLogger(
@@ -164,4 +251,20 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--norm_method", type=str, default="relu", help="Normalization method"
+    )
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--seq_len", type=int, default=2, help="Sequence length")
+    parser.add_argument("--model_name", type=str, default="fjd", help="Model name")
+
+    args = parser.parse_args()
+
+    main(
+        norm_method=args.norm_method,
+        lr=args.lr,
+        seq_len=args.seq_len,
+        model_name=args.model_name,
+    )
