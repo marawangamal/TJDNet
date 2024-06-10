@@ -93,8 +93,5 @@ def batched_index_select(
     Returns:
         torch.Tensor: Output tensor. Shape: (batch_size, d2, ..., dN).
     """
-    # Creating range for the first dimension, which is required for advanced indexing
-    batch_indices = torch.arange(batched_index.shape[0], device=batched_index.device)
-    return input[
-        batch_indices, batched_index[:, 0], batched_index[:, 1], batched_index[:, 2]
-    ]
+    cols = [batched_index[:, i] for i in range(batched_index.shape[1])]
+    return input[cols]

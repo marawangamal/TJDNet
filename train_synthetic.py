@@ -3,7 +3,7 @@ import argparse
 import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import LightningModule, Trainer
-from TJDNet import TTDist, sample_from_tensor_dist
+from TJDNet import TTDist, sample_from_tensor_dist, batched_index_select
 from utils.utils import get_experiment_name
 
 
@@ -81,13 +81,17 @@ class FJDLayer(torch.nn.Module):
         Returns:
             BasicTJDLayerOutput: Object containing the loss value
         """
-        batch_unnorm_probs = self.precond_func(
-            self.prob_dist_unnorm[target]
-        )  # Shape: (batch_size, seq_len)
-        batch_unnorm_probs = torch.stack([self.prob_dist_unnorm[t] for t in target])
-        norm_consts = self.precond_func(self.prob_dist_unnorm).sum()  # Shape: (1,)
+        precond_applied = self.precond_func(self.prob_dist_unnorm)
+        batch_unnorm_probs = batched_index_select(
+            precond_applied, target
+        )  # (batch_size,)
+        norm_consts = precond_applied.sum()  # Shape: (1,)
         loss = (-torch.log(batch_unnorm_probs) + torch.log(norm_consts)).mean()
         return BasicTJDLayerOutput(loss)
+
+    def materialize(self):
+        precond_applied = self.precond_func(self.prob_dist_unnorm)
+        return precond_applied / precond_applied.sum()
 
 
 class Litmodel(LightningModule):
@@ -184,7 +188,7 @@ def main(
     lr: float = 1e-4,
     checkpoint_dir: str = "checkpoints",
     norm_method: str = "relu",  # relu, abs, sigmoid, softmax
-    model_name: str = "tjd",  # tjd, fjd
+    model_name: str = "fjd",  # tjd, fjd
 ):
 
     experiment_conf = {

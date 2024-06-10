@@ -1,6 +1,6 @@
 from .tjdnet import TJDNet
 from .RepNet import RepNet
-from .TJDLayer import TJDLayer, TTDist, BasicTJDLayer
+from .TJDLayer import TJDLayer, TTDist, BasicTJDLayer, batched_index_select
 from .TJDLayer.utils import (
     create_core_ident,
     apply_id_transform,
