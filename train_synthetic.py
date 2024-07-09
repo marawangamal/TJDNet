@@ -29,6 +29,7 @@ class BasicTJDLayer(torch.nn.Module):
             torch.randn(1, model_rank, vocab_size, model_rank)
         )
         self.norm_method = norm_method
+        self.seq_len = seq_len
 
     def forward(self, target: torch.Tensor):
         ttdist = TTDist(
@@ -44,18 +45,19 @@ class BasicTJDLayer(torch.nn.Module):
         return BasicTJDLayerOutput(loss)
 
     def materialize(self):
-        return (
+        prob_unnorm = (
             TTDist(
                 self.alpha,
                 self.beta,
                 self.core,
-                1,
                 repeat_batch_size=1,
                 norm_method=self.norm_method,
+                n_core_repititions=self.seq_len,
             )
             .materialize()
             .squeeze()
         )
+        return prob_unnorm / prob_unnorm.sum()
 
 
 class FJDLayer(torch.nn.Module):
@@ -145,11 +147,24 @@ class Litmodel(LightningModule):
         # Compute the KL divergence between the true and estimated distributions
         estimated_dist = self.model.materialize()  # P(d1, d2, ..., dN)
         self.true_dist = self.true_dist.to(estimated_dist.device)
+
+        assert (
+            abs(estimated_dist.sum() - 1) < 1e-6
+        ), "Estimated distribution is not normalized"
+        assert (
+            abs(self.true_dist.sum() - 1) < 1e-6
+        ), "True distribution is not normalized"
+
         kl_div_abs = torch.abs(
             torch.nn.functional.kl_div(
                 torch.log(estimated_dist), self.true_dist, reduction="batchmean"
             )
         )
+        p_hat_x = batched_index_select(estimated_dist, batch["target"])
+        p_x = batched_index_select(self.true_dist, batch["target"])
+        loss_diff = -torch.log(p_hat_x).mean() + torch.log(p_x).mean()
+        loss_diff = loss_diff if loss_diff.item() > 0 else 0
+        self.log("loss_diff", loss_diff, on_step=False, prog_bar=False)
         self.log("kl_div_abs", kl_div_abs, on_step=False, prog_bar=False)
         return {"val_loss": loss}
 
@@ -194,6 +209,7 @@ def main(
     experiment_conf = {
         "epochs": n_epochs,
         "batch_size": batch_size,
+        "lr": lr,
         "n_train_samples": n_train_samples,
         "n_test_samples": n_test_samples,
         "true_rank": true_rank,
@@ -208,7 +224,7 @@ def main(
     true_alpha = torch.randn(1, true_rank)
     true_beta = torch.randn(1, true_rank)
     true_core = torch.randn(1, true_rank, vocab_size, true_rank)
-    true_ttdist_repeated = TTDist(
+    true_ttdist = TTDist(
         true_alpha,
         true_beta,
         true_core,
@@ -216,7 +232,7 @@ def main(
         repeat_batch_size=batch_size,
         norm_method=norm_method,
     )
-    true_dist_repeated = true_ttdist_repeated.materialize().squeeze()
+    true_dist_repeated = true_ttdist.materialize().squeeze()
     true_dist = true_dist_repeated[0]
     true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
 
