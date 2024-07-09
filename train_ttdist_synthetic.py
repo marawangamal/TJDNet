@@ -31,20 +31,14 @@ def make_dir_if_not_exists(dir_path):
 
 def main(
     rank: int = 1,
-    output_size: int = 2,
-    vocab_size: int = 3,
+    output_size: int = 4,
+    vocab_size: int = 4,
     norm_method: str = "relu",
     batch_size: int = 5,
     n_iters: int = 1000,
     log_freq: int = 100,
 ):
-    # n_iters = 1000
-    # log_freq = 100
-    # batch_size = 5
-    # rank = 1
-    # vocab_size = 20
-    # output_size = 1
-
+    # Generate a random true distribution
     true_dist = torch.abs(torch.randn(*[vocab_size for _ in range(output_size)]))
     true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
 
@@ -57,7 +51,8 @@ def main(
 
     optimizer = torch.optim.Adam([alpha, beta, core], lr=1e-3)
 
-    mse_loss_values = []
+    sse_loss_values = []
+    sse_loss_baseline = []
     for i in range(n_iters):
         optimizer.zero_grad()
 
@@ -69,15 +64,17 @@ def main(
         if i % log_freq == 0 or i == 0:
             # Materialize the learned distribution
             learned_dist = ttdist.materialize().detach().numpy().squeeze()
-            mse = ((learned_dist - true_dist.detach().numpy()) ** 2).mean()
-            print(f"[{i}] {norm_method}: MSE = {mse:.3f} | Loss = {loss.item():.3f}")
-            mse_loss_values.append(mse)
+            sse = ((learned_dist - true_dist.detach().numpy()) ** 2).sum()
+            sse_baseline = ((0 - true_dist.detach().numpy()) ** 2).sum()
+            print(f"[{i}] {norm_method}: SSE = {sse:.3f} | Loss = {loss.item():.3f}")
+            sse_loss_values.append(sse)
+            sse_loss_baseline.append(sse_baseline)
 
         # Backward pass:
         loss.backward()
         optimizer.step()
 
-    return mse_loss_values
+    return sse_loss_values, sse_loss_baseline
 
 
 def run_normalizations_exp():
@@ -102,18 +99,25 @@ def run_normalizations_exp():
         "d",
     ]
     normalizations_methods = [
-        "relu",
+        # "relu",
         "abs",
         # "softmax",
-        "sigmoid",
+        # "sigmoid",
     ]
 
     plt.figure(figsize=(10, 5))
     for i, norm_method in enumerate(normalizations_methods):
         log_dir = "logs/ttdist-synthetic"
-        mse_loss_values = main(norm_method=norm_method, log_freq=100, n_iters=1000)
+        sse_loss_values, sse_loss_values_baseline = main(
+            norm_method=norm_method, log_freq=100, n_iters=1000
+        )
         plt.plot(
-            mse_loss_values, label=f"{norm_method}", marker=markers[i % len(markers)]
+            sse_loss_values, label=f"{norm_method}", marker=markers[i % len(markers)]
+        )
+        plt.plot(
+            sse_loss_values_baseline,
+            label=f"{norm_method}_baseline",
+            marker=markers[i % len(markers)],
         )
     plt.xlabel("Iteration")
     plt.ylabel("Loss")
