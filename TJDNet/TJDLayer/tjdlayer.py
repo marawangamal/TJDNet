@@ -1,4 +1,4 @@
-from typing import Any, List, Optional, Tuple, Dict
+from typing import Any, List, Optional, Tuple, Dict, Union
 import torch.nn as nn
 import torch
 from torch import Tensor
@@ -28,6 +28,9 @@ class TTDist:
         beta: torch.Tensor,
         core: torch.Tensor,
         n_core_repititions: int,
+        repeat_batch_size: Optional[int] = None,
+        eps: float = 1e-10,
+        norm_method: str = "relu",
     ) -> None:
         """Tensor Train Parameterization of Joint Distribution.
 
@@ -40,13 +43,39 @@ class TTDist:
             n_core_repititions (int): Number of core repititions.
         """
 
-        self.alpha = torch.relu(alpha)
-        self.beta = torch.relu(beta)
-        self.core = torch.relu(core)
+        assert norm_method in [
+            "relu",
+            "abs",
+            "softmax",
+            "sigmoid",
+        ], f"Normalization method must be one of {norm_method}"
+        self.norm_method = norm_method
+
+        self.precond_func = {
+            "relu": torch.relu,
+            "abs": torch.abs,
+            "sigmoid": torch.sigmoid,
+            "softmax": torch.exp,
+        }[self.norm_method]
+
+        self.alpha = self.precond_func(alpha) + eps
+        self.beta = self.precond_func(beta) + eps
+        self.core = self.precond_func(core) + eps
         self.batch_size = alpha.shape[0]
         self.n_core_repititions = n_core_repititions
 
-    def _get_normalization_constant(self) -> torch.Tensor:
+        if repeat_batch_size:
+            self.alpha = self.alpha.repeat(repeat_batch_size, 1)
+            self.beta = self.beta.repeat(repeat_batch_size, 1)
+            self.core = self.core.repeat(repeat_batch_size, 1, 1, 1)
+
+    def _get_normalization_constant(
+        self,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+        core: torch.Tensor,
+        n_core_repititions: int,
+    ) -> torch.Tensor:
         """Get the normalization constant for the TTDist
 
         Returns:
@@ -55,12 +84,12 @@ class TTDist:
 
         core_marginalized = torch.einsum(
             "bijk,bj->bik",
-            self.core,
-            torch.ones(self.core.shape[0], self.core.shape[2], device=self.core.device),
+            core,
+            torch.ones(core.shape[0], core.shape[2], device=core.device),
         )
 
         core_result = core_marginalized
-        for i in range(max(self.n_core_repititions - 1, 0)):
+        for i in range(max(n_core_repititions - 1, 0)):
             check_naninf(core_result, f"_get_normalization_constant:core_result_{i}")
             check_naninf(
                 core_marginalized,
@@ -74,20 +103,26 @@ class TTDist:
 
         core_result = torch.einsum(
             "bi, bij, bj->b",
-            self.alpha,
+            alpha,
             core_result,
-            self.beta,
+            beta,
         )
 
         # Get mask where core_result is zero and set to e-10
         zero_mask = core_result == 0
         if zero_mask.any():
             logger.warning(f"Normalization constant has zeros.")
-        # core_result[zero_mask] = 1e-10
 
         return core_result
 
-    def _select(self, indices: torch.Tensor) -> torch.Tensor:
+    def _select(
+        self,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+        core: torch.Tensor,
+        n_core_repititions: int,
+        indices: torch.Tensor,
+    ) -> torch.Tensor:
         """Multi-index selection.
 
         Performs a multi-index selection on the TTDist object. Produces the unnormalized probability :math:`\tilde{P}(x_1, x_2, ..., x_n)` of the sequences
@@ -102,12 +137,12 @@ class TTDist:
 
         batch_size = indices.size(0)
         cores_after_selection = [
-            torch.stack([self.core[b, :, indices[b, i], :] for b in range(batch_size)])
-            for i in range(self.n_core_repititions)
+            torch.stack([core[b, :, indices[b, i], :] for b in range(batch_size)])
+            for i in range(n_core_repititions)
         ]  # [(B, R, R)] * n_core_repititions
 
         core_result = cores_after_selection[0]  # (B, R, R)
-        for i in range(1, self.n_core_repititions):
+        for i in range(1, n_core_repititions):
             check_naninf(core_result, f"core_result_{i}")
             check_naninf(cores_after_selection[i], f"cores_after_selection_{i}")
             core_result = torch.einsum(
@@ -118,9 +153,9 @@ class TTDist:
 
         core_result = torch.einsum(
             "bi, bij, bj->b",
-            self.alpha,
+            alpha,
             core_result,
-            self.beta,
+            beta,
         )
 
         return core_result
@@ -224,10 +259,21 @@ class TTDist:
         # Assert: indices are non-negative
         assert torch.all(indices >= 0), "Indices must be non-negative"
 
-        unormalized_probs = self._select(indices)
+        unormalized_probs = self._select(
+            alpha=self.alpha,
+            beta=self.beta,
+            core=self.core,
+            n_core_repititions=self.n_core_repititions,
+            indices=indices,
+        )
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
 
-        normalization_constant = self._get_normalization_constant()
+        normalization_constant = self._get_normalization_constant(
+            alpha=self.alpha,
+            beta=self.beta,
+            core=self.core,
+            n_core_repititions=self.n_core_repititions,
+        )
         check_naninf(normalization_constant, f"get_prob:normalization_constant")
 
         # max_unorm_prob = torch.max(torch.abs(unormalized_probs)).item()
@@ -238,10 +284,52 @@ class TTDist:
 
         return unormalized_probs, normalization_constant
 
+    def get_softmax_prob(self, indices) -> Tuple[Tensor, Tensor]:
+        raise NotImplementedError
+
     def sample(self):
         return torch.randint(
             0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
         )  # [B, n_core_repititions]
+
+    def materialize(self):
+        """Materialize the TTDist object.
+
+        Returns:
+            torch.Tensor: Materialized joint distribution. Shape: (B, D, D, ..., D)
+        """
+
+        rank_size = self.core.shape[1]
+        batch_size = self.core.shape[0]
+        vocab_size = self.core.shape[2]
+
+        alpha, beta, core = self.alpha, self.beta, self.core
+
+        result = torch.einsum(
+            "bi, bidj->bdj",
+            alpha,
+            core,
+        )
+
+        for i in range(1, self.n_core_repititions):
+            result = torch.einsum(
+                "bdi, bivj->bdvj",
+                result,
+                core,
+            )
+            result = result.reshape(batch_size, -1, rank_size)
+
+        result = torch.einsum(
+            "bdj, bj->bd",
+            result,
+            beta,
+        )
+
+        # Break out all vocab_size dimensions
+        result = result.reshape(
+            batch_size, *[vocab_size for _ in range(self.n_core_repititions)]
+        )
+        return result
 
     def beam_search(self, n_beams: int = 5) -> torch.Tensor:
         """Beam search using the TTDist joint distribution.

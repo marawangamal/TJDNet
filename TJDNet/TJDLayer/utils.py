@@ -78,3 +78,20 @@ def sample_from_tensor_dist(dist: torch.Tensor, n_samples: int) -> torch.Tensor:
     samples = torch.stack(sampled_multi_indices, dim=-1)
 
     return samples
+
+
+def batched_index_select(
+    input: torch.Tensor,
+    batched_index: torch.Tensor,
+):
+    """Perform a batched index select operation.
+
+    Args:
+        input (torch.Tensor): Input tensor. Shape: (d1, d2, ..., dN).
+        batched_index (torch.Tensor): Batched index tensor. Shape: (batch_size, N).
+
+    Returns:
+        torch.Tensor: Output tensor. Shape: (batch_size, d2, ..., dN).
+    """
+    cols = [batched_index[:, i] for i in range(batched_index.shape[1])]
+    return input[cols]
