@@ -31,6 +31,7 @@ class TTDist:
         repeat_batch_size: Optional[int] = None,
         eps: float = 1e-10,
         norm_method: str = "relu",
+        norm_method_alpha: str = "relu",
     ) -> None:
         """Tensor Train Parameterization of Joint Distribution.
 
@@ -43,6 +44,10 @@ class TTDist:
             n_core_repititions (int): Number of core repititions.
         """
 
+        check_naninf(alpha, f"TTDist:alpha")
+        check_naninf(beta, f"TTDist:beta")
+        check_naninf(core, f"TTDist:core")
+
         assert norm_method in [
             "relu",
             "abs",
@@ -50,6 +55,7 @@ class TTDist:
             "sigmoid",
         ], f"Normalization method must be one of {norm_method}"
         self.norm_method = norm_method
+        self.norm_method_alpha = norm_method_alpha
 
         self.precond_func = {
             "relu": torch.relu,
@@ -58,8 +64,15 @@ class TTDist:
             "softmax": torch.exp,
         }[self.norm_method]
 
-        self.alpha = self.precond_func(alpha) + eps
-        self.beta = self.precond_func(beta) + eps
+        self.precond_func_alpha = {
+            "relu": torch.relu,
+            "abs": torch.abs,
+            "sigmoid": torch.sigmoid,
+            "softmax": torch.exp,
+        }[self.norm_method_alpha]
+
+        self.alpha = self.precond_func_alpha(alpha) + eps
+        self.beta = self.precond_func_alpha(beta) + eps
         self.core = self.precond_func(core) + eps
         self.batch_size = alpha.shape[0]
         self.n_core_repititions = n_core_repititions
@@ -258,6 +271,9 @@ class TTDist:
 
         # Assert: indices are non-negative
         assert torch.all(indices >= 0), "Indices must be non-negative"
+        check_naninf(self.alpha, f"get_prob_and_norm:alpha")
+        check_naninf(self.beta, f"get_prob_and_norm:beta")
+        check_naninf(self.core, f"get_prob_and_norm:core")
 
         unormalized_probs = self._select(
             alpha=self.alpha,
@@ -304,6 +320,8 @@ class TTDist:
         vocab_size = self.core.shape[2]
 
         alpha, beta, core = self.alpha, self.beta, self.core
+        # Test
+        resultFirst = torch.einsum("i, idj, j->d", alpha[0], core[0], beta[0])
 
         result = torch.einsum(
             "bi, bidj->bdj",
