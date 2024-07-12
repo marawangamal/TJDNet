@@ -9,6 +9,7 @@ Compares:
 """
 
 import os
+import shutil
 import random
 import torch
 import numpy as np
@@ -25,6 +26,16 @@ np.random.seed(42)
 torch.manual_seed(42)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(42)
+
+
+def remove_dir(dir_path: str):
+    # Avoid accidentally deleting the root directory
+    protected_dirs = ["/", ".", ".."]
+    min_dir_path_len = 10
+    assert dir_path not in protected_dirs, "Refusing to delete protected directory"
+    assert len(dir_path) > min_dir_path_len, "Refusing to delete root directory"
+    if os.path.exists(dir_path):
+        shutil.rmtree(dir_path)
 
 
 def plot_grad_distribution(core):
@@ -74,6 +85,26 @@ def get_init_params_uniform(batch_size, rank, output_size, vocab_size):
     return alpha, beta, core
 
 
+def get_init_params_uniform_std(batch_size, rank, output_size, vocab_size):
+    # alpha = torch.ones(batch_size, rank) * torch.sqrt(torch.tensor(1 / output_size))
+    # beta = torch.ones(batch_size, rank) * torch.sqrt(torch.tensor(1 / output_size))
+    # Make alpha and beta random with std 1/sqrt(rank)
+    alpha = torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(
+        torch.tensor(1 / rank)
+    )
+    beta = torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(
+        torch.tensor(1 / rank)
+    )
+    core = torch.nn.Parameter(
+        torch.eye(rank)
+        .unsqueeze(1)
+        .repeat(1, vocab_size, 1)
+        .unsqueeze(0)
+        .repeat(batch_size, 1, 1, 1)
+    )
+    return alpha, beta, core
+
+
 def main(
     writer: SummaryWriter,
     rank: int = 1,
@@ -84,6 +115,7 @@ def main(
     n_iters: int = 1000,
     log_freq: int = 100,
     lr: float = 1e-4,
+    eps: float = 0.0,
 ):
     # Generate a random true distribution
     true_dist = torch.abs(torch.zeros(*[vocab_size for _ in range(output_size)]))
@@ -93,7 +125,9 @@ def main(
 
     # Sample `batch_size` random samples from the true distribution
     samples = sample_from_tensor_dist(true_dist, batch_size)
-    alpha, beta, core = get_init_params_uniform(
+
+    # Initialize the parameters
+    alpha, beta, core = get_init_params_uniform_std(
         batch_size, rank, output_size, vocab_size
     )
 
@@ -109,7 +143,10 @@ def main(
             alpha, beta, core, output_size, norm_method=norm_method, eps=0.0
         )
         probs_tilde, norm_constant = ttdist.get_prob_and_norm(samples)
-        loss = (-torch.log(probs_tilde + 1e-12) + torch.log(norm_constant)).mean()
+        # retain_grad on probs_tilde to compute the gradient of the loss w.r.t. probs_tilde
+        probs_tilde.retain_grad()
+        norm_constant.retain_grad()
+        loss = (-torch.log(probs_tilde + eps) + torch.log(norm_constant)).mean()
 
         # Backward pass:
         loss.backward()
@@ -166,13 +203,15 @@ def run_normalizations_exp():
     for rank in [2]:
         experiment_config = {
             "rank": rank,
-            "output_size": 4,
+            "output_size": 3,
             "vocab_size": 4,
             "norm_method": "relu",
             "lr": 1e-4,
             "n_iters": 10000,
+            "eps": 1e-6,
         }
         experiment_name = get_experiment_name(experiment_config)
+        remove_dir(os.path.join("logs", experiment_name))
         writer = SummaryWriter(log_dir=os.path.join("logs", experiment_name))
         main(writer=writer, **experiment_config)
 
