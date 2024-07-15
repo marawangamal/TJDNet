@@ -209,9 +209,9 @@ class TTDist:
         )
 
         # Get mask where core_result is zero and set to e-10
-        zero_mask = core_result == 0
-        if zero_mask.any():
-            logger.warning(f"Normalization constant has zeros.")
+        # zero_mask = core_result == 0
+        # # if zero_mask.any():
+        # # logger.warning(f"Normalization constant has zeros.")
 
         return core_result
 

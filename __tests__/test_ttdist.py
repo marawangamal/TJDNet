@@ -61,14 +61,6 @@ class TestTTDist(unittest.TestCase):
         self.assertTrue(torch.equal(prob_tilde, torch.arange(1, batch_size + 1)))
         self.assertTrue(torch.equal(norm_constant, torch.arange(1, batch_size + 1)))
 
-    # def test_get_prob_and_norm_operating_range(self):
-    #     """Test get_prob_and_norm method."""
-    #     # alpa, beta = ones
-    #     # for std in np.linspace(0, 10, 100):
-    #     #   core = randn(mu=0, std=std)
-    #     #   assert(contraction.isFinite())
-    #     raise NotImplementedError("Test not implemented yet.")
-
     def test_sample_from_true_dist(self):
 
         non_zero_indices_list = [
@@ -183,7 +175,9 @@ class TestTTDist(unittest.TestCase):
             @ beta_norm[0].reshape(-1, 1)
         )
         probs_tilde = tntdist.tnt_inner[0, 0, 0]
-        self.assertTrue(torch.allclose(probs_tilde, expected_probs_tilde.squeeze()))
+        self.assertTrue(
+            torch.allclose(probs_tilde, expected_probs_tilde.squeeze())  # type: ignore
+        )
 
     def test_ttdist_get_prob_and_norm(self):
         """Test get_prob_and_norm method."""
