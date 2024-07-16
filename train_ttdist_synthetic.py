@@ -123,18 +123,76 @@ def get_init_params_randn_positive(batch_size, rank, output_size, vocab_size):
     return alpha, beta, core
 
 
+def get_entropy_loss(
+    ttdist: TTDist, samples: torch.Tensor, eps: float = 1e-6, vocab_size: int = 4
+):
+    probs_tilde, norm_constant = ttdist.get_prob_and_norm(samples)
+    # retain_grad on probs_tilde to compute the gradient of the loss w.r.t. probs_tilde
+    probs_tilde.retain_grad()
+    norm_constant.retain_grad()
+    loss = (-torch.log(probs_tilde + eps) + torch.log(norm_constant)).mean()
+    return loss, norm_constant
+
+
+def get_preference_loss(
+    ttdist: TTDist,
+    samples: torch.Tensor,
+    eps: float = 1e-6,
+    vocab_size: int = 4,
+    neg_samples_multiplier: int = 10,
+):
+    samples_pos = samples
+    batch_size = samples_pos.shape[0]
+    output_size = samples_pos.shape[1]
+    # make a batch of negative samples by creating rand tensor of size batch_size x output_size with indices in [0, vocab_size-1]
+    samples_neg = torch.randint(
+        0,
+        vocab_size,
+        (batch_size, output_size),
+        dtype=torch.long,
+        device=samples.device,
+    )
+    probs_tilde_pos, norm_constant_pos = ttdist.get_prob_and_norm(samples_pos)
+    probs_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(samples_neg)
+
+    # # the loss is  ...
+    # preference_loss = torch.maximum(
+    #     (-torch.log(probs_tilde_pos + eps) + torch.log(probs_tilde_neg + eps)).mean(),
+    #     torch.zeros_like(probs_tilde_pos),
+    # )
+
+    # Calculate preference diffs
+    preference_diffs = -torch.log(
+        probs_tilde_pos + eps
+    ) + neg_samples_multiplier * torch.log(probs_tilde_neg + eps)
+
+    # Filter out negative numbers
+    preference_diffs_pos = preference_diffs[preference_diffs > 0]
+    preference_loss = (
+        preference_diffs_pos.mean() if len(preference_diffs_pos) > 0 else None
+    )
+    # Check if loss is NaN/Inf
+    if preference_loss is not None and (
+        torch.isnan(preference_loss) or torch.isinf(preference_loss)
+    ):
+        print(f"[FAIL]: Loss is NaN. Breaking at")
+
+    return preference_loss, norm_constant_pos
+
+
 def main(
     rank: int = 1,
     output_size: int = 3,
     vocab_size: int = 4,
     norm_method: str = "relu",
-    batch_size: int = 5,
+    batch_size: int = 16,
     n_iters: int = 1000,
     log_freq: int = 100,
     lr: float = 1e-4,
     eps: float = 0.0,
     eps_norm: float = 1e-6,
     init_method: str = "uniform_positive",
+    loss_type: str = "entropy",  # entropy or preference
 ):
 
     assert eps != eps_norm, "eps and eps_norm cannot be the same"
@@ -152,6 +210,10 @@ def main(
         "randn": get_init_params_randn,
         "randn_positive": get_init_params_randn_positive,
     }[init_method]
+    assert loss_type in [
+        "entropy",
+        "preference",
+    ], "loss_type must be one of ['entropy', 'preference']"
 
     # Generate a random true distribution
     true_dist = torch.abs(torch.zeros(*[vocab_size for _ in range(output_size)]))
@@ -183,13 +245,17 @@ def main(
             norm_method_alpha=norm_method,
             eps=0.0,
         )
-        probs_tilde, norm_constant = ttdist.get_prob_and_norm(samples)
-        # retain_grad on probs_tilde to compute the gradient of the loss w.r.t. probs_tilde
-        probs_tilde.retain_grad()
-        norm_constant.retain_grad()
-        loss = (-torch.log(probs_tilde + eps) + torch.log(norm_constant)).mean()
+        # loss = {get_entropy_loss}(ttdist, samples, eps=eps)
+        loss, norm_constant = {
+            "entropy": get_entropy_loss,
+            "preference": get_preference_loss,
+        }[loss_type](ttdist, samples, eps=eps, vocab_size=vocab_size)
 
         # Backward pass:
+        if loss is None:
+            if i % log_freq == 0 or i == 0:
+                print("Loss is None. Skipping")
+            continue
         loss.backward()
 
         # Check if loss is NaN/Inf
@@ -228,14 +294,20 @@ def main(
             ).reshape(tuple([batch_size, *[1 for _ in range(output_size)]]))
             sse = ((learned_dist - true_dist.detach().numpy()) ** 2).sum()
             sse_max = ((learned_dist - true_dist.detach().numpy()) ** 2).max()
-            print(
-                f"[{i}] {norm_method}: SSE = {sse:.3f} | SSE_MAX: {sse_max:.3f} | Loss = {loss.item():.3f} | target_prob = {target_unnorm_prob:.3f} | alt_prob = {alt_unnorm_prob:.3f} | norm_constant = {norm_constant:.3f}"
-            )
             # Log SSE and loss to TensorBoard
             # writer.add_scalar(f"SSE", sse, i)
             # writer.add_scalar(f"Loss", loss.item(), i)
             # writer.add_histogram(f"Core_Gradients", core.grad, i)
             # writer.add_scalar(f"target_prob", target_unnorm_prob, i)
+
+            # Compute KL divergence between the true and learned distributions
+            kl_div = torch.nn.functional.kl_div(
+                torch.tensor(learned_dist).log(), torch.tensor(true_dist)
+            ).item()
+
+            print(
+                f"[{i}] {norm_method}: SSE = {sse:.3f} | SSE_MAX: {sse_max:.3f} | Loss = {loss.item():.3f} | target_prob = {target_unnorm_prob:.3f} | alt_prob = {alt_unnorm_prob:.3f} | norm_constant = {norm_constant:.3f} | KL = {kl_div:.3f}"
+            )
 
             # Log to W&B
             wandb.log(
@@ -246,13 +318,12 @@ def main(
                     "target_prob": target_unnorm_prob,
                     "alt_prob": alt_unnorm_prob,
                     "norm_constant": norm_constant,
+                    "KL_Divergence": kl_div,
                 }
             )
 
             if core.grad is not None:
-                wandb.log(
-                    {f"gradients/core": wandb.Histogram(core.grad.cpu().data.numpy())}
-                )
+                wandb.log({f"core_grad": wandb.Histogram(core.grad.cpu().data.numpy())})
 
         optimizer.step()
 
@@ -321,7 +392,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--norm_method", type=str, default="abs", help="Normalization method"
     )
-    parser.add_argument("--batch_size", type=int, default=5, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
     parser.add_argument(
         "--n_iters", type=int, default=20000, help="Number of iterations"
     )
@@ -343,6 +414,17 @@ if __name__ == "__main__":
             "uniform_positive",
             "randn",
             "randn_positive",
+        ],
+        help="Initialization method",
+    )
+
+    parser.add_argument(
+        "--loss_type",
+        type=str,
+        default="entropy",
+        choices=[
+            "entropy",
+            "preference",
         ],
         help="Initialization method",
     )
