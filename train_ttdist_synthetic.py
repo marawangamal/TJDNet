@@ -139,21 +139,33 @@ def get_preference_loss(
     samples: torch.Tensor,
     eps: float = 1e-6,
     vocab_size: int = 4,
-    neg_samples_multiplier: int = 10,
+    neg_samples_multiplier: int = 1000,
+    num_neg_batches: int = 10,
 ):
     samples_pos = samples
     batch_size = samples_pos.shape[0]
     output_size = samples_pos.shape[1]
     # make a batch of negative samples by creating rand tensor of size batch_size x output_size with indices in [0, vocab_size-1]
-    samples_neg = torch.randint(
-        0,
-        vocab_size,
-        (batch_size, output_size),
-        dtype=torch.long,
-        device=samples.device,
-    )
     probs_tilde_pos, norm_constant_pos = ttdist.get_prob_and_norm(samples_pos)
-    probs_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(samples_neg)
+    # probs_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(samples_neg)
+    probs_tilde_neg_lst = [
+        ttdist.get_prob_and_norm(
+            torch.randint(
+                0,
+                vocab_size,
+                (batch_size, output_size),
+                dtype=torch.long,
+                device=samples.device,
+            )
+        )[0]
+        for _ in range(num_neg_batches)
+    ]
+
+    probs_tilde_neg_sum = torch.stack(probs_tilde_neg_lst, dim=0).sum(dim=0)
+    preference_loss = -torch.log(probs_tilde_pos + eps) + torch.log(
+        probs_tilde_neg_sum + eps
+    )
+    preference_loss = preference_loss.mean()
 
     # # the loss is  ...
     # preference_loss = torch.maximum(
@@ -161,23 +173,23 @@ def get_preference_loss(
     #     torch.zeros_like(probs_tilde_pos),
     # )
 
-    # Calculate preference diffs
-    preference_diffs = -torch.log(
-        probs_tilde_pos + eps
-    ) + neg_samples_multiplier * torch.log(probs_tilde_neg + eps)
+    # # Calculate preference diffs
+    # preference_diffs = -torch.log(
+    #     probs_tilde_pos + eps
+    # ) + neg_samples_multiplier * torch.log(probs_tilde_neg + eps)
 
-    # Filter out negative numbers
-    preference_diffs_pos = preference_diffs[preference_diffs > 0]
-    preference_loss = (
-        preference_diffs_pos.mean() if len(preference_diffs_pos) > 0 else None
-    )
-    # Check if loss is NaN/Inf
-    if preference_loss is not None and (
-        torch.isnan(preference_loss) or torch.isinf(preference_loss)
-    ):
-        print(f"[FAIL]: Loss is NaN. Breaking at")
+    # # Filter out negative numbers
+    # preference_diffs_pos = preference_diffs[preference_diffs > 0]
+    # preference_loss = (
+    #     preference_diffs_pos.mean() if len(preference_diffs_pos) > 0 else None
+    # )
+    # # Check if loss is NaN/Inf
+    # if preference_loss is not None and (
+    #     torch.isnan(preference_loss) or torch.isinf(preference_loss)
+    # ):
+    #     print(f"[FAIL]: Loss is NaN. Breaking at")
 
-    return preference_loss, norm_constant_pos
+    return preference_loss, probs_tilde_neg_sum
 
 
 def main(
@@ -397,7 +409,7 @@ if __name__ == "__main__":
         "--n_iters", type=int, default=20000, help="Number of iterations"
     )
     parser.add_argument("--log_freq", type=int, default=100, help="Log frequency")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument(
         "--eps", type=float, default=1e-6, help="Epsilon value for numerical stability"
     )
@@ -421,7 +433,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--loss_type",
         type=str,
-        default="entropy",
+        default="preference",
         choices=[
             "entropy",
             "preference",
