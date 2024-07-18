@@ -85,12 +85,10 @@ def get_init_params_uniform_std(batch_size, rank, output_size, vocab_size):
 
 def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_size):
     alpha = (
-        torch.randn(1, rank).repeat(batch_size, 1)
-        * torch.sqrt(torch.tensor(1 / vocab_size**output_size))
+        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
     ).abs()
     beta = (
-        torch.randn(1, rank).repeat(batch_size, 1)
-        * torch.sqrt(torch.tensor(1 / vocab_size**output_size))
+        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
     ).abs()
     core = torch.nn.Parameter(
         torch.eye(rank)
@@ -409,7 +407,7 @@ if __name__ == "__main__":
         "--n_iters", type=int, default=20000, help="Number of iterations"
     )
     parser.add_argument("--log_freq", type=int, default=100, help="Log frequency")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument(
         "--eps", type=float, default=1e-6, help="Epsilon value for numerical stability"
     )
@@ -450,5 +448,6 @@ if __name__ == "__main__":
         config=experiment_config,
         name=experiment_name,
     )
+    print(f"Running experiment: {experiment_name}")
     main(**experiment_config)
     wandb.finish()
