@@ -1,22 +1,28 @@
-# python train_synthetic.py --model_name fjd --norm_method relu 
-# python train_synthetic.py --model_name fjd --norm_method softmax
-# python train_synthetic.py --model_name fjd --norm_method abs
-# python train_synthetic.py --model_name fjd --norm_method sigmoid
+# python train_ttdist_synthetic.py --output_size 3
+# python train_ttdist_synthetic.py --output_size 4
+# python train_ttdist_synthetic.py --output_size 5
+# python train_ttdist_synthetic.py --output_size 6
+# python train_ttdist_synthetic.py --output_size 7
+# python train_ttdist_synthetic.py --output_size 8
+# python train_ttdist_synthetic.py --output_size 9
+# python train_ttdist_synthetic.py --output_size 10
+# python train_ttdist_synthetic.py --output_size 11
+
+# python train_ttdist_synthetic.py --loss_type preference --output_size 3 --batch_size 32 --lr 1e-5
+# python train_ttdist_synthetic.py --loss_type preference --output_size 3 --batch_size 32 --lr 1e-4
+# python train_ttdist_synthetic.py --loss_type preference --output_size 3 --batch_size 32 --lr 1e-3 
+
+# python train_ttdist_synthetic.py --loss_type preference --output_size 3 --batch_size 64 --lr 1e-5
+# python train_ttdist_synthetic.py --loss_type preference --output_size 3 --batch_size 64 --lr 1e-4
+# python train_ttdist_synthetic.py --loss_type preference --output_size 3 --batch_size 64 --lr 1e-3 
 
 
-# python train_synthetic.py --lr 1e-4 --model_name fjd --norm_method relu 
-# python train_synthetic.py --lr 1e-4 --model_name fjd --norm_method softmax
-# python train_synthetic.py --lr 1e-4 --model_name fjd --norm_method abs
-# python train_synthetic.py --lr 1e-4 --model_name fjd --norm_method sigmoid
+python train_ttdist_synthetic.py --loss_type preference --output_size 4 
+python train_ttdist_synthetic.py --loss_type preference --output_size 5
+python train_ttdist_synthetic.py --loss_type preference --output_size 6
+python train_ttdist_synthetic.py --loss_type preference --output_size 7
+python train_ttdist_synthetic.py --loss_type preference --output_size 8
+python train_ttdist_synthetic.py --loss_type preference --output_size 9
+python train_ttdist_synthetic.py --loss_type preference --output_size 10
+python train_ttdist_synthetic.py --loss_type preference --output_size 11
 
-
-python train_synthetic.py --lr 1e-4 --model_name tjd --norm_method relu 
-python train_synthetic.py --lr 1e-4 --model_name tjd --norm_method softmax
-python train_synthetic.py --lr 1e-4 --model_name tjd --norm_method abs
-python train_synthetic.py --lr 1e-4 --model_name tjd --norm_method sigmoid
-
-
-# python train_synthetic.py --model_name fjd --seq_len 3 --norm_method relu 
-# python train_synthetic.py --model_name fjd --seq_len 3 --norm_method softmax
-# python train_synthetic.py --model_name fjd --seq_len 3 --norm_method abs
-# python train_synthetic.py --model_name fjd --seq_len 3 --norm_method sigmoid

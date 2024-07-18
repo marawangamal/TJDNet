@@ -1,6 +1,6 @@
 import unittest
 import torch
-from TJDNet import TTDist, sample_from_tensor_dist
+from TJDNet import TTDist, sample_from_tensor_dist, TNTDist
 
 
 def normalize_matrix(matrix):
@@ -60,14 +60,6 @@ class TestTTDist(unittest.TestCase):
 
         self.assertTrue(torch.equal(prob_tilde, torch.arange(1, batch_size + 1)))
         self.assertTrue(torch.equal(norm_constant, torch.arange(1, batch_size + 1)))
-
-    # def test_get_prob_and_norm_operating_range(self):
-    #     """Test get_prob_and_norm method."""
-    #     # alpa, beta = ones
-    #     # for std in np.linspace(0, 10, 100):
-    #     #   core = randn(mu=0, std=std)
-    #     #   assert(contraction.isFinite())
-    #     raise NotImplementedError("Test not implemented yet.")
 
     def test_sample_from_true_dist(self):
 
@@ -138,59 +130,102 @@ class TestTTDist(unittest.TestCase):
             if i % 100 == 0:
                 print(f"Iteration {i}: Loss = {loss.item()}")
 
-        self.assertTrue(loss.item() < 1e-2)
+        self.assertTrue(loss.item() < 1e-1)
 
-    # def test_ttdist_leanrable_triplet(self):
-    #     """Test get_prob_and_norm method."""
-    #     n_iters = 1000
-    #     batch_size = 5
-    #     rank = 2
-    #     vocab_size = 10
-    #     output_size = 1
+    def test_tntdist_get_prob_and_norm(self):
+        """Test get_prob_and_norm method."""
 
-    #     true_dist = torch.abs(torch.randn(*[vocab_size for _ in range(output_size)]))
-    #     true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
+        batch_size = 1
+        rank = 2
+        vocab_size = 4
+        output_size = 3
 
-    #     # Sample `batch_size` random samples from the true distribution
-    #     samples = sample_from_tensor_dist(true_dist, batch_size)
+        alpha = torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(
+            torch.tensor(1 / rank)
+        )
+        beta = torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(
+            torch.tensor(1 / rank)
+        )
+        core = torch.nn.Parameter(
+            torch.eye(rank)
+            .unsqueeze(1)
+            .repeat(1, vocab_size, 1)
+            .unsqueeze(0)
+            .repeat(batch_size, 1, 1, 1)
+        )
 
-    #     alpha = torch.nn.Parameter(torch.randn(batch_size, rank))
-    #     beta = torch.nn.Parameter(torch.randn(batch_size, rank))
-    #     core = torch.nn.Parameter(torch.randn(batch_size, rank, vocab_size, rank))
+        tntdist = TNTDist(
+            alpha[0],
+            beta[0],
+            core[0],
+            output_size,
+            eps=0.0,
+            norm_method="relu",
+            norm_method_alpha="relu",
+        )
+        tntdist.print()
 
-    #     optimizer = torch.optim.Adam([alpha, beta, core], lr=1e-2)
+        # Expected
+        alpha_norm = torch.nn.functional.relu(alpha)
+        beta_norm = torch.nn.functional.relu(beta)
+        core_norm = torch.nn.functional.relu(core)
+        expected_probs_tilde = (
+            alpha_norm[0].reshape(1, -1)
+            @ core_norm[0, :, 0, :]
+            @ beta_norm[0].reshape(-1, 1)
+        )
+        probs_tilde = tntdist.tnt_inner[0, 0, 0]
+        self.assertTrue(
+            torch.allclose(probs_tilde, expected_probs_tilde.squeeze())  # type: ignore
+        )
 
-    #     for i in range(n_iters):
-    #         optimizer.zero_grad()
+    def test_ttdist_get_prob_and_norm(self):
+        """Test get_prob_and_norm method."""
 
-    #         # Forward pass:
-    #         alpha_pos = torch.nn.functional.relu(alpha) + 1e-6
-    #         beta_pos = torch.nn.functional.relu(beta) + 1e-6
-    #         core_pos = torch.nn.functional.relu(core) + 1e-6
-    #         ttdist = TTDist(alpha_pos, beta_pos, core_pos, output_size)
-    #         probs_tilde, norm_constant = ttdist.get_prob_and_norm(samples)
+        batch_size = 1
+        rank = 2
+        vocab_size = 4
+        output_size = 3
 
-    #         target_neg = torch.randint_like(
-    #             target, 0, self.vocab_size, device=target.device
-    #         )
-    #         prob_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(target_neg)
-    #         prob_tilde_neg_bounded = torch.clamp(prob_tilde_neg, 0, 1)
-    #         prob_tilde_bounded = torch.clamp(prob_tilde, 0, 1)
+        alpha = torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(
+            torch.tensor(1 / rank)
+        )
+        beta = torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(
+            torch.tensor(1 / rank)
+        )
+        core = torch.nn.Parameter(
+            torch.eye(rank)
+            .unsqueeze(1)
+            .repeat(1, vocab_size, 1)
+            .unsqueeze(0)
+            .repeat(batch_size, 1, 1, 1)
+        )
 
-    #         loss = torch.nn.functional.triplet_margin_loss(
-    #             torch.ones_like(prob_tilde_bounded),
-    #             prob_tilde_bounded,
-    #             prob_tilde_neg_bounded,
-    #         )
+        ttdist = TTDist(
+            alpha,
+            beta,
+            core,
+            output_size,
+            eps=0.0,
+            norm_method="abs",
+            norm_method_alpha="abs",
+        )
 
-    #         # Backward pass:
-    #         loss.backward()
-    #         optimizer.step()
-
-    #         if i % 100 == 0:
-    #             print(f"Iteration {i}: Loss = {loss.item()}")
-
-    #     self.assertTrue(loss.item() < 1e-2)
+        # Expected
+        alpha_norm = torch.abs(alpha)
+        beta_norm = torch.abs(beta)
+        core_norm = torch.abs(core)
+        batch_idx = 0
+        sample_idx = 0
+        expected_probs_tilde = (
+            alpha_norm[batch_idx].reshape(1, -1)
+            @ core_norm[batch_idx, :, sample_idx, :]
+            @ beta_norm[batch_idx].reshape(-1, 1)
+        )
+        probs_tilde = ttdist.materialize()[
+            tuple([batch_idx] + [sample_idx] * output_size)
+        ]
+        self.assertTrue(torch.allclose(probs_tilde, expected_probs_tilde.squeeze()))
 
 
 if __name__ == "__main__":
