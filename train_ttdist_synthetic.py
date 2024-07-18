@@ -190,6 +190,18 @@ def get_preference_loss(
     return preference_loss, probs_tilde_neg_sum
 
 
+def get_true_ttdist(output_size: int, vocab_size: int) -> TTDist:
+    raise NotImplementedError
+
+
+def get_expected_sse(learned_dist, true_dist) -> float:
+    raise NotImplementedError
+
+
+def get_expected_sse_max(learned_dist, true_dist) -> float:
+    raise NotImplementedError
+
+
 def main(
     rank: int = 1,
     output_size: int = 3,
@@ -225,28 +237,19 @@ def main(
         "preference",
     ], "loss_type must be one of ['entropy', 'preference']"
 
-    # Generate a random true distribution
-    true_dist = torch.abs(torch.zeros(*[vocab_size for _ in range(output_size)]))
-    # Set only one element to 1
-    true_dist[tuple([1 for _ in range(output_size)])] = 1
-    true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
-
-    # Sample `batch_size` random samples from the true distribution
-    samples = sample_from_tensor_dist(true_dist, batch_size)
+    true_ttdist = get_true_ttdist(output_size, vocab_size)
+    samples = true_ttdist.sample(batch_size)
 
     # Initialize the parameters
     alpha, beta, core = init_func(batch_size, rank, output_size, vocab_size)
 
     optimizer = torch.optim.AdamW([core], lr=lr)
 
-    sse_loss_values = []
-    sse_loss_baseline = []
-    target_unnorm_prob, alt_unnorm_prob = 100, 100
     for i in range(n_iters):
         optimizer.zero_grad()
 
         # Forward pass:
-        ttdist = TTDist(
+        learned_ttdist = TTDist(
             alpha,
             beta,
             core,
@@ -259,7 +262,7 @@ def main(
         loss, norm_constant = {
             "entropy": get_entropy_loss,
             "preference": get_preference_loss,
-        }[loss_type](ttdist, samples, eps=eps, vocab_size=vocab_size)
+        }[loss_type](learned_ttdist, samples, eps=eps, vocab_size=vocab_size)
 
         # Backward pass:
         if loss is None:
@@ -281,54 +284,21 @@ def main(
 
         if i % log_freq == 0 or i == 0:
             # Materialize the learned distribution
-            target_unnorm_prob = (
-                torch.abs(alpha[0].reshape(1, -1))
-                @ torch.abs(core[0, :, 1, :])
-                @ torch.abs(beta[0].reshape(-1, 1))
-            ).item()
-            alt_unnorm_prob = sum(
-                [
-                    (
-                        torch.abs(alpha[0].reshape(1, -1))
-                        @ torch.abs(core[0, :, i, :])
-                        @ torch.abs(beta[0].reshape(-1, 1))
-                    ).item()
-                    for i in range(vocab_size)
-                    if i != 1
-                ]
-            )
-            norm_constant = norm_constant[0].item()
-            learned_dist = ttdist.materialize().detach().numpy().squeeze()
-            learned_dist = learned_dist / learned_dist.reshape(batch_size, -1).sum(
-                1
-            ).reshape(tuple([batch_size, *[1 for _ in range(output_size)]]))
-            sse = ((learned_dist - true_dist.detach().numpy()) ** 2).sum()
-            sse_max = ((learned_dist - true_dist.detach().numpy()) ** 2).max()
-            # Log SSE and loss to TensorBoard
-            # writer.add_scalar(f"SSE", sse, i)
-            # writer.add_scalar(f"Loss", loss.item(), i)
-            # writer.add_histogram(f"Core_Gradients", core.grad, i)
-            # writer.add_scalar(f"target_prob", target_unnorm_prob, i)
 
-            # Compute KL divergence between the true and learned distributions
-            kl_div = torch.nn.functional.kl_div(
-                torch.tensor(learned_dist).log(), torch.tensor(true_dist)
-            ).item()
+            expected_sse = get_expected_sse(learned_ttdist, true_ttdist)
+            expected_sse_max = get_expected_sse_max(learned_ttdist, true_ttdist)
 
             print(
-                f"[{i}] {norm_method}: SSE = {sse:.3f} | SSE_MAX: {sse_max:.3f} | Loss = {loss.item():.3f} | target_prob = {target_unnorm_prob:.3f} | alt_prob = {alt_unnorm_prob:.3f} | norm_constant = {norm_constant:.3f} | KL = {kl_div:.3f}"
+                f"[{i}] {norm_method}: SSE = {expected_sse:.3f} | SSE_MAX: {expected_sse_max:.3f} | Loss = {loss.item():.3f} | norm_constant = {norm_constant:.3f}"
             )
 
             # Log to W&B
             wandb.log(
                 {
-                    "SSE": sse,
-                    "SSE_MAX": sse_max,
+                    "SSE": expected_sse,
+                    "SSE_MAX": expected_sse_max,
                     "Loss": loss.item(),
-                    "target_prob": target_unnorm_prob,
-                    "alt_prob": alt_unnorm_prob,
                     "norm_constant": norm_constant,
-                    "KL_Divergence": kl_div,
                 }
             )
 
@@ -336,17 +306,6 @@ def main(
                 wandb.log({f"core_grad": wandb.Histogram(core.grad.cpu().data.numpy())})
 
         optimizer.step()
-
-    if target_unnorm_prob > alt_unnorm_prob:
-        print(
-            f"[PASS]: {norm_method} target_prob ({target_unnorm_prob}) > alt_prob ({alt_unnorm_prob})"
-        )
-    else:
-        print(
-            f"[FAIL]: {norm_method} target_prob ({target_unnorm_prob}) < alt_prob ({alt_unnorm_prob})"
-        )
-
-    return sse_loss_values, sse_loss_baseline
 
 
 def run_normalizations_exp():

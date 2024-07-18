@@ -390,10 +390,11 @@ class TTDist:
     def get_softmax_prob(self, indices) -> Tuple[Tensor, Tensor]:
         raise NotImplementedError
 
-    def sample(self):
-        return torch.randint(
-            0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
-        )  # [B, n_core_repititions]
+    def sample(self, batch_size: int = 1) -> torch.Tensor:
+        # return torch.randint(
+        #     0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
+        # )  # [B, n_core_repititions]
+        raise NotImplementedError
 
     def materialize(self):
         """Materialize the TTDist object.
