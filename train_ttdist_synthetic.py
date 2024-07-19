@@ -15,7 +15,8 @@ import shutil
 import random
 import torch
 import numpy as np
-from TJDNet import TTDist, sample_from_tensor_dist
+from TJDNet import sample_from_tensor_dist
+from TJDNet.TJDLayer.TTDist import TTDist
 from utils.utils import get_experiment_name
 
 import matplotlib.pyplot as plt

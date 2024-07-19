@@ -3,7 +3,8 @@ import argparse
 import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import LightningModule, Trainer
-from TJDNet import TTDist, sample_from_tensor_dist, batched_index_select
+from TJDNet import sample_from_tensor_dist, batched_index_select
+from TJDNet.TJDLayer.TTDist import TTDist
 from utils.utils import get_experiment_name
 
 

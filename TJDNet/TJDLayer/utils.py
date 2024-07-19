@@ -95,3 +95,11 @@ def batched_index_select(
     """
     cols = [batched_index[:, i] for i in range(batched_index.shape[1])]
     return input[cols]
+
+
+def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool = True):
+    if torch.isnan(x).any() or torch.isinf(x).any():
+        if raise_error:
+            raise ValueError(f"NaN/Inf detected in tensor: {msg}")
+        else:
+            return True
