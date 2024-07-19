@@ -237,24 +237,22 @@ class TestTTDist(unittest.TestCase):
 
         # Initialize the TTDist instance
         batch_size = 1
-        rank = 2
+        rank = 1
         vocab_size = 4
-        output_size = 3
-
+        output_size = 4
         alpha, beta, core = get_init_params_onehot(
             batch_size=batch_size,
             rank=rank,
             vocab_size=vocab_size,
-            output_size=output_size,
             onehot_idx=2,
         )
 
-        n_core_repititions = 3
         ttdist = TTDist(
             alpha,
             beta,
             core,
-            n_core_repititions,
+            output_size,
+            eps=0.0,
         )
 
         # Sample from the distribution

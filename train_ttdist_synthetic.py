@@ -8,7 +8,7 @@ Compares:
 5. (Baseline) Unrestricted
 """
 
-from typing import Union, Optional
+from typing import Union, Optional, Tuple
 import os
 import argparse
 import shutil
@@ -17,7 +17,11 @@ import torch
 import numpy as np
 from TJDNet import sample_from_tensor_dist
 from TJDNet.TJDLayer.TTDist import TTDist
-from TJDNet.TJDLayer.utils import get_init_params_uniform_std_positive
+from TJDNet.TJDLayer.utils import (
+    get_init_params_uniform_std_positive,
+    get_init_params_onehot,
+    get_init_params_randn_positive,
+)
 from utils.utils import get_experiment_name
 
 import matplotlib.pyplot as plt
@@ -51,59 +55,6 @@ def plot_grad_distribution(core):
     plt.title("Gradient Distribution of Core Parameter")
     plt.grid(True)
     plt.show()
-
-
-def get_init_params_concentrated(batch_size, rank, output_size, vocab_size):
-    alpha = torch.ones(batch_size, rank)
-    beta = torch.ones(batch_size, rank)
-    # Cores should be zero except for a single vocab index
-    coreZero = torch.zeros(rank, vocab_size, rank)
-    coreOneHot = torch.zeros(rank, vocab_size, rank)
-    coreOneHot[:, 0, :] = torch.eye(rank)
-    core = torch.nn.Parameter(
-        (coreZero + coreOneHot).unsqueeze(0).repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_init_params_uniform_std(batch_size, rank, output_size, vocab_size):
-    alpha = (
-        torch.randn(1, rank).repeat(batch_size, 1)
-        * torch.sqrt(torch.tensor(1 / vocab_size**output_size))
-    ).abs()
-    beta = (
-        torch.randn(1, rank).repeat(batch_size, 1)
-        * torch.sqrt(torch.tensor(1 / vocab_size**output_size))
-    ).abs()
-    core = torch.nn.Parameter(
-        torch.eye(rank)
-        .unsqueeze(1)
-        .repeat(1, vocab_size, 1)
-        .unsqueeze(0)
-        .repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_init_params_randn(batch_size, rank, output_size, vocab_size):
-    alpha = torch.randn(1, rank).repeat(batch_size, 1)
-    beta = torch.randn(1, rank).repeat(batch_size, 1)
-    core = torch.nn.Parameter(
-        torch.randn(rank, vocab_size, rank).unsqueeze(0).repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_init_params_randn_positive(batch_size, rank, output_size, vocab_size):
-    alpha = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
-    beta = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
-    core = torch.nn.Parameter(
-        torch.randn(rank, vocab_size, rank)
-        .abs()
-        .unsqueeze(0)
-        .repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
 
 
 def get_entropy_loss(
@@ -175,15 +126,58 @@ def get_preference_loss(
     return preference_loss, probs_tilde_neg_sum
 
 
-def get_true_ttdist(output_size: int, vocab_size: int) -> TTDist:
-    raise NotImplementedError
+def get_true_ttdist(
+    output_size: int,
+    vocab_size: int,
+    batch_size=1,
+    rank=2,
+):
+    alpha, beta, core = get_init_params_onehot(
+        batch_size, rank, vocab_size, onehot_idx=1
+    )
+    ttdist = TTDist(
+        alpha,
+        beta,
+        core,
+        output_size,
+        norm_method="abs",
+        norm_method_alpha="abs",
+        eps=0.0,
+    )
+    return ttdist
 
 
-def get_expected_sse(learned_dist, true_dist) -> float:
-    raise NotImplementedError
+def get_sse_and_sse_max_approx(
+    learned_ttdist: TTDist, true_ttdist: TTDist
+) -> Tuple[float, float]:
+    approx_samples = true_ttdist.sample(100)
+    learned_probs, learned_norm_const = (
+        learned_ttdist.get_prob_and_norm_for_single_batch(approx_samples, batch_idx=0)
+    )
+    true_probs, _ = true_ttdist.get_prob_and_norm_for_single_batch(
+        approx_samples, batch_idx=0
+    )
+    cos_dist = torch.nn.functional.cosine_similarity(
+        learned_probs.reshape(1, -1), true_probs.reshape(1, -1)
+    ).item()
+    return cos_dist, learned_norm_const.detach().numpy().squeeze().max()
 
 
-def get_expected_sse_max(learned_dist, true_dist) -> float:
+def get_sse_and_sse_max(
+    learned_ttdist: TTDist, true_ttdist: TTDist
+) -> Tuple[float, float, float]:
+    learned_dist = learned_ttdist.materialize().detach().numpy().squeeze()
+    true_dist = true_ttdist.materialize().detach().numpy().squeeze()
+    if learned_ttdist.norm_const is not None:
+        learned_norm_const = learned_ttdist.norm_const.detach().numpy().squeeze().max()
+    else:
+        learned_norm_const = -1
+    sse = ((learned_dist - true_dist) ** 2).sum()
+    sse_max = ((learned_dist - true_dist) ** 2).max()
+    return sse, sse_max, learned_norm_const
+
+
+def get_max_sse(learned_dist: TTDist, true_dist: TTDist) -> float:
     raise NotImplementedError
 
 
@@ -191,7 +185,7 @@ def main(
     rank: int = 1,
     output_size: int = 3,
     vocab_size: int = 4,
-    norm_method: str = "relu",
+    norm_method: str = "abs",
     batch_size: int = 16,
     n_iters: int = 1000,
     log_freq: int = 100,
@@ -204,17 +198,11 @@ def main(
 
     assert eps != eps_norm, "eps and eps_norm cannot be the same"
     assert init_method in [
-        "concentrated",
-        "uniform",
         "uniform_positive",
-        "randn",
         "randn_positive",
-    ], f"init_method must be one of ['concentrated', 'uniform', 'uniform_positive', 'randn', 'randn_positive']"
+    ], f"init_method must be one of ['uniform_positive', 'randn_positive']"
     init_func = {
-        "concentrated": get_init_params_concentrated,
-        "uniform": get_init_params_uniform_std,
         "uniform_positive": get_init_params_uniform_std_positive,
-        "randn": get_init_params_randn,
         "randn_positive": get_init_params_randn_positive,
     }[init_method]
     assert loss_type in [
@@ -270,13 +258,12 @@ def main(
         if i % log_freq == 0 or i == 0:
             # Materialize the learned distribution
 
-            expected_sse = get_expected_sse(learned_ttdist, true_ttdist)
-            expected_sse_max = get_expected_sse_max(learned_ttdist, true_ttdist)
-
-            print(
-                f"[{i}] {norm_method}: SSE = {expected_sse:.3f} | SSE_MAX: {expected_sse_max:.3f} | Loss = {loss.item():.3f} | norm_constant = {norm_constant:.3f}"
+            expected_sse, expected_sse_max, norm_const = get_sse_and_sse_max(
+                learned_ttdist, true_ttdist
             )
-
+            print(
+                f"[{i}] {norm_method}: SSE = {expected_sse:.3f} | SSE_MAX: {expected_sse_max:.3f} | Loss = {loss.item():.3f} | norm_constant = {norm_const:.3f}"
+            )
             # Log to W&B
             wandb.log(
                 {
@@ -286,6 +273,20 @@ def main(
                     "norm_constant": norm_constant,
                 }
             )
+
+            # cos_dist, norm_const = get_sse_and_sse_max_approx(
+            #     learned_ttdist, true_ttdist
+            # )
+            # print(
+            #     f"[{i}] {norm_method}: SSE (Cos) = {cos_dist:.3f} | Loss = {loss.item():.3f} | norm_constant = {norm_const:.3f}"
+            # )
+            # wandb.log(
+            #     {
+            #         "Expected SSE (COS)": cos_dist,
+            #         "Loss": loss.item(),
+            #         "norm_constant": norm_constant,
+            #     }
+            # )
 
             if core.grad is not None:
                 wandb.log({f"core_grad": wandb.Histogram(core.grad.cpu().data.numpy())})
@@ -364,9 +365,7 @@ if __name__ == "__main__":
         default="randn_positive",
         choices=[
             "concentrated",
-            "uniform",
             "uniform_positive",
-            "randn",
             "randn_positive",
         ],
         help="Initialization method",
