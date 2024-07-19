@@ -1,3 +1,4 @@
+from typing import Optional, Dict, List
 import torch
 
 
@@ -103,3 +104,79 @@ def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool =
             raise ValueError(f"NaN/Inf detected in tensor: {msg}")
         else:
             return True
+
+
+def select_and_marginalize_uMPS(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    n_core_repititions: int,
+    selection_ids: Dict[int, int],
+    marginalize_ids: List[int],
+):
+    """Given a uMPS, perform select and/or marginalize operations.
+
+    Args:
+        alpha (torch.Tensor): _description_
+        beta (torch.Tensor): _description_
+        core (torch.Tensor): _description_
+        selection_ids (List[int]): _description_
+        marginalize_ids (List[int]): _description_
+
+    Returns:
+        _description_
+
+    """
+
+    # Validation
+    assert len(alpha.shape) == 1, "Alpha should be a 1D tensor"
+    assert len(beta.shape) == 1, "Beta should be a 1D tensor"
+
+    # Can't have same index in both selection and marginalization
+    assert not any(
+        [sid in marginalize_ids for sid in selection_ids.values()]
+    ), "Can't have same index in both selection and marginalization"
+
+    # Can't have indices out of range
+    assert all(
+        [sid < n_core_repititions for sid in selection_ids.values()]
+    ), "Selection index out of range"
+
+    assert all(
+        [mid < n_core_repititions for mid in marginalize_ids]
+    ), "Marginalization index out of range"
+
+    result = None
+    core_margin = torch.einsum(
+        "idj,d->ij", core, torch.ones(core.shape[1], device=core.device)
+    )
+    for i in range(n_core_repititions):
+        if i in selection_ids:
+            sid = selection_ids[i]
+            node = core[:, sid, :]
+
+        elif i in marginalize_ids:
+            node = core_margin
+        else:
+            node = core
+
+        if result is None:
+            result = node
+        elif len(node.shape) == 2:
+            shape_init = result.shape
+            result = result.reshape(-1, shape_init[-1]) @ node
+            result = result.reshape(tuple(shape_init[:-1]) + tuple(node.shape[1:]))
+        else:
+            shape_init = result.shape
+            result_tmp = result.reshape(-1, shape_init[-1])
+            result = torch.einsum("ij,jdl->idl", result_tmp, node)
+            result = result.reshape(tuple(shape_init[:-1]) + tuple(node.shape[1:]))
+
+    # Contract with alpha and beta
+    if result is not None:
+        shape_init = result.shape
+        result = result.reshape(shape_init[0], -1, shape_init[-1])
+        result = torch.einsum("i,idj,j->d", alpha, result, beta)
+        result = result.reshape(tuple(shape_init[1:-1]))
+
+    return result

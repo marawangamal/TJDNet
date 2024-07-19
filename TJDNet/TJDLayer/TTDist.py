@@ -1,5 +1,6 @@
-from typing import Optional
+from typing import Optional, Dict
 import logging
+
 
 from .utils import check_naninf
 
@@ -297,6 +298,7 @@ class TTDist:
         return unormalized_probs, normalization_constant
 
     def sample(self, batch_size: int = 1) -> torch.Tensor:
+        # https://tensornetwork.org/mps/algorithms/sampling/
         # return torch.randint(
         #     0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
         # )  # [B, n_core_repititions]

@@ -6,4 +6,5 @@ from .TJDLayer.utils import (
     create_core_ident,
     apply_id_transform,
     sample_from_tensor_dist,
+    select_and_marginalize_uMPS,
 )
