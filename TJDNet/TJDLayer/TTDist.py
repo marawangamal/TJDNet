@@ -2,7 +2,10 @@ from typing import Optional, Dict
 import logging
 
 
-from .utils import check_naninf
+from .utils import (
+    check_naninf,
+    select_and_marginalize_uMPS,
+)
 
 
 import torch
@@ -297,12 +300,24 @@ class TTDist:
 
         return unormalized_probs, normalization_constant
 
-    def sample(self, batch_size: int = 1) -> torch.Tensor:
-        # https://tensornetwork.org/mps/algorithms/sampling/
-        # return torch.randint(
-        #     0, self.core.shape[2], (self.batch_size, self.n_core_repititions)
-        # )  # [B, n_core_repititions]
-        raise NotImplementedError
+    def sample(self, n_samples: int = 1, batch_idx: int = 0) -> torch.Tensor:
+        selection_ids = {}
+        for i in range(self.n_core_repititions):
+            marginalize_ids = list(range(i + 1, self.n_core_repititions))
+            p_vec_tilde = select_and_marginalize_uMPS(
+                self.alpha[batch_idx],
+                self.beta[batch_idx],
+                self.core[batch_idx],
+                self.n_core_repititions,
+                selection_ids=selection_ids,
+                marginalize_ids=marginalize_ids,
+            )
+            if p_vec_tilde is None:
+                raise ValueError("Invalid selection and marginalization indices")
+            p_vec = p_vec_tilde / p_vec_tilde.sum()
+            idx = torch.multinomial(p_vec, 1)
+            selection_ids[i] = idx.item()
+        return torch.tensor([selection_ids[i] for i in range(self.n_core_repititions)])
 
     def materialize(self):
         """Materialize the TTDist object.

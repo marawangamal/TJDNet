@@ -17,6 +17,7 @@ import torch
 import numpy as np
 from TJDNet import sample_from_tensor_dist
 from TJDNet.TJDLayer.TTDist import TTDist
+from TJDNet.TJDLayer.utils import get_init_params_uniform_std_positive
 from utils.utils import get_experiment_name
 
 import matplotlib.pyplot as plt
@@ -73,23 +74,6 @@ def get_init_params_uniform_std(batch_size, rank, output_size, vocab_size):
     beta = (
         torch.randn(1, rank).repeat(batch_size, 1)
         * torch.sqrt(torch.tensor(1 / vocab_size**output_size))
-    ).abs()
-    core = torch.nn.Parameter(
-        torch.eye(rank)
-        .unsqueeze(1)
-        .repeat(1, vocab_size, 1)
-        .unsqueeze(0)
-        .repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_size):
-    alpha = (
-        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
-    ).abs()
-    beta = (
-        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
     ).abs()
     core = torch.nn.Parameter(
         torch.eye(rank)

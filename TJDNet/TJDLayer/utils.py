@@ -134,12 +134,12 @@ def select_and_marginalize_uMPS(
 
     # Can't have same index in both selection and marginalization
     assert not any(
-        [sid in marginalize_ids for sid in selection_ids.values()]
+        [sid in marginalize_ids for sid in selection_ids.keys()]
     ), "Can't have same index in both selection and marginalization"
 
     # Can't have indices out of range
     assert all(
-        [sid < n_core_repititions for sid in selection_ids.values()]
+        [sid < n_core_repititions for sid in selection_ids.keys()]
     ), "Selection index out of range"
 
     assert all(
@@ -180,3 +180,32 @@ def select_and_marginalize_uMPS(
         result = result.reshape(tuple(shape_init[1:-1]))
 
     return result
+
+
+def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_size):
+    alpha = (
+        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
+    ).abs()
+    beta = (
+        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
+    ).abs()
+    core = torch.nn.Parameter(
+        torch.eye(rank)
+        .unsqueeze(1)
+        .repeat(1, vocab_size, 1)
+        .unsqueeze(0)
+        .repeat(batch_size, 1, 1, 1)
+    )
+    return alpha, beta, core
+
+
+def get_init_params_onehot(batch_size, rank, output_size, vocab_size, onehot_idx):
+    alpha = torch.zeros(1, rank).repeat(batch_size, 1)
+    beta = torch.ones(1, rank).repeat(batch_size, 1)
+    coreZero = torch.zeros(rank, vocab_size, rank)
+    coreOneHot = torch.zeros(rank, vocab_size, rank)
+    coreOneHot[:, onehot_idx, :] = torch.eye(rank)
+    core = torch.nn.Parameter(
+        (coreZero + coreOneHot).unsqueeze(0).repeat(batch_size, 1, 1, 1)
+    )
+    return alpha, beta, core

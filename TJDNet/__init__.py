@@ -7,4 +7,6 @@ from .TJDLayer.utils import (
     apply_id_transform,
     sample_from_tensor_dist,
     select_and_marginalize_uMPS,
+    get_init_params_uniform_std_positive,
+    get_init_params_onehot,
 )
