@@ -148,19 +148,31 @@ def get_true_ttdist(
 
 
 def get_sse_and_sse_max_approx(
-    learned_ttdist: TTDist, true_ttdist: TTDist
-) -> Tuple[float, float]:
-    approx_samples = true_ttdist.sample(100)
-    learned_probs, learned_norm_const = (
+    learned_ttdist: TTDist, true_ttdist: TTDist, n_samples: int = 1000
+) -> Tuple[float, float, float]:
+    # approx_samples = true_ttdist.sample(100)
+    vocab_size = learned_ttdist.core.shape[2]
+    n_core_repititions = learned_ttdist.n_core_repititions
+    n_possibilities = vocab_size**n_core_repititions
+    approx_samples = torch.randint(
+        0, vocab_size, (n_samples, n_core_repititions), dtype=torch.long
+    )
+    learned_probs_tilde, learned_norm_const = (
         learned_ttdist.get_prob_and_norm_for_single_batch(approx_samples, batch_idx=0)
     )
-    true_probs, _ = true_ttdist.get_prob_and_norm_for_single_batch(
+    true_probs_tilde, _ = true_ttdist.get_prob_and_norm_for_single_batch(
         approx_samples, batch_idx=0
     )
-    cos_dist = torch.nn.functional.cosine_similarity(
-        learned_probs.reshape(1, -1), true_probs.reshape(1, -1)
-    ).item()
-    return cos_dist, learned_norm_const.detach().numpy().squeeze().max()
+
+    learned_norm_const_estimate = learned_probs_tilde.mean() * n_possibilities
+    true_norm_const_estimate = true_probs_tilde.mean() * n_possibilities
+
+    true_probs = true_probs_tilde / true_norm_const_estimate
+    learned_probs = learned_probs_tilde / learned_norm_const_estimate
+
+    sse = ((learned_probs - true_probs) ** 2).sum()
+    sse_max = ((learned_probs - true_probs) ** 2).max()
+    return sse, sse_max, learned_norm_const_estimate
 
 
 def get_sse_and_sse_max(
@@ -194,6 +206,7 @@ def main(
     eps_norm: float = 1e-6,
     init_method: str = "uniform_positive",
     loss_type: str = "entropy",  # entropy or preference
+    approx: bool = False,
 ):
 
     assert eps != eps_norm, "eps and eps_norm cannot be the same"
@@ -258,19 +271,28 @@ def main(
         if i % log_freq == 0 or i == 0:
             # Materialize the learned distribution
 
-            expected_sse, expected_sse_max, norm_const = get_sse_and_sse_max(
-                learned_ttdist, true_ttdist
+            if approx:
+                sse, sse_max, norm_const = -1, -1, -1
+            else:
+                sse, sse_max, norm_const = get_sse_and_sse_max(
+                    learned_ttdist, true_ttdist
+                )
+            expected_sse, expected_sse_max, expected_norm_const = (
+                get_sse_and_sse_max_approx(learned_ttdist, true_ttdist)
             )
             print(
-                f"[{i}] {norm_method}: SSE = {expected_sse:.3f} | SSE_MAX: {expected_sse_max:.3f} | Loss = {loss.item():.3f} | norm_constant = {norm_const:.3f}"
+                f"[{i}] Loss = {loss.item():.3f} | SSE = {sse:.3f} (E[SSE] = {expected_sse:.3f}) | SSE_MAX = {sse_max:.3f} (E[SSE_MAX] = {expected_sse_max:.3f}) | norm_constant = {norm_const:.3f} (E[norm_constant] = {expected_norm_const:.3f})"
             )
             # Log to W&B
             wandb.log(
                 {
-                    "SSE": expected_sse,
-                    "SSE_MAX": expected_sse_max,
                     "Loss": loss.item(),
-                    "norm_constant": norm_constant,
+                    "E[SSE]": expected_sse,
+                    "E[SSE_MAX]": expected_sse_max,
+                    "E[norm_constant]": expected_norm_const,
+                    "SSE": sse,
+                    "SSE_MAX": sse_max,
+                    "norm_constant": norm_const,
                 }
             )
 
@@ -359,6 +381,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--eps_norm", type=float, default=0.0, help="Epsilon value for normalization"
     )
+
+    parser.add_argument(
+        "--approx",
+        type=bool,
+        default=False,
+        help="Use approximate sampling",
+        action="store_true",
+    )
+
     parser.add_argument(
         "--init_method",
         type=str,
