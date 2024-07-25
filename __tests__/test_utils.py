@@ -1,6 +1,6 @@
 import unittest
 import torch
-from TJDNet.TJDLayer.utils import batched_index_select
+from TJDNet.TJDLayer.utils import batched_index_select, select_and_marginalize_uMPS
 
 
 class TestTTDist(unittest.TestCase):
@@ -29,6 +29,54 @@ class TestTTDist(unittest.TestCase):
             result, expected_output
         ), "Test Failed: Output does not match expected output"
         print("Test Passed: Output matches the expected output")
+
+    def test_select_and_marginalize_uMPS_1D(self):
+        rank = 3
+        vocab_size = 4
+        output_size = 3
+        alpha = torch.randn(rank)
+        beta = torch.randn(rank)
+        core = torch.randn(rank, vocab_size, rank)
+
+        result = select_and_marginalize_uMPS(
+            alpha, beta, core, output_size, {0: 1}, [2]
+        )
+        expected_shape = (vocab_size,)
+        self.assertIsNotNone(result)
+        if result is not None:
+            self.assertEqual(tuple(result.shape), expected_shape)
+
+    def test_select_and_marginalize_uMPS_2D(self):
+        rank = 3
+        vocab_size = 4
+        output_size = 4
+        alpha = torch.randn(rank)
+        beta = torch.randn(rank)
+        core = torch.randn(rank, vocab_size, rank)
+
+        result = select_and_marginalize_uMPS(
+            alpha, beta, core, output_size, {0: 1}, [2]
+        )
+        expected_shape = (vocab_size, vocab_size)
+        self.assertIsNotNone(result)
+        if result is not None:
+            self.assertEqual(tuple(result.shape), expected_shape)
+
+    def test_select_and_marginalize_uMPS_3D(self):
+        rank = 3
+        vocab_size = 4
+        output_size = 5
+        alpha = torch.randn(rank)
+        beta = torch.randn(rank)
+        core = torch.randn(rank, vocab_size, rank)
+
+        result = select_and_marginalize_uMPS(
+            alpha, beta, core, output_size, {0: 1, 3: 1}, [2]
+        )
+        expected_shape = (vocab_size, vocab_size)
+        self.assertIsNotNone(result)
+        if result is not None:
+            self.assertEqual(tuple(result.shape), expected_shape)
 
 
 if __name__ == "__main__":

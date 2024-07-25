@@ -1,3 +1,4 @@
+from typing import Optional, Dict, List
 import torch
 
 
@@ -95,3 +96,128 @@ def batched_index_select(
     """
     cols = [batched_index[:, i] for i in range(batched_index.shape[1])]
     return input[cols]
+
+
+def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool = True):
+    if torch.isnan(x).any() or torch.isinf(x).any():
+        if raise_error:
+            raise ValueError(f"NaN/Inf detected in tensor: {msg}")
+        else:
+            return True
+
+
+def select_and_marginalize_uMPS(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    n_core_repititions: int,
+    selection_ids: Dict[int, int],
+    marginalize_ids: List[int],
+):
+    """Given a uMPS, perform select and/or marginalize operations.
+
+    Args:
+        alpha (torch.Tensor): _description_
+        beta (torch.Tensor): _description_
+        core (torch.Tensor): _description_
+        selection_ids (List[int]): _description_
+        marginalize_ids (List[int]): _description_
+
+    Returns:
+        _description_
+
+    """
+
+    # Validation
+    assert len(alpha.shape) == 1, "Alpha should be a 1D tensor"
+    assert len(beta.shape) == 1, "Beta should be a 1D tensor"
+
+    # Can't have same index in both selection and marginalization
+    assert not any(
+        [sid in marginalize_ids for sid in selection_ids.keys()]
+    ), "Can't have same index in both selection and marginalization"
+
+    # Can't have indices out of range
+    assert all(
+        [sid < n_core_repititions for sid in selection_ids.keys()]
+    ), "Selection index out of range"
+
+    assert all(
+        [mid < n_core_repititions for mid in marginalize_ids]
+    ), "Marginalization index out of range"
+
+    result = None
+    core_margin = torch.einsum(
+        "idj,d->ij", core, torch.ones(core.shape[1], device=core.device)
+    )
+    for i in range(n_core_repititions):
+        if i in selection_ids:
+            sid = selection_ids[i]
+            node = core[:, sid, :]
+
+        elif i in marginalize_ids:
+            node = core_margin
+        else:
+            node = core
+
+        if result is None:
+            result = node
+        elif len(node.shape) == 2:
+            shape_init = result.shape
+            result = result.reshape(-1, shape_init[-1]) @ node
+            result = result.reshape(tuple(shape_init[:-1]) + tuple(node.shape[1:]))
+        else:
+            shape_init = result.shape
+            result_tmp = result.reshape(-1, shape_init[-1])
+            result = torch.einsum("ij,jdl->idl", result_tmp, node)
+            result = result.reshape(tuple(shape_init[:-1]) + tuple(node.shape[1:]))
+
+    # Contract with alpha and beta
+    if result is not None:
+        shape_init = result.shape
+        result = result.reshape(shape_init[0], -1, shape_init[-1])
+        result = torch.einsum("i,idj,j->d", alpha, result, beta)
+        result = result.reshape(tuple(shape_init[1:-1]))
+
+    return result
+
+
+def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_size):
+    alpha = (
+        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
+    ).abs()
+    beta = (
+        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
+    ).abs()
+    core = torch.nn.Parameter(
+        torch.eye(rank)
+        .unsqueeze(1)
+        .repeat(1, vocab_size, 1)
+        .unsqueeze(0)
+        .repeat(batch_size, 1, 1, 1)
+    )
+    return alpha, beta, core
+
+
+def get_init_params_onehot(batch_size, rank, vocab_size, onehot_idx):
+    alpha = torch.ones(1, rank).repeat(batch_size, 1)
+    beta = torch.ones(1, rank).repeat(batch_size, 1)
+    coreZero = torch.zeros(rank, vocab_size, rank)
+    coreOneHot = torch.zeros(rank, vocab_size, rank)
+    coreOneHot[:, onehot_idx, :] = torch.eye(rank)
+    core = torch.nn.Parameter(
+        (coreZero + coreOneHot).unsqueeze(0).repeat(batch_size, 1, 1, 1)
+    )
+    return alpha, beta, core
+
+
+def get_init_params_randn_positive(batch_size, rank, output_size, vocab_size):
+    alpha = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
+    beta = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
+    core = torch.nn.Parameter(
+        torch.randn(rank, vocab_size, rank)
+        .abs()
+        .unsqueeze(0)
+        .repeat(batch_size, 1, 1, 1)
+    )
+    return alpha, beta, core
