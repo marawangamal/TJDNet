@@ -1,80 +1,185 @@
 import torch
-from TJDNet import sample_from_tensor_dist
-from TJDNet.TJDLayer.TTDist import TTDist
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from torchtext.datasets import PennTreebank
+from torchtext.vocab import vocab
+from collections import Counter, OrderedDict
+from torch.nn import Transformer
+import torch.optim as optim
+import argparse
+from tqdm import tqdm
+from math import ceil
 
 
-def normalize_matrix(matrix):
-    """Placeholder normalization function, replace with the actual implementation."""
-    norm_factor = torch.norm(matrix, dim=0, keepdim=True)
-    return matrix / norm_factor
+def build_vocab(data_iter):
+    counter = Counter()
+    for text in data_iter:
+        counter.update(text)
+    # Adding high count for '<unk>' and '<pad>'
+    counter.update({"<unk>": 1e5, "<pad>": 1e5})
+    sorted_vocab_items = sorted(counter.items(), key=lambda x: -x[1])
+    vocab_obj = vocab(OrderedDict(sorted_vocab_items))
+    vocab_obj.set_default_index(
+        vocab_obj["<unk>"]
+    )  # Set default index for unknown tokens
+    return vocab_obj
 
 
-def make_batched_alpha_beta_core(alpha, beta, core, batch_size):
-    alpha = alpha.repeat(batch_size, 1)
-    beta = beta.repeat(batch_size, 1)
-    core = core.repeat(batch_size, 1, 1, 1)
-    return alpha, beta, core
+def count_batches(data_loader):
+    count = 0
+    for _ in data_loader:
+        count += 1
+    return count
 
 
-def compute_log_prob_and_norm(alpha, beta, core, target):
-    ttdist = TTDist(alpha, beta, core, target.size(1), repeat_batch_size=target.size(0))
-    probs_tilde, norm_constant = ttdist.get_prob_and_norm(target)
-    loss = (-torch.log(probs_tilde) + torch.log(norm_constant)).mean()
-    return loss
+def decode_sequence(vocab_obj, sequence):
+    decoded_string = "".join([vocab_obj.get_itos()[token_id] for token_id in sequence])
+    return decoded_string
 
 
-def main():
-    n_epochs = 500
-    batch_size = 8
-    n_train_samples = 8 * 100
-    n_test_samples = 8 * 10
-    true_rank = 4
-    model_rank = 2
-    vocab_size = 4
-    seq_len = 4
-    lr = 1e-3
-
-    true_alpha = torch.randn(1, true_rank)
-    true_beta = torch.randn(1, true_rank)
-    true_core = torch.randn(1, true_rank, vocab_size, true_rank)
-    true_ttdist = TTDist(
-        true_alpha, true_beta, true_core, seq_len, repeat_batch_size=batch_size
+def collate_batch(batch, vocab_obj, max_len=32):
+    # Function to handle padding of batch
+    batch_out = [
+        torch.tensor([vocab_obj[char] for char in list(data)], dtype=torch.long)
+        for data in batch
+    ]
+    # Pad sequences in the batch
+    batch_out = torch.nn.utils.rnn.pad_sequence(
+        batch_out, padding_value=vocab_obj["<pad>"], batch_first=True
     )
-    true_dist = true_ttdist.materialize().squeeze()
-    true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
+    batch_out = batch_out[:, :max_len]
+    return batch_out
 
-    # Sample `batch_size` random samples from the true distribution
-    train_samples = sample_from_tensor_dist(true_dist[0], n_train_samples)
-    train_dataset = torch.utils.data.TensorDataset(train_samples)  # type: ignore
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)  # type: ignore
 
-    # Sample `batch_size` random samples from the true distribution
-    test_samples = sample_from_tensor_dist(true_dist[0], n_test_samples)
-
-    alpha = torch.nn.Parameter(torch.randn(1, model_rank))
-    beta = torch.nn.Parameter(torch.randn(1, model_rank))
-    core = torch.nn.Parameter(torch.randn(1, model_rank, vocab_size, model_rank))
-
-    optimizer = torch.optim.Adam([alpha, beta, core], lr=lr)
-
-    for ep in range(n_epochs):
-        # Train
-        for i, batch in enumerate(train_dataloader):
-            target = batch[0]
-            optimizer.zero_grad()
-            loss = compute_log_prob_and_norm(alpha, beta, core, target)
-            loss.backward()
-            optimizer.step()
-
-        # Test
-        test_loss = compute_log_prob_and_norm(alpha, beta, core, test_samples)
-        test_loss_gt = compute_log_prob_and_norm(
-            true_alpha, true_beta, true_core, test_samples
+class TransformerModel(nn.Module):
+    def __init__(self, vocab_size, embed_size, nhead, ffn_hid_dim, num_layers):
+        super(TransformerModel, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.transformer = Transformer(
+            d_model=embed_size,
+            nhead=nhead,
+            dim_feedforward=ffn_hid_dim,
+            num_encoder_layers=num_layers,
+            num_decoder_layers=num_layers,
         )
-        print(
-            f"[Epoch {ep}] Loss: {test_loss.item()} | GT Loss: {test_loss_gt.item()} | Loss Diff (abs): {abs(test_loss.item() - test_loss_gt.item())}"
-        )
+        self.fc_out = nn.Linear(embed_size, vocab_size)
+
+    def forward(self, src):
+        src = self.embedding(src)
+        output = self.transformer(src, src)
+        output = self.fc_out(output)
+        return output
+
+
+def train(
+    model, train_loader, device, optimizer, criterion, num_epochs, total_batches=None
+):
+    total_batches = count_batches(train_loader)
+    for epoch in range(num_epochs):
+        model.train()
+        total_loss = 0
+        with tqdm(train_loader, total=total_batches) as t:
+            for data in t:
+                inputs, targets = (
+                    data[:, :-1],
+                    data[:, 1:],
+                )  # Shifted by one for next character prediction
+                inputs, targets = inputs.to(device), targets.to(device)
+                optimizer.zero_grad()
+                output = model(inputs)
+                loss = criterion(
+                    output.reshape(-1, model.fc_out.out_features), targets.reshape(-1)
+                )
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+                # Set loss in tqdm
+                t.set_postfix(loss=loss.item())
+        print(f"Epoch {epoch + 1}, Loss: {total_loss / len(train_loader)}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Train a Transformer model on the Penn Treebank dataset at character level."
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=64,
+        help="input batch size for training (default: 64)",
+    )
+    parser.add_argument(
+        "--num_epochs",
+        type=int,
+        default=10,
+        help="number of epochs to train (default: 10)",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=0.01,
+        help="learning rate (default: 0.01)",
+    )
+    parser.add_argument(
+        "--embed_size",
+        type=int,
+        default=512,
+        help="size of the embeddings (default: 512)",
+    )
+    parser.add_argument(
+        "--nhead",
+        type=int,
+        default=8,
+        help="number of heads in the nn.Transformer (default: 8)",
+    )
+    parser.add_argument(
+        "--ffn_hid_dim",
+        type=int,
+        default=2048,
+        help="dimension of the feedforward network model (default: 2048)",
+    )
+    parser.add_argument(
+        "--num_layers",
+        type=int,
+        default=3,
+        help="number of nn.Transformer layers (default: 3)",
+    )
+    parser.add_argument(
+        "--root_dir",
+        type=str,
+        default="./data",
+        help="root directory for storing the dataset (default: ./data)",
+    )
+
+    args = parser.parse_args()
+
+    # Initialize dataset and build vocabulary
+    train_iter = PennTreebank(split="train", root=args.root_dir)
+    vocab_obj = build_vocab(train_iter)
+
+    # Reinitialize the dataset iterator for DataLoader
+    train_iter = PennTreebank(split="train", root=args.root_dir)
+    train_loader = DataLoader(
+        train_iter,
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=lambda b: collate_batch(b, vocab_obj),
+    )
+
+    # Setup training
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = TransformerModel(
+        len(vocab_obj), args.embed_size, args.nhead, args.ffn_hid_dim, args.num_layers
+    ).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    criterion = nn.CrossEntropyLoss()
+
+    # Run training
+    train(
+        model,
+        train_loader,
+        device,
+        optimizer,
+        criterion,
+        args.num_epochs,
+    )
