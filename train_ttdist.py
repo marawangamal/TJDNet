@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from torchtext.datasets import PennTreebank
 from torchtext.vocab import vocab
 from collections import Counter, OrderedDict
-from torch.nn import Transformer
+from transformers import GPT2Model, GPT2Config
 import torch.optim as optim
 import argparse
 from tqdm import tqdm
@@ -53,24 +53,22 @@ def collate_batch(batch, vocab_obj, max_len=512):
     return batch_out
 
 
-class TransformerModel(nn.Module):
-    def __init__(self, vocab_size, embed_size, nhead, ffn_hid_dim, num_layers):
-        super(TransformerModel, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_size)
-        self.transformer = Transformer(
-            d_model=embed_size,
-            nhead=nhead,
-            dim_feedforward=ffn_hid_dim,
-            num_encoder_layers=num_layers,
-            num_decoder_layers=num_layers,
+class HFTransformerModel(nn.Module):
+    def __init__(self, vocab_size, embed_size, num_layers):
+        super(HFTransformerModel, self).__init__()
+        config = GPT2Config(
+            vocab_size=vocab_size,
+            n_embd=embed_size,
+            n_layer=num_layers,
+            n_head=embed_size // 64,  # Assuming embed size is divisible by 64
         )
+        self.transformer = GPT2Model(config)
         self.fc_out = nn.Linear(embed_size, vocab_size)
 
     def forward(self, src):
-        src = self.embedding(src)
-        output = self.transformer(src, src)
-        output = self.fc_out(output)
-        return output
+        outputs = self.transformer(src, return_dict=True)
+        output = outputs.last_hidden_state
+        return self.fc_out(output)
 
 
 def train(
@@ -187,11 +185,11 @@ if __name__ == "__main__":
         collate_fn=lambda b: collate_batch(b, vocab_obj),
     )
 
-    # Setup training
+    # Device and model setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = TransformerModel(
-        len(vocab_obj), args.embed_size, args.nhead, args.ffn_hid_dim, args.num_layers
-    ).to(device)
+    model = HFTransformerModel(len(vocab_obj), args.embed_size, args.num_layers).to(
+        device
+    )
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     criterion = nn.CrossEntropyLoss()
 
