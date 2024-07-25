@@ -8,7 +8,9 @@ from torch.nn import Transformer
 import torch.optim as optim
 import argparse
 from tqdm import tqdm
-from math import ceil
+import wandb
+
+from utils.utils import get_experiment_name
 
 
 def build_vocab(data_iter):
@@ -37,7 +39,7 @@ def decode_sequence(vocab_obj, sequence):
     return decoded_string
 
 
-def collate_batch(batch, vocab_obj, max_len=32):
+def collate_batch(batch, vocab_obj, max_len=512):
     # Function to handle padding of batch
     batch_out = [
         torch.tensor([vocab_obj[char] for char in list(data)], dtype=torch.long)
@@ -75,11 +77,13 @@ def train(
     model, train_loader, device, optimizer, criterion, num_epochs, total_batches=None
 ):
     total_batches = count_batches(train_loader)
+    decoded_input = ""
+    decoded_output = ""
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0
         with tqdm(train_loader, total=total_batches) as t:
-            for data in t:
+            for i, data in enumerate(t):
                 inputs, targets = (
                     data[:, :-1],
                     data[:, 1:],
@@ -90,12 +94,29 @@ def train(
                 loss = criterion(
                     output.reshape(-1, model.fc_out.out_features), targets.reshape(-1)
                 )
+                # Clip gradients to avoid exploding gradients
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
                 loss.backward()
                 optimizer.step()
                 total_loss += loss.item()
-                # Set loss in tqdm
-                t.set_postfix(loss=loss.item())
-        print(f"Epoch {epoch + 1}, Loss: {total_loss / len(train_loader)}")
+                # Log to W&B
+                wandb.log(
+                    {
+                        "Loss": loss.item(),
+                    }
+                )
+                if i % 50 == 0:
+                    sample_output = model(inputs[0].unsqueeze(0))
+                    decoded_input = decode_sequence(vocab_obj, inputs[0])
+                    decoded_output = decode_sequence(
+                        vocab_obj, sample_output.argmax(-1)[0]
+                    )
+                t.set_postfix(
+                    loss=loss.item(), sin=decoded_input[:30], sout=decoded_output[:30]
+                )
+        print(
+            f"[Epoch {epoch + 1}], Loss: {total_loss / total_batches}, Input: {decoded_input}, Output: {decoded_output}"
+        )
 
 
 if __name__ == "__main__":
@@ -117,7 +138,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--learning_rate",
         type=float,
-        default=0.01,
+        default=1e-5,
         help="learning rate (default: 0.01)",
     )
     parser.add_argument(
@@ -171,10 +192,19 @@ if __name__ == "__main__":
     model = TransformerModel(
         len(vocab_obj), args.embed_size, args.nhead, args.ffn_hid_dim, args.num_layers
     ).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     criterion = nn.CrossEntropyLoss()
 
+    experiment_config = args.__dict__
+    experiment_name = get_experiment_name(experiment_config)
+
     # Run training
+    wandb.init(
+        project="tjdnet-transformer",
+        config=experiment_config,
+        name=experiment_name,
+    )
+    print(f"Running experiment: {experiment_name}")
     train(
         model,
         train_loader,
@@ -183,3 +213,4 @@ if __name__ == "__main__":
         criterion,
         args.num_epochs,
     )
+    wandb.finish()
