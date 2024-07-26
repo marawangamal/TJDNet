@@ -90,16 +90,16 @@ def train(model, train_loader, device, optimizer, num_epochs):
 
                 if tepoch.n % 100 == 0:
                     decoded_inputs, decoded_outputs = model.generate(batch["input_ids"])
+                    decoded_input = decoded_inputs[0]
+                    decoded_output = decoded_outputs[0]
 
                 tepoch.set_postfix(
                     loss=total_loss / (tepoch.n + 1),
-                    # sin=decoded_inputs[0][:32],
-                    # sout=decoded_outputs[0][:32],
                 )
 
         print(f"Epoch {epoch+1}: Loss {total_loss / len(train_loader)}")
-        print(f"Input: {decoded_inputs[0]}")
-        print(f"Output: {decoded_outputs[0]}")
+        print(f"Input: {decoded_input}")
+        print(f"Output: {decoded_output}")
 
 
 if __name__ == "__main__":
