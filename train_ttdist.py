@@ -1,9 +1,11 @@
+from typing import Optional
 import torch
 import torch.nn as nn
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
 )
+from tqdm import tqdm
 
 import argparse
 import wandb
@@ -20,9 +22,10 @@ def count_batches(data_loader):
 
 
 class HFTransformerModel(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+    ):
         super(HFTransformerModel, self).__init__()
-        # self.model = GPT2LMHeadModel.from_pretrained("gpt2")
         self.model = AutoModelForCausalLM.from_pretrained("gpt2")
         self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
         self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -30,39 +33,73 @@ class HFTransformerModel(nn.Module):
             self.model.config.n_embd, self.model.config.vocab_size
         )
 
-    def forward(self, input_ids, attention_mask=None):
-        # Adjust input_ids to create source and target
-        source = input_ids[..., :-1].contiguous()  # All but the last token
-        target = input_ids[..., 1:].contiguous()  # All but the first token
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        max_new_tokens: int = 32,
+    ):
+        """Generate new tokens from the model.
 
-        # Similarly adjust attention_mask to match the source length
-        if attention_mask is not None:
-            adjusted_attention_mask = attention_mask[
-                ..., :-1
-            ].contiguous()  # Match the source shape
-        else:
-            adjusted_attention_mask = None
+        Args:
+            input_ids (torch.Tensor): Input tensor of shape (batch_size, seq_len).
+            attention_mask (torch.Tensor, optional): Attention mask tensor of shape (batch_size, seq_len). Defaults to None.
 
-        # Pass the adjusted attention mask along with source and target
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size, seq_len).
+        """
+        out = self.model.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=self.tokenizer.eos_token_id,
+        )
+        inputs = [
+            self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids
+        ]
+        decoded = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in out]
+        decoded_raw = [
+            dec[len(inp) :] if dec.startswith(inp) else dec
+            for inp, dec in zip(inputs, decoded)
+        ]
+        return inputs, decoded_raw
+
+    def forward(self, input_ids, labels, attention_mask=None):
         outputs = self.model(
-            source, attention_mask=adjusted_attention_mask, labels=target
+            input_ids,
+            labels=labels,
+            attention_mask=attention_mask,
         )
         return outputs.loss
 
 
 def train(model, train_loader, device, optimizer, num_epochs):
     model.train()
+    decoded_input = ""
+    decoded_output = ""
     for epoch in range(num_epochs):
         total_loss = 0
-        for batch in train_loader:
-            batch = {k: v.to(device) for k, v in batch.items()}
-            loss = model(**batch)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
+        with tqdm(train_loader, unit="batch") as tepoch:
+            for batch in tepoch:
+                batch = {k: v.to(device) for k, v in batch.items()}
+                loss = model(**batch)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+
+                if tepoch.n % 100 == 0:
+                    decoded_inputs, decoded_outputs = model.generate(batch["input_ids"])
+
+                tepoch.set_postfix(
+                    loss=total_loss / (tepoch.n + 1),
+                    # sin=decoded_inputs[0][:32],
+                    # sout=decoded_outputs[0][:32],
+                )
 
         print(f"Epoch {epoch+1}: Loss {total_loss / len(train_loader)}")
+        print(f"Input: {decoded_inputs[0]}")
+        print(f"Output: {decoded_outputs[0]}")
 
 
 if __name__ == "__main__":
@@ -72,7 +109,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=64,
+        default=32,
         help="input batch size for training (default: 64)",
     )
     parser.add_argument(
@@ -121,7 +158,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_length",
         type=int,
-        default=512,
+        default=32,
         help="maximum length of the input sequence (default: 512)",
     )
 
