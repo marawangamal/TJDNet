@@ -35,6 +35,22 @@ from transformers import DataCollatorForLanguageModeling, get_scheduler
 from character_tokenizer import CharacterTokenizer
 
 
+class GPT2(torch.nn.Module):
+    def __init__(self, config: GPT2Config):
+        super().__init__()
+        self.model = GPT2LMHeadModel(config)
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def generate(self, *args, **kwargs):
+        return self.model.generate(*args, **kwargs)
+
+    def forward(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
+
+
 def preprocess_shakespeare(examples):
     chars = list(examples["text"])
     return {"text": chars}
@@ -186,7 +202,7 @@ if __name__ == "__main__":
         dropout=dropout,
         pad_token_id=tokenizer.pad_token_id,
     )
-    model = GPT2LMHeadModel(config)
+    model = GPT2(config)
 
     train(
         model,
