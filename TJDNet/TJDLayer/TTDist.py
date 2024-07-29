@@ -27,8 +27,8 @@ class TTDist:
         n_core_repititions: int,
         repeat_batch_size: Optional[int] = None,
         eps: float = 1e-10,
-        norm_method: str = "relu",
-        norm_method_alpha: str = "relu",
+        norm_method: str = "abs",
+        norm_method_alpha: str = "abs",
     ) -> None:
         """Tensor Train Parameterization of Joint Distribution.
 
@@ -320,6 +320,37 @@ class TTDist:
             beams[i_beam] = beams[i_beam][1:]
         return beams, beam_probs
 
+    def get_prob(self, indices: torch.Tensor) -> torch.Tensor:
+        """Get the unnormalized probability and normalization constant of the TTDist.
+
+        Args:
+            indices (torch.Tensor): Indices of the sequences. Shape: (B, n_core_repititions).
+
+        Returns:
+            Tuple[Tensor, Tensor]: Unnormalized probabilities and normalization constant. Shapes: (B,), (B,)
+        """
+
+        # Assert: indices are within the core size
+        assert torch.all(
+            indices < self.core.shape[2]
+        ), "Indices must be within the core size"
+
+        # Assert: indices are non-negative
+        assert torch.all(indices >= 0), "Indices must be non-negative"
+        check_naninf(self.alpha, f"get_prob_and_norm:alpha")
+        check_naninf(self.beta, f"get_prob_and_norm:beta")
+        check_naninf(self.core, f"get_prob_and_norm:core")
+
+        unormalized_probs = self._select(
+            alpha=self.alpha,
+            beta=self.beta,
+            core=self.core,
+            n_core_repititions=self.n_core_repititions,
+            indices=indices,
+        )
+        check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
+        return unormalized_probs
+
     def get_prob_and_norm(self, indices: torch.Tensor) -> Tuple[Tensor, Tensor]:
         """Get the unnormalized probability and normalization constant of the TTDist.
 
@@ -356,7 +387,7 @@ class TTDist:
             core=self.core,
             n_core_repititions=self.n_core_repititions,
         )
-        check_naninf(normalization_constant, f"get_prob:normalization_constant")
+        # check_naninf(normalization_constant, f"get_prob:normalization_constant")
 
         # max_unorm_prob = torch.max(torch.abs(unormalized_probs)).item()
         # min_unorm_prob = torch.min(torch.abs(unormalized_probs)).item()

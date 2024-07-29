@@ -33,15 +33,35 @@ from transformers import (
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
 from character_tokenizer import CharacterTokenizer
+from TJDNet.TJDLayer.TTDist import TTDist
+
+from utils.utils import get_entropy_loss, get_preference_loss
 
 
-class GPT2(torch.nn.Module):
-    def __init__(self, config: GPT2Config):
+class TGPT2(torch.nn.Module):
+    def __init__(
+        self,
+        config: GPT2Config,
+        rank: int = 2,
+        norm_method: str = "abs",
+        eps: float = 1e-9,
+    ):
         super().__init__()
         self.model = GPT2LMHeadModel(config)
+        self.rank = rank
+        self.norm_method = norm_method
+        self.vocab_size = config.vocab_size
+        self.eps = eps
         self.custom_unembedding = torch.nn.Linear(
             config.n_embd, config.vocab_size, bias=False
         )
+        self.tensor_train_size = rank + (rank * config.vocab_size * rank) + rank
+        self.seq2latents = torch.nn.Sequential(
+            # Average pool the seq_len dimension
+            torch.nn.Linear(config.n_embd, config.n_embd),
+            torch.nn.ReLU(),
+        )
+        self.latent2tt = torch.nn.Linear(config.n_embd, self.tensor_train_size)
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
     @property
@@ -52,6 +72,21 @@ class GPT2(torch.nn.Module):
         self.model.set_output_embeddings(self.custom_unembedding)
         return self.model.generate(*args, **kwargs)
 
+    def get_tt_params(self, hidden_states: torch.Tensor):
+        # Map with linear layer
+        batch_size, seq_len, hidden_size = hidden_states.size()
+        tt_latent = self.seq2latents(hidden_states).mean(dim=1)
+        tt_params = self.latent2tt(tt_latent)
+        alpha, core, beta = torch.split(
+            tt_params,
+            [self.rank, self.rank * self.vocab_size * self.rank, self.rank],
+            dim=-1,
+        )
+        alpha = alpha.reshape(batch_size, self.rank)
+        beta = beta.reshape(batch_size, self.rank)
+        core = core.reshape(batch_size, self.rank, self.vocab_size, self.rank)
+        return alpha, beta, core
+
     def forward(self, input_ids, labels, *args, **kwargs):
         # outputs = self.model(input_ids=input_ids, return_dict=True, *args, **kwargs)
         outputs = self.model.transformer(
@@ -59,22 +94,23 @@ class GPT2(torch.nn.Module):
             **kwargs,
         )
         hidden_states = outputs.last_hidden_state
-        # hidden_states = outputs.hidden_states  # (batch_size, seq_len, hidden_size)
-        batch_size, seq_len, hidden_size = hidden_states.shape
+        seq_len = hidden_states.size(1)
+        alpha, beta, core = self.get_tt_params(hidden_states)
 
-        # Flatten the hidden states
-        hidden_states = hidden_states.view(batch_size * seq_len, hidden_size)
-
-        logits = self.custom_unembedding(hidden_states)
-        logits = logits.view(batch_size, seq_len, -1)
-
-        if labels is not None:
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            loss = self.loss_fn(
-                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
-            )
-            outputs.loss = loss
+        # Forward pass:
+        learned_ttdist = TTDist(
+            alpha,
+            beta,
+            core,
+            seq_len,
+            norm_method=self.norm_method,
+            norm_method_alpha=self.norm_method,
+            eps=0.0,
+        )
+        loss, _ = get_preference_loss(
+            learned_ttdist, samples=input_ids, eps=self.eps, vocab_size=self.vocab_size
+        )
+        outputs.loss = loss
         return outputs
 
 
@@ -250,7 +286,7 @@ if __name__ == "__main__":
         dropout=dropout,
         pad_token_id=tokenizer.pad_token_id,
     )
-    model = GPT2(config)
+    model = TGPT2(config)
 
     train(
         model,
