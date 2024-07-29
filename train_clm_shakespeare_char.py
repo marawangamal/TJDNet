@@ -49,9 +49,10 @@ class GPT2(torch.nn.Module):
         return next(self.parameters()).device
 
     def generate(self, *args, **kwargs):
+        self.model.set_output_embeddings(self.custom_unembedding)
         return self.model.generate(*args, **kwargs)
 
-    def forward(self, input_ids, labels, *args, **kwargs):
+    def forward_old(self, input_ids, labels, *args, **kwargs):
         outputs = self.model(input_ids=input_ids, labels=labels, *args, **kwargs)
         logits = outputs.logits
         if labels is not None:
@@ -63,13 +64,14 @@ class GPT2(torch.nn.Module):
             outputs.loss = loss
         return outputs
 
-    def forward_old(self, input_ids, labels, *args, **kwargs):
+    def forward(self, input_ids, labels, *args, **kwargs):
         # outputs = self.model(input_ids=input_ids, return_dict=True, *args, **kwargs)
         outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
         )
-        hidden_states = outputs.last_hidden_state  # (batch_size, seq_len, hidden_size)
+        hidden_states = outputs.last_hidden_state
+        # hidden_states = outputs.hidden_states  # (batch_size, seq_len, hidden_size)
         batch_size, seq_len, hidden_size = hidden_states.shape
 
         # Flatten the hidden states
