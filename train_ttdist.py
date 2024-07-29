@@ -1,79 +1,106 @@
-import torch
-from TJDNet import sample_from_tensor_dist
-from TJDNet.TJDLayer.TTDist import TTDist
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+)
+from datasets import load_dataset
+
+import argparse
+import wandb
+
+from utils.utils import get_experiment_name
 
 
-def normalize_matrix(matrix):
-    """Placeholder normalization function, replace with the actual implementation."""
-    norm_factor = torch.norm(matrix, dim=0, keepdim=True)
-    return matrix / norm_factor
-
-
-def make_batched_alpha_beta_core(alpha, beta, core, batch_size):
-    alpha = alpha.repeat(batch_size, 1)
-    beta = beta.repeat(batch_size, 1)
-    core = core.repeat(batch_size, 1, 1, 1)
-    return alpha, beta, core
-
-
-def compute_log_prob_and_norm(alpha, beta, core, target):
-    ttdist = TTDist(alpha, beta, core, target.size(1), repeat_batch_size=target.size(0))
-    probs_tilde, norm_constant = ttdist.get_prob_and_norm(target)
-    loss = (-torch.log(probs_tilde) + torch.log(norm_constant)).mean()
-    return loss
+def preprocess_function(examples, tokenizer, max_length):
+    return tokenizer(
+        examples["text"], truncation=True, padding="max_length", max_length=max_length
+    )
 
 
 def main():
-    n_epochs = 500
-    batch_size = 8
-    n_train_samples = 8 * 100
-    n_test_samples = 8 * 10
-    true_rank = 4
-    model_rank = 2
-    vocab_size = 4
-    seq_len = 4
-    lr = 1e-3
-
-    true_alpha = torch.randn(1, true_rank)
-    true_beta = torch.randn(1, true_rank)
-    true_core = torch.randn(1, true_rank, vocab_size, true_rank)
-    true_ttdist = TTDist(
-        true_alpha, true_beta, true_core, seq_len, repeat_batch_size=batch_size
+    parser = argparse.ArgumentParser(
+        description="Train a Transformer model on the Penn Treebank dataset at character level."
     )
-    true_dist = true_ttdist.materialize().squeeze()
-    true_dist = true_dist / true_dist.sum()  # P(d1, d2, ..., dN)
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=32,
+        help="input batch size for training (default: 64)",
+    )
+    parser.add_argument(
+        "--num_epochs",
+        type=int,
+        default=20,
+        help="number of epochs to train (default: 10)",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=1e-5,
+        help="learning rate (default: 0.01)",
+    )
+    parser.add_argument(
+        "--max_length",
+        type=int,
+        default=32,
+        help="maximum length of the input sequence (default: 512)",
+    )
+    parser.add_argument(
+        "--root_dir",
+        type=str,
+        default="./data",
+        help="root directory for storing the dataset (default: ./data)",
+    )
 
-    # Sample `batch_size` random samples from the true distribution
-    train_samples = sample_from_tensor_dist(true_dist[0], n_train_samples)
-    train_dataset = torch.utils.data.TensorDataset(train_samples)  # type: ignore
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)  # type: ignore
+    args = parser.parse_args()
 
-    # Sample `batch_size` random samples from the true distribution
-    test_samples = sample_from_tensor_dist(true_dist[0], n_test_samples)
+    # Load the model and tokenizer
+    model = AutoModelForCausalLM.from_pretrained("gpt2")
+    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    tokenizer.pad_token = tokenizer.eos_token
 
-    alpha = torch.nn.Parameter(torch.randn(1, model_rank))
-    beta = torch.nn.Parameter(torch.randn(1, model_rank))
-    core = torch.nn.Parameter(torch.randn(1, model_rank, vocab_size, model_rank))
+    # Load dataset
+    dataset = load_dataset("wikitext", "wikitext-2-raw-v1")
 
-    optimizer = torch.optim.Adam([alpha, beta, core], lr=lr)
+    # Preprocess the dataset
+    tokenized_datasets = dataset.map(
+        lambda x: preprocess_function(x, tokenizer, args.max_length), batched=True
+    )
 
-    for ep in range(n_epochs):
-        # Train
-        for i, batch in enumerate(train_dataloader):
-            target = batch[0]
-            optimizer.zero_grad()
-            loss = compute_log_prob_and_norm(alpha, beta, core, target)
-            loss.backward()
-            optimizer.step()
+    # Define training arguments
+    training_args = TrainingArguments(
+        output_dir="./results",
+        evaluation_strategy="epoch",
+        learning_rate=args.learning_rate,
+        per_device_train_batch_size=args.batch_size,
+        num_train_epochs=args.num_epochs,
+        weight_decay=0.01,
+        logging_dir="./logs",
+        logging_steps=10,
+    )
 
-        # Test
-        test_loss = compute_log_prob_and_norm(alpha, beta, core, test_samples)
-        test_loss_gt = compute_log_prob_and_norm(
-            true_alpha, true_beta, true_core, test_samples
-        )
-        print(
-            f"[Epoch {ep}] Loss: {test_loss.item()} | GT Loss: {test_loss_gt.item()} | Loss Diff (abs): {abs(test_loss.item() - test_loss_gt.item())}"
-        )
+    # Initialize WandB
+    wandb.init(
+        project="tjdnet-transformer",
+        config=vars(args),
+        name=get_experiment_name(vars(args)),
+    )
+
+    # Initialize Trainer
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_datasets["train"],  # type: ignore
+        eval_dataset=tokenized_datasets["validation"],  # type: ignore
+        tokenizer=tokenizer,
+    )
+
+    # Train the model
+    trainer.train()
+
+    # Finish WandB run
+    wandb.finish()
 
 
 if __name__ == "__main__":
