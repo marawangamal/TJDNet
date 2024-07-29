@@ -68,9 +68,34 @@ class TGPT2(torch.nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def generate(self, *args, **kwargs):
-        self.model.set_output_embeddings(self.custom_unembedding)
-        return self.model.generate(*args, **kwargs)
+    def generate(self, input_ids, *args, max_new_tokens=8, **kwargs):
+        learned_ttdist, transformer_outputs = self.get_tt_dist(
+            input_ids,
+            seq_len=max_new_tokens,
+        )
+        sample = learned_ttdist.sample()
+        return sample
+
+    def get_tt_dist(self, input_ids: torch.Tensor, seq_len=None, **kwargs):
+        transformer_outputs = self.model.transformer(
+            input_ids=input_ids,
+            **kwargs,
+        )
+        hidden_states = transformer_outputs.last_hidden_state
+        seq_len = hidden_states.size(1) if seq_len is None else seq_len
+        alpha, beta, core = self.get_tt_params(hidden_states)
+
+        # Forward pass:
+        learned_ttdist = TTDist(
+            alpha,
+            beta,
+            core,
+            n_core_repititions=seq_len,
+            norm_method=self.norm_method,
+            norm_method_alpha=self.norm_method,
+            eps=0.0,
+        )
+        return learned_ttdist, transformer_outputs
 
     def get_tt_params(self, hidden_states: torch.Tensor):
         # Map with linear layer
@@ -88,30 +113,12 @@ class TGPT2(torch.nn.Module):
         return alpha, beta, core
 
     def forward(self, input_ids, labels, *args, **kwargs):
-        # outputs = self.model(input_ids=input_ids, return_dict=True, *args, **kwargs)
-        outputs = self.model.transformer(
-            input_ids=input_ids,
-            **kwargs,
-        )
-        hidden_states = outputs.last_hidden_state
-        seq_len = hidden_states.size(1)
-        alpha, beta, core = self.get_tt_params(hidden_states)
-
-        # Forward pass:
-        learned_ttdist = TTDist(
-            alpha,
-            beta,
-            core,
-            seq_len,
-            norm_method=self.norm_method,
-            norm_method_alpha=self.norm_method,
-            eps=0.0,
-        )
+        learned_ttdist, transformer_outputs = self.get_tt_dist(input_ids, **kwargs)
         loss, _ = get_preference_loss(
             learned_ttdist, samples=input_ids, eps=self.eps, vocab_size=self.vocab_size
         )
-        outputs.loss = loss
-        return outputs
+        transformer_outputs.loss = loss
+        return transformer_outputs
 
 
 def preprocess_shakespeare(examples):
@@ -158,7 +165,7 @@ def get_test_sample(
     model,
     tokenizer,
     prompt="\n",
-    max_new_tokens=512,
+    max_new_tokens=8,
     top_k=200,
     temperature=0.8,
 ):
