@@ -39,6 +39,9 @@ class GPT2(torch.nn.Module):
     def __init__(self, config: GPT2Config):
         super().__init__()
         self.model = GPT2LMHeadModel(config)
+        self.custom_unembedding = torch.nn.Linear(
+            config.n_embd, config.vocab_size, bias=False
+        )
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
     @property
@@ -51,6 +54,30 @@ class GPT2(torch.nn.Module):
     def forward(self, input_ids, labels, *args, **kwargs):
         outputs = self.model(input_ids=input_ids, labels=labels, *args, **kwargs)
         logits = outputs.logits
+        if labels is not None:
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            loss = self.loss_fn(
+                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+            )
+            outputs.loss = loss
+        return outputs
+
+    def forward_old(self, input_ids, labels, *args, **kwargs):
+        # outputs = self.model(input_ids=input_ids, return_dict=True, *args, **kwargs)
+        outputs = self.model.transformer(
+            input_ids=input_ids,
+            **kwargs,
+        )
+        hidden_states = outputs.last_hidden_state  # (batch_size, seq_len, hidden_size)
+        batch_size, seq_len, hidden_size = hidden_states.shape
+
+        # Flatten the hidden states
+        hidden_states = hidden_states.view(batch_size * seq_len, hidden_size)
+
+        logits = self.custom_unembedding(hidden_states)
+        logits = logits.view(batch_size, seq_len, -1)
+
         if labels is not None:
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
