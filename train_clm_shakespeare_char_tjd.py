@@ -22,6 +22,7 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 import string
 import math
+import argparse
 import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
@@ -36,6 +37,67 @@ from character_tokenizer import CharacterTokenizer
 from TJDNet.TJDLayer.TTDist import TTDist
 
 from utils.utils import get_entropy_loss, get_preference_loss
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
+    parser.add_argument(
+        "--lr", type=float, default=1e-3, help="Learning rate for training."
+    )
+    parser.add_argument(
+        "--warmup_steps",
+        type=int,
+        default=100,
+        help="Number of warmup steps for learning rate scheduler.",
+    )
+    parser.add_argument(
+        "--num_epochs", type=int, default=50, help="Number of training epochs."
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=64,
+        help="Batch size for training and evaluation.",
+    )
+    parser.add_argument(
+        "--block_size",
+        type=int,
+        default=256,
+        help="Block size for model input sequences.",
+    )
+    parser.add_argument(
+        "--n_embd",
+        type=int,
+        default=384,
+        help="Dimensionality of the model embeddings.",
+    )
+    parser.add_argument(
+        "--n_layer",
+        type=int,
+        default=6,
+        help="Number of hidden layers in the transformer model.",
+    )
+    parser.add_argument(
+        "--n_head",
+        type=int,
+        default=6,
+        help="Number of attention heads in the transformer model.",
+    )
+    parser.add_argument(
+        "--rank",
+        type=int,
+        default=2,
+        help="Rank of the tensor train decomposition.",
+    )
+    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
+    parser.add_argument(
+        "--model",
+        type=float,
+        default="gpt2",
+        help="Proportion of data used for testing.",
+        options=["gpt2", "tgpt2"],
+    )
+    return parser.parse_args()
 
 
 class TGPT2(torch.nn.Module):
@@ -242,20 +304,22 @@ def train(
 
 if __name__ == "__main__":
 
+    args = parse_args()
+
     # Configuration
 
     # Training
-    lr = 1e-3
-    warmup_steps = 100
-    num_epochs = 50
-    batch_size = 64
-    block_size = 256
+    lr = args.lr
+    warmup_steps = args.warmup_steps
+    num_epochs = args.num_epochs
+    batch_size = args.batch_size
+    block_size = args.block_size
 
     # Model
-    n_embd = 384
-    n_layer = 6
-    n_head = 6
-    dropout = 0.2
+    n_embd = args.n_embd
+    n_layer = args.n_layer
+    n_head = args.n_head
+    dropout = args.dropout
 
     characters = list(string.ascii_letters + string.digits + string.punctuation) + [
         "\n",
@@ -293,7 +357,11 @@ if __name__ == "__main__":
         dropout=dropout,
         pad_token_id=tokenizer.pad_token_id,
     )
-    model = TGPT2(config)
+    model = (
+        TGPT2(config, rank=args.rank)
+        if args.model == "tgpt2"
+        else GPT2LMHeadModel(config)
+    )
 
     train(
         model,
