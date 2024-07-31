@@ -1,10 +1,8 @@
 from typing import Any, List, Optional, Tuple, Dict, Union
 import torch.nn as nn
 import torch
-from torch import Tensor
 from torch.nn import CrossEntropyLoss
 from torch.nn import init
-import tntorch as tnt
 
 import logging
 
@@ -15,92 +13,6 @@ from .utils import create_core_ident, apply_id_transform
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Set to DEBUG to capture all levels of logs
-
-
-class TNTDist:
-    def __init__(
-        self,
-        alpha: torch.Tensor,
-        beta: torch.Tensor,
-        core: torch.Tensor,
-        n_core_repititions: int,
-        repeat_batch_size: Optional[int] = None,
-        eps: float = 1e-10,
-        norm_method: str = "relu",
-        norm_method_alpha: str = "relu",
-    ) -> None:
-
-        # Create a TNT tensor train tensor from the alpha, beta, and core tensors
-
-        check_naninf(alpha, f"TNTDist:alpha")
-        check_naninf(beta, f"TNTDist:beta")
-        check_naninf(core, f"TNTDist:core")
-
-        assert norm_method in [
-            "relu",
-            "abs",
-            "softmax",
-            "sigmoid",
-        ], f"Normalization method must be one of {norm_method}"
-        self.norm_method = norm_method
-        self.norm_method_alpha = norm_method_alpha
-
-        self.precond_func = {
-            "relu": torch.relu,
-            "abs": torch.abs,
-            "sigmoid": torch.sigmoid,
-            "softmax": torch.exp,
-        }[self.norm_method]
-
-        self.precond_func_alpha = {
-            "relu": torch.relu,
-            "abs": torch.abs,
-            "sigmoid": torch.sigmoid,
-            "softmax": torch.exp,
-        }[self.norm_method_alpha]
-
-        self.alpha = self.precond_func_alpha(alpha) + eps
-        self.beta = self.precond_func_alpha(beta) + eps
-        self.core = self.precond_func(core) + eps
-        self.batch_size = alpha.shape[0]
-        self.n_core_repititions = n_core_repititions
-
-        if repeat_batch_size:
-            self.alpha = self.alpha.repeat(repeat_batch_size, 1)
-            self.beta = self.beta.repeat(repeat_batch_size, 1)
-            self.core = self.core.repeat(repeat_batch_size, 1, 1, 1)
-
-        first_core = torch.einsum("i,idj->dj", self.alpha, self.core)
-        last_core = torch.einsum("idj,j->id", self.core, self.beta)
-
-        if n_core_repititions == 1:
-            self.tnt_inner = tnt.Tensor(
-                [
-                    torch.einsum("i,idj,j->d", self.alpha, self.core, self.beta)
-                    .unsqueeze(0)
-                    .unsqueeze(-1)
-                ]
-            )
-        else:
-            self.tnt_inner = tnt.Tensor(
-                [
-                    first_core.unsqueeze(0),
-                    *[
-                        self.core for _ in range(n_core_repititions - 2)
-                    ],  # [(R, D, R)] * (n_core_repititions - 2)
-                    last_core.unsqueeze(-1),  # (R, D, 1)
-                ]
-            )
-
-    def print(self):
-        print(self.tnt_inner)
-
-    def get_prob_and_norm(self, indices: torch.Tensor) -> Tuple[Tensor, Tensor]:
-        probs_inner_tilde = self.tnt_inner[list(indices)]
-        raise NotImplementedError
-
-    def materialize(self):
-        raise NotImplementedError
 
 
 class BasicTJDLayerOutput:
