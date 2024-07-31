@@ -31,12 +31,13 @@ from transformers import (
     GPT2Config,
     GPT2LMHeadModel,
 )
+import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
 from character_tokenizer import CharacterTokenizer
 from TJDNet.TJDLayer.TTDist import TTDist
 
-from utils.utils import get_entropy_loss, get_preference_loss
+from utils.utils import get_preference_loss, get_experiment_name
 
 
 def parse_args():
@@ -92,10 +93,18 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
     parser.add_argument(
         "--model",
-        type=float,
+        type=str,
         default="gpt2",
-        help="Proportion of data used for testing.",
-        options=["gpt2", "tgpt2"],
+        help="Type of model to use (gpt2 or tgpt2).",
+        choices=["gpt2", "tgpt2"],
+    )
+
+    # Evaluation only arguments
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=8,
+        help="Maximum number of tokens to generate during evaluation.",
     )
     return parser.parse_args()
 
@@ -219,7 +228,7 @@ def load_shakespeare_data(tokenizer, block_size, test_size=0.2):
     dataset = dataset.map(lambda x: group_texts(x, block_size), batched=True)
     dataset = dataset.train_test_split(test_size=test_size)  # type: ignore
     # DEBUG: print first example decoded
-    print(f"First example: \n{tokenizer.decode(dataset['train']['input_ids'][0])}")  # type: ignore
+    # print(f"First example: \n{tokenizer.decode(dataset['train']['input_ids'][0])}")  # type: ignore
     return dataset
 
 
@@ -253,6 +262,7 @@ def train(
     lr=2e-5,
     warmup_steps=100,
     n_eval_samples=3,
+    max_new_tokens=8,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -268,7 +278,9 @@ def train(
 
     for epoch in range(num_epochs):
         for i in range(n_eval_samples):
-            print(f"{get_test_sample(model, tokenizer)}\n-------------------\n")
+            print(
+                f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
+            )
         model.train()
         progress_bar = tqdm(
             train_dataloader,
@@ -300,6 +312,7 @@ def train(
         print(
             f"[Epoch {epoch + 1}] PPL: {math.exp(eval_loss):.2f} | Loss: {eval_loss:.2f}"
         )
+        wandb.log({"eval_loss": eval_loss, "epoch": epoch + 1})
 
 
 if __name__ == "__main__":
@@ -336,6 +349,7 @@ if __name__ == "__main__":
     assert (
         decoded == "Hello, my dog is cute!"
     ), f"[FAIL] Tokenizer test failed: {decoded}"
+    print(f"[PASS] Tokenizer test passed.")
 
     lm_dataset = load_shakespeare_data(tokenizer, block_size)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
@@ -363,6 +377,12 @@ if __name__ == "__main__":
         else GPT2LMHeadModel(config)
     )
 
+    wandb.init(
+        project="TJDNet:Shakespeare",
+        config=vars(args),
+        name=get_experiment_name(vars(args)),
+    )
+
     train(
         model,
         train_dataloader,
@@ -370,6 +390,7 @@ if __name__ == "__main__":
         num_epochs=num_epochs,
         lr=lr,
         warmup_steps=warmup_steps,
+        max_new_tokens=args.max_new_tokens,
     )
 
     # Generate a test sample
