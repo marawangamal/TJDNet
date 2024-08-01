@@ -318,7 +318,6 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--approx",
-        type=bool,
         default=False,
         help="Use approximate sampling",
         action="store_true",
@@ -352,7 +351,7 @@ if __name__ == "__main__":
 
     experiment_name = get_experiment_name(experiment_config)
     wandb.init(
-        project="tjdnet",
+        project="TJDNet (Synthetic)",
         config=experiment_config,
         name=experiment_name,
     )

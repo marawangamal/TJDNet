@@ -52,7 +52,7 @@ def parse_args():
         help="Number of warmup steps for learning rate scheduler.",
     )
     parser.add_argument(
-        "--num_epochs", type=int, default=50, help="Number of training epochs."
+        "--num_epochs", type=int, default=10, help="Number of training epochs."
     )
     parser.add_argument(
         "--batch_size",
@@ -378,7 +378,7 @@ if __name__ == "__main__":
     )
 
     wandb.init(
-        project="TJDNet:Shakespeare",
+        project="TJDNet (Shakespeare)",
         config=vars(args),
         name=get_experiment_name(vars(args)),
     )
