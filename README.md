@@ -47,3 +47,11 @@ python train.py  \
     --max_seq_len 128 \
     --num_epochs 3
 ```
+
+## Running Tests
+
+To ensure everything is set up correctly, you can run the unit tests:
+
+```bash
+python -m unittest discover -s __tests__
+```

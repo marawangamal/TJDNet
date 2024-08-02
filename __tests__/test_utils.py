@@ -1,6 +1,6 @@
 import unittest
 import torch
-from TJDNet.TJDLayer.utils import (
+from TJDNet.utils import (
     batched_index_select,
     umps_batch_select_marginalize,
 )
