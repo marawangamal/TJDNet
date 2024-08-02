@@ -1,6 +1,9 @@
 import unittest
 import torch
-from TJDNet.TJDLayer.utils import batched_index_select, select_and_marginalize_uMPS
+from TJDNet.TJDLayer.utils import (
+    batched_index_select,
+    umps_batch_select_marginalize,
+)
 
 
 class TestTTDist(unittest.TestCase):
@@ -38,7 +41,7 @@ class TestTTDist(unittest.TestCase):
         beta = torch.randn(rank)
         core = torch.randn(rank, vocab_size, rank)
 
-        result = select_and_marginalize_uMPS(
+        result = umps_batch_select_marginalize(
             alpha, beta, core, output_size, {0: 1}, [2]
         )
         expected_shape = (vocab_size,)
@@ -54,7 +57,7 @@ class TestTTDist(unittest.TestCase):
         beta = torch.randn(rank)
         core = torch.randn(rank, vocab_size, rank)
 
-        result = select_and_marginalize_uMPS(
+        result = umps_batch_select_marginalize(
             alpha, beta, core, output_size, {0: 1}, [2]
         )
         expected_shape = (vocab_size, vocab_size)
@@ -70,7 +73,7 @@ class TestTTDist(unittest.TestCase):
         beta = torch.randn(rank)
         core = torch.randn(rank, vocab_size, rank)
 
-        result = select_and_marginalize_uMPS(
+        result = umps_batch_select_marginalize(
             alpha, beta, core, output_size, {0: 1, 3: 1}, [2]
         )
         expected_shape = (vocab_size, vocab_size)

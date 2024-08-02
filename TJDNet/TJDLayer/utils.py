@@ -106,7 +106,7 @@ def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool =
             return True
 
 
-def select_and_marginalize_uMPS(
+def umps_batch_select_marginalize(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,
@@ -117,14 +117,15 @@ def select_and_marginalize_uMPS(
     """Given a uMPS, perform select and/or marginalize operations.
 
     Args:
-        alpha (torch.Tensor): _description_
-        beta (torch.Tensor): _description_
-        core (torch.Tensor): _description_
-        selection_ids (List[int]): _description_
-        marginalize_ids (List[int]): _description_
+        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
+        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
+        core (torch.Tensor): Core tensor. Shape: (R, D, R).
+        n_core_repititions (int): Number of core repetitions.
+        selection_ids (List[int]): Shape: (B, s1).
+        marginalize_ids (List[int]):Shape: (B, s2).
 
     Returns:
-        _description_
+         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
 
     """
 
@@ -173,11 +174,13 @@ def select_and_marginalize_uMPS(
             result = result.reshape(tuple(shape_init[:-1]) + tuple(node.shape[1:]))
 
     # Contract with alpha and beta
-    if result is not None:
-        shape_init = result.shape
-        result = result.reshape(shape_init[0], -1, shape_init[-1])
-        result = torch.einsum("i,idj,j->d", alpha, result, beta)
-        result = result.reshape(tuple(shape_init[1:-1]))
+    if result is None:
+        raise ValueError("No core nodes selected or marginalized")
+
+    shape_init = result.shape
+    result = result.reshape(shape_init[0], -1, shape_init[-1])
+    result = torch.einsum("i,idj,j->d", alpha, result, beta)
+    result = result.reshape(tuple(shape_init[1:-1]))
 
     return result
 

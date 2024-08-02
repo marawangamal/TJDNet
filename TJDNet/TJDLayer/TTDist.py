@@ -4,7 +4,7 @@ import logging
 
 from .utils import (
     check_naninf,
-    select_and_marginalize_uMPS,
+    umps_batch_select_marginalize,
 )
 
 
@@ -443,7 +443,7 @@ class TTDist:
         selection_ids = {}
         for i in range(self.n_core_repititions):
             marginalize_ids = list(range(i + 1, self.n_core_repititions))
-            p_vec_tilde = select_and_marginalize_uMPS(
+            p_vec_tilde = umps_batch_select_marginalize(
                 self.alpha[batch_idx],
                 self.beta[batch_idx],
                 self.core[batch_idx],
@@ -815,7 +815,7 @@ class TTDistOLD:
         selection_ids = {}
         for i in range(self.n_core_repititions):
             marginalize_ids = list(range(i + 1, self.n_core_repititions))
-            p_vec_tilde = select_and_marginalize_uMPS(
+            p_vec_tilde = umps_batch_select_marginalize(
                 self.alpha[batch_idx],
                 self.beta[batch_idx],
                 self.core[batch_idx],

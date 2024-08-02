@@ -2,12 +2,15 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 
-from TJDNet.BornMachine.base_tensorized_distribution import BaseTensorizedDistribution
+from TJDNet.TJDLayer.base_tensorized_distribution import BaseTensorizedDistribution
+from TJDNet.TJDLayer.utils import umps_batch_select_marginalize
 
 
 class BornMachine:
     def __init__(self, alpha: torch.Tensor, core: torch.Tensor, beta: torch.Tensor):
-        pass
+        self.alpha = alpha
+        self.core = core
+        self.beta = beta
 
     def select(self, y: torch.Tensor) -> torch.Tensor:
         """Selection operation for the Born Machine.
@@ -18,7 +21,11 @@ class BornMachine:
         Returns:
             torch.Tensor: Evaluation of the Born Machine. Shape: (1,)
         """
-        raise NotImplementedError
+        select_dict = {i: int(y[i].item()) for i in range(y.size(0))}
+        y_prime = umps_batch_select_marginalize(
+            self.alpha, self.beta, self.core, 1, select_dict, []
+        )
+        return y_prime
 
     def get_normalization_constant(self) -> torch.Tensor:
         """Get the normalization constant of the Born Machine.
@@ -26,7 +33,11 @@ class BornMachine:
         Returns:
             torch.Tensor: Normalization constant. Shape: (1,)
         """
-        raise NotImplementedError
+        marginalize_ids = list(range(self.core.size(1)))
+        z = umps_batch_select_marginalize(
+            self.alpha, self.beta, self.core, 1, {}, marginalize_ids
+        )
+        return z
 
 
 class Sequence2BornOutput:
