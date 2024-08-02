@@ -5,6 +5,14 @@ import re
 import json
 import matplotlib.pyplot as plt
 
+LEGEND_FONT_SIZE = 20
+AXIS_LABEL_FONT_SIZE = 18
+TICK_LABEL_FONT_SIZE = 16
+
+plt.rcParams["axes.labelsize"] = AXIS_LABEL_FONT_SIZE
+plt.rcParams["xtick.labelsize"] = TICK_LABEL_FONT_SIZE
+plt.rcParams["ytick.labelsize"] = TICK_LABEL_FONT_SIZE
+
 
 def get_norm_const_points(runs_list: List):
     # Get the history of specific metrics
@@ -121,7 +129,7 @@ experiments = {
             color_fn=se_color_fn,
             label_fn=lambda run: (
                 # f"S={json.loads(run.json_config)['output_size']['value']} {'(preference loss)' if 'lopreference' in run.name else ''}"
-                f"S={json.loads(run.json_config)['output_size']['value']} {'(preference loss)' if 'lopreference' in run.name else '(entropy loss)'}"
+                f"S={json.loads(run.json_config)['output_size']['value']} {'(preference)' if 'lopreference' in run.name else '(entropy)'}"
             ),
             linestyle_fn=lambda run: "--" if "lopreference" in run.name else "-",
         ),
@@ -131,11 +139,11 @@ experiments = {
         "valid_exps_list": [
             "r2_o10_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
             "r2_o8_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
-            "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+            # "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
             "r2_o4_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
             "r2_o10_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
             "r2_o8_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
-            "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+            # "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
             "r2_o4_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
         ],
     },
@@ -178,7 +186,7 @@ def main_aggr(exp_name):
     plt.xlabel(exp_config["xlabel"])
     plt.ylabel(exp_config["ylabel"])
     if exp_config["legend"]:
-        plt.legend()
+        plt.legend(prop={"size": LEGEND_FONT_SIZE})
     plt.savefig(exp_config["filename"], bbox_inches="tight", dpi=300)
 
 
@@ -222,7 +230,7 @@ def main_basic(exp_name):
     plt.xlabel(exp_config["xlabel"])
     plt.ylabel(exp_config["ylabel"])
     if exp_config["legend"]:
-        plt.legend()
+        plt.legend(prop={"size": LEGEND_FONT_SIZE})
     plt.savefig(exp_config["filename"], bbox_inches="tight", dpi=300)
 
 
