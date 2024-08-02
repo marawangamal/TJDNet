@@ -183,6 +183,9 @@ def select_and_marginalize_uMPS(
 
 
 def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_size):
+    # TODO: Add noise to the identities
+    # TODO: Pass alpha  and beta through renormalization layer
+    # TODO: Parameterize the residuals
     alpha = (
         torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
     ).abs()

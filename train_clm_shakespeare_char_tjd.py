@@ -22,6 +22,7 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 import string
 import math
+import argparse
 import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
@@ -30,12 +31,82 @@ from transformers import (
     GPT2Config,
     GPT2LMHeadModel,
 )
+import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
 from character_tokenizer import CharacterTokenizer
 from TJDNet.TJDLayer.TTDist import TTDist
 
-from utils.utils import get_entropy_loss, get_preference_loss
+from utils.utils import get_preference_loss, get_experiment_name
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
+    parser.add_argument(
+        "--lr", type=float, default=1e-3, help="Learning rate for training."
+    )
+    parser.add_argument(
+        "--warmup_steps",
+        type=int,
+        default=100,
+        help="Number of warmup steps for learning rate scheduler.",
+    )
+    parser.add_argument(
+        "--num_epochs", type=int, default=10, help="Number of training epochs."
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=64,
+        help="Batch size for training and evaluation.",
+    )
+    parser.add_argument(
+        "--block_size",
+        type=int,
+        default=256,
+        help="Block size for model input sequences.",
+    )
+    parser.add_argument(
+        "--n_embd",
+        type=int,
+        default=384,
+        help="Dimensionality of the model embeddings.",
+    )
+    parser.add_argument(
+        "--n_layer",
+        type=int,
+        default=6,
+        help="Number of hidden layers in the transformer model.",
+    )
+    parser.add_argument(
+        "--n_head",
+        type=int,
+        default=6,
+        help="Number of attention heads in the transformer model.",
+    )
+    parser.add_argument(
+        "--rank",
+        type=int,
+        default=2,
+        help="Rank of the tensor train decomposition.",
+    )
+    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="gpt2",
+        help="Type of model to use (gpt2 or tgpt2).",
+        choices=["gpt2", "tgpt2"],
+    )
+
+    # Evaluation only arguments
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=8,
+        help="Maximum number of tokens to generate during evaluation.",
+    )
+    return parser.parse_args()
 
 
 class TGPT2(torch.nn.Module):
@@ -157,7 +228,7 @@ def load_shakespeare_data(tokenizer, block_size, test_size=0.2):
     dataset = dataset.map(lambda x: group_texts(x, block_size), batched=True)
     dataset = dataset.train_test_split(test_size=test_size)  # type: ignore
     # DEBUG: print first example decoded
-    print(f"First example: \n{tokenizer.decode(dataset['train']['input_ids'][0])}")  # type: ignore
+    # print(f"First example: \n{tokenizer.decode(dataset['train']['input_ids'][0])}")  # type: ignore
     return dataset
 
 
@@ -191,6 +262,7 @@ def train(
     lr=2e-5,
     warmup_steps=100,
     n_eval_samples=3,
+    max_new_tokens=8,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -206,7 +278,9 @@ def train(
 
     for epoch in range(num_epochs):
         for i in range(n_eval_samples):
-            print(f"{get_test_sample(model, tokenizer)}\n-------------------\n")
+            print(
+                f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
+            )
         model.train()
         progress_bar = tqdm(
             train_dataloader,
@@ -238,24 +312,27 @@ def train(
         print(
             f"[Epoch {epoch + 1}] PPL: {math.exp(eval_loss):.2f} | Loss: {eval_loss:.2f}"
         )
+        wandb.log({"eval_loss": eval_loss, "epoch": epoch + 1})
 
 
 if __name__ == "__main__":
 
+    args = parse_args()
+
     # Configuration
 
     # Training
-    lr = 1e-3
-    warmup_steps = 100
-    num_epochs = 50
-    batch_size = 64
-    block_size = 256
+    lr = args.lr
+    warmup_steps = args.warmup_steps
+    num_epochs = args.num_epochs
+    batch_size = args.batch_size
+    block_size = args.block_size
 
     # Model
-    n_embd = 384
-    n_layer = 6
-    n_head = 6
-    dropout = 0.2
+    n_embd = args.n_embd
+    n_layer = args.n_layer
+    n_head = args.n_head
+    dropout = args.dropout
 
     characters = list(string.ascii_letters + string.digits + string.punctuation) + [
         "\n",
@@ -272,6 +349,7 @@ if __name__ == "__main__":
     assert (
         decoded == "Hello, my dog is cute!"
     ), f"[FAIL] Tokenizer test failed: {decoded}"
+    print(f"[PASS] Tokenizer test passed.")
 
     lm_dataset = load_shakespeare_data(tokenizer, block_size)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
@@ -293,7 +371,17 @@ if __name__ == "__main__":
         dropout=dropout,
         pad_token_id=tokenizer.pad_token_id,
     )
-    model = TGPT2(config)
+    model = (
+        TGPT2(config, rank=args.rank)
+        if args.model == "tgpt2"
+        else GPT2LMHeadModel(config)
+    )
+
+    wandb.init(
+        project="TJDNet (Shakespeare)",
+        config=vars(args),
+        name=get_experiment_name(vars(args)),
+    )
 
     train(
         model,
@@ -302,6 +390,7 @@ if __name__ == "__main__":
         num_epochs=num_epochs,
         lr=lr,
         warmup_steps=warmup_steps,
+        max_new_tokens=args.max_new_tokens,
     )
 
     # Generate a test sample

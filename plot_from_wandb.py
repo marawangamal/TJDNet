@@ -5,6 +5,14 @@ import re
 import json
 import matplotlib.pyplot as plt
 
+LEGEND_FONT_SIZE = 20
+AXIS_LABEL_FONT_SIZE = 18
+TICK_LABEL_FONT_SIZE = 16
+
+plt.rcParams["axes.labelsize"] = AXIS_LABEL_FONT_SIZE
+plt.rcParams["xtick.labelsize"] = TICK_LABEL_FONT_SIZE
+plt.rcParams["ytick.labelsize"] = TICK_LABEL_FONT_SIZE
+
 
 def get_norm_const_points(runs_list: List):
     # Get the history of specific metrics
@@ -33,8 +41,8 @@ def get_norm_const_points(runs_list: List):
         xs.append(output_size)
         ys.append(y[0])
 
-    color = None
-    label = "baseline" if "loentropy" in runs_list[0].name else "sub-sampled"
+    color = "red" if "loentropy" in runs_list[0].name else "blue"
+    label = "entropy" if "loentropy" in runs_list[0].name else "preference"
     marker = "^" if "preference" in runs_list[0].name else "x"
     linestyle = "--" if "preference" in runs_list[0].name else "-"
 
@@ -73,8 +81,16 @@ def get_points(
 def se_color_fn(run):
     config = json.loads(run.json_config)
     output_size = config["output_size"]["value"]
-    # Different RGB grades of RED for different output sizes in range [1, 12]
-    return (0.2 + (0.5 * output_size / 12), 0, 0)
+
+    min_val = 0.4
+    max_val = 1.0 - min_val
+
+    color = (
+        (min_val + (max_val * output_size / 12), 0, 0)
+        if "loentropy" in run.name
+        else (0, 0, min_val + (max_val * output_size / 12))
+    )
+    return color
 
 
 experiments = {
@@ -89,19 +105,16 @@ experiments = {
         "legend": True,
         "aggregations": [
             [
-                "r2_o11_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-                "r2_o10_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-                "r2_o9_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-                "r2_o8_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-                "r2_o7_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-                "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-                "r2_o5_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-                "r2_o4_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-                "r2_o3_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
+                "r2_o10_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+                "r2_o8_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+                "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+                "r2_o4_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
             ],
             [
-                "r2_o11_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_iuniform_positive_lopreference",
-                "r2_o3_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_iuniform_positive_lopreference",
+                "r2_o10_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+                "r2_o8_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+                "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+                "r2_o4_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
             ],
         ],
     },
@@ -115,7 +128,8 @@ experiments = {
             "SSE_MAX",
             color_fn=se_color_fn,
             label_fn=lambda run: (
-                f"S={json.loads(run.json_config)['output_size']['value']} {'(sub-sampled)' if 'lopreference' in run.name else ''}"
+                # f"S={json.loads(run.json_config)['output_size']['value']} {'(preference loss)' if 'lopreference' in run.name else ''}"
+                f"S={json.loads(run.json_config)['output_size']['value']} {'(preference)' if 'lopreference' in run.name else '(entropy)'}"
             ),
             linestyle_fn=lambda run: "--" if "lopreference" in run.name else "-",
         ),
@@ -123,17 +137,14 @@ experiments = {
         "legend": True,
         "aggregate": False,
         "valid_exps_list": [
-            "r2_o11_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o10_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o9_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o8_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o7_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o5_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o4_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o3_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_irandn_positive_loentropy",
-            "r2_o11_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_iuniform_positive_lopreference",
-            "r2_o3_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_iuniform_positive_lopreference",
+            "r2_o10_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+            "r2_o8_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+            # "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+            "r2_o4_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+            "r2_o10_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+            "r2_o8_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+            # "r2_o6_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+            "r2_o4_v4_nabs_b16_n_20000_l100_lr0.0001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
         ],
     },
 }
@@ -147,7 +158,7 @@ def main_aggr(exp_name):
     api = wandb.Api()
 
     # Specify the project name
-    project_name = "marawan-gamal/tjdnet"
+    project_name = "marawan-gamal/TJDNet (Synthetic)"
 
     # Fetch all runs in the project
     runs = api.runs(f"{project_name}")
@@ -175,8 +186,8 @@ def main_aggr(exp_name):
     plt.xlabel(exp_config["xlabel"])
     plt.ylabel(exp_config["ylabel"])
     if exp_config["legend"]:
-        plt.legend()
-    plt.savefig({exp_config["filename"]}, bbox_inches="tight", dpi=300)
+        plt.legend(prop={"size": LEGEND_FONT_SIZE})
+    plt.savefig(exp_config["filename"], bbox_inches="tight", dpi=300)
 
 
 def main_basic(exp_name):
@@ -187,7 +198,7 @@ def main_basic(exp_name):
     api = wandb.Api()
 
     # Specify the project name
-    project_name = "marawan-gamal/tjdnet"
+    project_name = "marawan-gamal/TJDNet (Synthetic)"
 
     # Fetch all runs in the project
     runs = api.runs(f"{project_name}")
@@ -219,8 +230,8 @@ def main_basic(exp_name):
     plt.xlabel(exp_config["xlabel"])
     plt.ylabel(exp_config["ylabel"])
     if exp_config["legend"]:
-        plt.legend()
-    plt.savefig({exp_config["filename"]}, bbox_inches="tight", dpi=300)
+        plt.legend(prop={"size": LEGEND_FONT_SIZE})
+    plt.savefig(exp_config["filename"], bbox_inches="tight", dpi=300)
 
 
 def main(exp_name):
