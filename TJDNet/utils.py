@@ -128,7 +128,20 @@ def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_si
     return alpha, beta, core
 
 
-def get_init_params_onehot(batch_size, rank, vocab_size, onehot_idx):
+def get_init_params_onehot(
+    batch_size: int, rank: int, vocab_size: int, onehot_idx: int, *args, **kwargs
+):
+    """Create initial parameters for a TT distribution with a one-hot cores.
+
+    Args:
+        batch_size (int): Batch size.
+        rank (int): Rank of the TT decomposition.
+        vocab_size (int): Vocabulary size.
+        onehot_idx (int): Index of the one-hot core.
+
+    Returns:
+        _type_: _description_
+    """
     alpha = torch.ones(1, rank).repeat(batch_size, 1)
     beta = torch.ones(1, rank).repeat(batch_size, 1)
     coreZero = torch.zeros(rank, vocab_size, rank)
@@ -140,7 +153,7 @@ def get_init_params_onehot(batch_size, rank, vocab_size, onehot_idx):
     return alpha, beta, core
 
 
-def get_init_params_randn_positive(batch_size, rank, output_size, vocab_size):
+def get_init_params_randn_positive(batch_size, rank, vocab_size, *args, **kwargs):
     alpha = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
     beta = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
     core = torch.nn.Parameter(

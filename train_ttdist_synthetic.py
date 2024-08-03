@@ -38,6 +38,76 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(42)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Script to investigate using different non-linearities for the TT Dist."
+    )
+    parser.add_argument(
+        "--true_dist",
+        type=str,
+        default="dirac",
+        help="True distribution",
+        choices=[
+            "normal",
+            "dirac",
+        ],
+    )
+    parser.add_argument(
+        "--rank", type=int, default=2, help="Rank of the tensor decomposition"
+    )
+    parser.add_argument(
+        "--output_size", type=int, default=3, help="Output size of the tensor"
+    )
+    parser.add_argument("--vocab_size", type=int, default=4, help="Vocabulary size")
+    parser.add_argument(
+        "--norm_method", type=str, default="abs", help="Normalization method"
+    )
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
+    parser.add_argument(
+        "--n_iters", type=int, default=20000, help="Number of iterations"
+    )
+    parser.add_argument("--log_freq", type=int, default=100, help="Log frequency")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument(
+        "--eps", type=float, default=1e-6, help="Epsilon value for numerical stability"
+    )
+    parser.add_argument(
+        "--eps_norm", type=float, default=0.0, help="Epsilon value for normalization"
+    )
+
+    parser.add_argument(
+        "--approx",
+        default=False,
+        help="Use approximate sampling",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--init_method",
+        type=str,
+        default="randn_positive",
+        choices=[
+            "concentrated",
+            "uniform_positive",
+            "randn_positive",
+        ],
+        help="Initialization method",
+    )
+
+    parser.add_argument(
+        "--loss_type",
+        type=str,
+        default="preference",
+        choices=[
+            "entropy",
+            "preference",
+        ],
+        help="Initialization method",
+    )
+
+    args = parser.parse_args()
+
+
 def remove_dir(dir_path: str):
     # Avoid accidentally deleting the root directory
     protected_dirs = ["/", ".", ".."]
@@ -63,9 +133,17 @@ def get_true_ttdist(
     vocab_size: int,
     batch_size=1,
     rank=2,
+    true_dist="dirac",  # normal or dirac
 ):
-    alpha, beta, core = get_init_params_onehot(
-        batch_size, rank, vocab_size, onehot_idx=1
+
+    true_dist_func = {
+        "normal": get_init_params_uniform_std_positive,
+        "dirac": get_init_params_onehot,
+    }[true_dist]
+    alpha, beta, core = true_dist_func(
+        batch_size=batch_size,
+        rank=rank,
+        vocab_size=vocab_size,
     )
     ttdist = TTDist(
         alpha,
@@ -139,6 +217,7 @@ def main(
     init_method: str = "uniform_positive",
     loss_type: str = "entropy",  # entropy or preference
     approx: bool = False,
+    true_dist: str = "dirac",  # normal or dirac
 ):
 
     assert eps != eps_norm, "eps and eps_norm cannot be the same"
@@ -150,16 +229,19 @@ def main(
         "uniform_positive": get_init_params_uniform_std_positive,
         "randn_positive": get_init_params_randn_positive,
     }[init_method]
+
     assert loss_type in [
         "entropy",
         "preference",
     ], "loss_type must be one of ['entropy', 'preference']"
 
-    true_ttdist = get_true_ttdist(output_size, vocab_size)
+    true_ttdist = get_true_ttdist(output_size, vocab_size, true_dist=true_dist)
     samples = true_ttdist.sample(batch_size)
 
     # Initialize the parameters
-    alpha, beta, core = init_func(batch_size, rank, output_size, vocab_size)
+    alpha, beta, core = init_func(
+        batch_size=batch_size, rank=rank, vocab_size=vocab_size
+    )
 
     optimizer = torch.optim.AdamW([core], lr=lr)
 
@@ -228,20 +310,6 @@ def main(
                 }
             )
 
-            # cos_dist, norm_const = get_sse_and_sse_max_approx(
-            #     learned_ttdist, true_ttdist
-            # )
-            # print(
-            #     f"[{i}] {norm_method}: SSE (Cos) = {cos_dist:.3f} | Loss = {loss.item():.3f} | norm_constant = {norm_const:.3f}"
-            # )
-            # wandb.log(
-            #     {
-            #         "Expected SSE (COS)": cos_dist,
-            #         "Loss": loss.item(),
-            #         "norm_constant": norm_constant,
-            #     }
-            # )
-
             if core.grad is not None:
                 wandb.log({f"core_grad": wandb.Histogram(core.grad.cpu().data.numpy())})
 
@@ -288,63 +356,7 @@ def run_normalizations_exp():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Script to investigate using different non-linearities for the TT Dist."
-    )
-    parser.add_argument(
-        "--rank", type=int, default=2, help="Rank of the tensor decomposition"
-    )
-    parser.add_argument(
-        "--output_size", type=int, default=3, help="Output size of the tensor"
-    )
-    parser.add_argument("--vocab_size", type=int, default=4, help="Vocabulary size")
-    parser.add_argument(
-        "--norm_method", type=str, default="abs", help="Normalization method"
-    )
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
-    parser.add_argument(
-        "--n_iters", type=int, default=20000, help="Number of iterations"
-    )
-    parser.add_argument("--log_freq", type=int, default=100, help="Log frequency")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument(
-        "--eps", type=float, default=1e-6, help="Epsilon value for numerical stability"
-    )
-    parser.add_argument(
-        "--eps_norm", type=float, default=0.0, help="Epsilon value for normalization"
-    )
-
-    parser.add_argument(
-        "--approx",
-        default=False,
-        help="Use approximate sampling",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--init_method",
-        type=str,
-        default="randn_positive",
-        choices=[
-            "concentrated",
-            "uniform_positive",
-            "randn_positive",
-        ],
-        help="Initialization method",
-    )
-
-    parser.add_argument(
-        "--loss_type",
-        type=str,
-        default="preference",
-        choices=[
-            "entropy",
-            "preference",
-        ],
-        help="Initialization method",
-    )
-
-    args = parser.parse_args()
+    args = parse_args()
     experiment_config = vars(args)
 
     experiment_name = get_experiment_name(experiment_config)
