@@ -97,7 +97,7 @@ experiments = {
     "NORM_CONST": {
         "title": None,
         "filename": "figures/norm_const_vs_output_size.pdf",
-        "ylabel": "Norm Constant",
+        "ylabel": "Max Floating Point Value",
         "xlabel": "Sequence Length",
         "aggregate": True,
         "metric_fn_aggr": get_norm_const_points,
