@@ -108,7 +108,7 @@ def umps_batch_select_marginalize(
     return result
 
 
-def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_size):
+def get_init_params_uniform_std_positive(batch_size, rank, vocab_size):
     # TODO: Add noise to the identities
     # TODO: Pass alpha  and beta through renormalization layer
     # TODO: Parameterize the residuals

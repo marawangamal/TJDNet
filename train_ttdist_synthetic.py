@@ -64,10 +64,10 @@ def parse_args():
     )
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
     parser.add_argument(
-        "--n_iters", type=int, default=20000, help="Number of iterations"
+        "--n_iters", type=int, default=2000, help="Number of iterations"
     )
     parser.add_argument("--log_freq", type=int, default=100, help="Log frequency")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument(
         "--eps", type=float, default=1e-6, help="Epsilon value for numerical stability"
     )
