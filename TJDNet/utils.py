@@ -129,7 +129,7 @@ def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_si
 
 
 def get_init_params_onehot(
-    batch_size: int, rank: int, vocab_size: int, onehot_idx: int, *args, **kwargs
+    batch_size: int, rank: int, vocab_size: int, onehot_idx: int = 1, *args, **kwargs
 ):
     """Create initial parameters for a TT distribution with a one-hot cores.
 

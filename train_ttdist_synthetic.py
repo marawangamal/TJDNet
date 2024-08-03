@@ -106,6 +106,7 @@ def parse_args():
     )
 
     args = parser.parse_args()
+    return args
 
 
 def remove_dir(dir_path: str):
