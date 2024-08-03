@@ -8,28 +8,26 @@ Compares:
 5. (Baseline) Unrestricted
 """
 
-from typing import Union, Optional, Tuple
+from typing import Tuple
 import os
 import argparse
 import shutil
 import random
+
 import torch
 import numpy as np
-from TJDNet import sample_from_tensor_dist
-from TJDNet.TJDLayer.TTDist import TTDist
-from TJDNet.TJDLayer.utils import (
+import matplotlib.pyplot as plt
+import wandb
+
+from TJDNet.TTDist import TTDist
+from TJDNet.utils import (
+    get_entropy_loss,
     get_init_params_uniform_std_positive,
     get_init_params_onehot,
     get_init_params_randn_positive,
+    get_preference_loss,
 )
 from utils.utils import get_experiment_name
-
-import matplotlib.pyplot as plt
-from torch.utils.tensorboard.writer import SummaryWriter
-import wandb
-
-from utils.utils import get_preference_loss
-from utils.utils import get_entropy_loss
 
 
 # Set random seeds for reproducibility

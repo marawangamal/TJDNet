@@ -96,8 +96,8 @@ def se_color_fn(run):
 experiments = {
     "NORM_CONST": {
         "title": None,
-        "filename": "logs/norm_const_vs_output_size.pdf",
-        "ylabel": "Norm Constant",
+        "filename": "figures/norm_const_vs_output_size.pdf",
+        "ylabel": "Max Floating Point Value",
         "xlabel": "Sequence Length",
         "aggregate": True,
         "metric_fn_aggr": get_norm_const_points,
@@ -120,7 +120,7 @@ experiments = {
     },
     "SE_MAX": {
         "title": None,
-        "filename": "logs/se_max_vs_epoch.pdf",
+        "filename": "figures/se_max_vs_epoch.pdf",
         "ylabel": "Max Squared Error",
         "xlabel": "Epoch",
         "metric_fn": lambda run: get_points(

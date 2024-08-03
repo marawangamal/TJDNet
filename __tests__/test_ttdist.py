@@ -1,12 +1,9 @@
 import unittest
 import torch
 from TJDNet import (
-    sample_from_tensor_dist,
-    TNTDist,
-    get_init_params_uniform_std_positive,
     get_init_params_onehot,
 )
-from TJDNet.TJDLayer.TTDist import TTDist
+from TJDNet.TTDist import TTDist
 
 
 def normalize_matrix(matrix):

@@ -35,9 +35,9 @@ import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
 from character_tokenizer import CharacterTokenizer
-from TJDNet.TJDLayer.TTDist import TTDist
+from TJDNet import TTDist, get_preference_loss
 
-from utils.utils import get_preference_loss, get_experiment_name
+from utils import get_experiment_name
 
 
 def parse_args():
