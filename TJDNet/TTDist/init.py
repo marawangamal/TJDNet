@@ -6,9 +6,8 @@ def get_random_mps(batch_size, rank, vocab_size, dist="randn", trainable: bool =
     alpha = distrib_func(1, rank).repeat(batch_size, 1).abs()
     beta = distrib_func(1, rank).repeat(batch_size, 1).abs()
     core = (
-        distrib_func(rank)
-        .unsqueeze(1)
-        .repeat(1, vocab_size, 1)
+        distrib_func(rank, vocab_size, rank)
+        .abs()
         .unsqueeze(0)
         .repeat(batch_size, 1, 1, 1)
     )
@@ -32,10 +31,10 @@ def get_random_mps(batch_size, rank, vocab_size, dist="randn", trainable: bool =
 #     alpha = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
 #     beta = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
 #     core = torch.nn.Parameter(
-#         torch.randn(rank, vocab_size, rank)
-#         .abs()
-#         .unsqueeze(0)
-#         .repeat(batch_size, 1, 1, 1)
+# torch.randn(rank, vocab_size, rank)
+# .abs()
+# .unsqueeze(0)
+# .repeat(batch_size, 1, 1, 1)
 #     )
 #     return alpha, beta, core
 

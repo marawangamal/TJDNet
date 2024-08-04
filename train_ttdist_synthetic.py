@@ -47,27 +47,27 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--rank", type=int, default=2, help="Rank of the tensor decomposition"
+        "--rank", type=int, default=4, help="Rank of the tensor decomposition"
     )
     parser.add_argument(
-        "--true_rank", type=int, default=2, help="Rank of the tensor decomposition"
+        "--true_rank", type=int, default=4, help="Rank of the tensor decomposition"
     )
 
     parser.add_argument(
         "--output_size", type=int, default=3, help="Output size of the tensor"
     )
-    parser.add_argument("--vocab_size", type=int, default=8, help="Vocabulary size")
+    parser.add_argument("--vocab_size", type=int, default=10, help="Vocabulary size")
     parser.add_argument(
         "--norm_method", type=str, default="abs", help="Normalization method"
     )
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
     parser.add_argument(
-        "--n_iters", type=int, default=2000, help="Number of iterations"
+        "--n_iters", type=int, default=20000, help="Number of iterations"
     )
     parser.add_argument("--log_freq", type=int, default=100, help="Log frequency")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument(
-        "--eps", type=float, default=1e-6, help="Epsilon value for numerical stability"
+        "--eps", type=float, default=1e-9, help="Epsilon value for numerical stability"
     )
     parser.add_argument(
         "--eps_norm", type=float, default=0.0, help="Epsilon value for normalization"
@@ -76,7 +76,7 @@ def parse_args():
     parser.add_argument(
         "--loss_type",
         type=str,
-        default="preference",
+        default="entropy",
         choices=[
             "entropy",
             "preference",
@@ -88,7 +88,7 @@ def parse_args():
     return args
 
 
-def get_sse_and_sse_max(
+def get_sae_and_mae(
     learned_ttdist: TTDist, true_ttdist: TTDist
 ) -> Tuple[float, float, float]:
     learned_dist = learned_ttdist.materialize().detach().numpy().squeeze()
@@ -97,9 +97,9 @@ def get_sse_and_sse_max(
         learned_norm_const = learned_ttdist.norm_const.detach().numpy().squeeze().max()
     else:
         learned_norm_const = -1
-    sse = ((learned_dist - true_dist) ** 2).sum()
-    sse_max = ((learned_dist - true_dist) ** 2).max()
-    return sse, sse_max, learned_norm_const
+    sum_abs_error = np.abs(learned_dist - true_dist).sum()
+    max_abs_error = np.abs(learned_dist - true_dist).max()
+    return sum_abs_error, max_abs_error, learned_norm_const
 
 
 def get_true_ttdist(
@@ -127,45 +127,19 @@ def get_true_ttdist(
     return ttdist
 
 
-def get_learned_ttdist(
-    batch_size: int,
-    rank: int,
-    vocab_size: int,
-    output_size: int,
-    init_dist: str,
-    norm_method: str,
-):
-    alpha, beta, core = get_random_mps(
-        batch_size=batch_size,
-        rank=rank,
-        vocab_size=vocab_size,
-        dist=init_dist,
-        trainable=True,
-    )
-    # Forward pass:
-    ttdist = TTDist(
-        alpha,
-        beta,
-        core,
-        output_size,
-        norm_method=norm_method,
-    )
-    return ttdist
-
-
 def log_results(
     iteration: int, learned_ttdist: TTDist, true_ttdist: TTDist, loss: torch.Tensor
 ):
-    sse, sse_max, norm_const = get_sse_and_sse_max(learned_ttdist, true_ttdist)
+    sae, mae, norm_const = get_sae_and_mae(learned_ttdist, true_ttdist)
     print(
-        f"[{iteration}] Loss = {loss.item():.3f} | SSE = {sse:.3f} | SSE_MAX = {sse_max:.3f} | norm_constant = {norm_const:.3f} "
+        f"[{iteration}] Loss = {loss.item():.3f} | SAE = {sae:.3f} | MAE = {mae:.3f} | norm_constant = {norm_const:.3f} "
     )
     # Log to W&B
     wandb.log(
         {
             "Loss": loss.item(),
-            "SSE": sse,
-            "SSE_MAX": sse_max,
+            "SAE": sae,
+            "MAE": mae,
             "norm_constant": norm_const,
         }
     )
