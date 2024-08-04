@@ -2,18 +2,34 @@ import torch
 
 
 def get_random_mps(batch_size, rank, vocab_size, dist="randn", trainable: bool = False):
-    distrib_func = {"randn": torch.randn, "rand": torch.rand}[dist]
-    alpha = distrib_func(1, rank).repeat(batch_size, 1).abs()
-    beta = distrib_func(1, rank).repeat(batch_size, 1).abs()
-    core = (
-        distrib_func(rank, vocab_size, rank)
-        .abs()
-        .unsqueeze(0)
-        .repeat(batch_size, 1, 1, 1)
-    )
-    if trainable:
-        core = torch.nn.Parameter(core.detach())
-    return alpha, beta, core
+
+    if dist == "onehot":
+        non_zero_ids = [
+            int(torch.randint(0, vocab_size, (1,)).item()) for _ in range(rank)
+        ]
+        alpha = torch.ones(1, rank).repeat(batch_size, 1)
+        beta = torch.ones(1, rank).repeat(batch_size, 1)
+        coreOneHot = torch.zeros(rank, vocab_size, rank)
+        for idx in non_zero_ids:
+            coreOneHot[:, idx, :] = torch.eye(rank)
+        core = coreOneHot.unsqueeze(0).repeat(batch_size, 1, 1, 1)
+        if trainable:
+            core = torch.nn.Parameter(core.detach())
+        return alpha, beta, core
+
+    else:
+        distrib_func = {"randn": torch.randn, "rand": torch.rand}[dist]
+        alpha = distrib_func(1, rank).repeat(batch_size, 1).abs()
+        beta = distrib_func(1, rank).repeat(batch_size, 1).abs()
+        core = (
+            distrib_func(rank, vocab_size, rank)
+            .abs()
+            .unsqueeze(0)
+            .repeat(batch_size, 1, 1, 1)
+        )
+        if trainable:
+            core = torch.nn.Parameter(core.detach())
+        return alpha, beta, core
 
 
 # def get_onehot_mps(batch_size: int, rank: int, vocab_size: int):
