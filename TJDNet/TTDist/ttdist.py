@@ -294,6 +294,25 @@ class TTDist:
             beams[i_beam] = beams[i_beam][1:]
         return beams, beam_probs
 
+    def _sample_one(self, batch_idx: int = 0) -> torch.Tensor:
+        selection_ids = {}
+        for i in range(self.n_core_repititions):
+            marginalize_ids = list(range(i + 1, self.n_core_repititions))
+            p_vec_tilde = umps_batch_select_marginalize(
+                self.alpha[batch_idx],
+                self.beta[batch_idx],
+                self.core[batch_idx],
+                self.n_core_repititions,
+                selection_ids=selection_ids,
+                marginalize_ids=marginalize_ids,
+            )
+            if p_vec_tilde is None:
+                raise ValueError("Invalid selection and marginalization indices")
+            p_vec = p_vec_tilde / p_vec_tilde.sum()
+            idx = torch.multinomial(p_vec, 1)
+            selection_ids[i] = idx.item()
+        return torch.tensor([selection_ids[i] for i in range(self.n_core_repititions)])
+
     def get_prob(self, indices: torch.Tensor) -> torch.Tensor:
         """Get the unnormalized probability and normalization constant of the TTDist.
 
@@ -405,25 +424,6 @@ class TTDist:
         check_naninf(normalization_constant, f"get_prob:normalization_constant")
 
         return unormalized_probs, normalization_constant[batch_idx]
-
-    def _sample_one(self, batch_idx: int = 0) -> torch.Tensor:
-        selection_ids = {}
-        for i in range(self.n_core_repititions):
-            marginalize_ids = list(range(i + 1, self.n_core_repititions))
-            p_vec_tilde = umps_batch_select_marginalize(
-                self.alpha[batch_idx],
-                self.beta[batch_idx],
-                self.core[batch_idx],
-                self.n_core_repititions,
-                selection_ids=selection_ids,
-                marginalize_ids=marginalize_ids,
-            )
-            if p_vec_tilde is None:
-                raise ValueError("Invalid selection and marginalization indices")
-            p_vec = p_vec_tilde / p_vec_tilde.sum()
-            idx = torch.multinomial(p_vec, 1)
-            selection_ids[i] = idx.item()
-        return torch.tensor([selection_ids[i] for i in range(self.n_core_repititions)])
 
     def sample(self, n_samples: int = 1, batch_idx: int = 0) -> torch.Tensor:
         return torch.stack([self._sample_one(batch_idx) for _ in range(n_samples)])

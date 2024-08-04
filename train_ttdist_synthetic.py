@@ -8,7 +8,9 @@ import wandb
 
 from TJDNet.TTDist import TTDist
 from TJDNet.TTDist.init import get_random_mps
-from TJDNet.utils import get_entropy_loss, get_preference_loss, check_naninf
+from TJDNet.loss import get_entropy_loss
+from TJDNet.loss import get_preference_loss
+from TJDNet.utils import check_naninf
 from utils.utils import get_experiment_name
 
 

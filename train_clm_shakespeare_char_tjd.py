@@ -34,8 +34,9 @@ from transformers import (
 import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
+from TJDNet.loss import get_preference_loss
 from character_tokenizer import CharacterTokenizer
-from TJDNet import TTDist, get_preference_loss
+from TJDNet import TTDist
 
 from utils import get_experiment_name
 
@@ -163,8 +164,6 @@ class TGPT2(torch.nn.Module):
             core,
             n_core_repititions=seq_len,
             norm_method=self.norm_method,
-            norm_method_alpha=self.norm_method,
-            eps=0.0,
         )
         return learned_ttdist, transformer_outputs
 

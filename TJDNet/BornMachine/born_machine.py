@@ -2,7 +2,7 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 
-from TJDNet.base_tensorized_distribution import BaseTensorizedDistribution
+from TJDNet.tensop import BaseTensorizedDistribution
 from TJDNet.utils import umps_batch_select_marginalize
 
 
