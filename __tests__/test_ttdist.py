@@ -1,7 +1,7 @@
 import unittest
 import torch
-from TJDNet import (
-    get_init_params_onehot,
+from TJDNet.TTDist.init import (
+    get_onehot_mps,
 )
 from TJDNet.TTDist import TTDist
 
@@ -237,7 +237,7 @@ class TestTTDist(unittest.TestCase):
         rank = 1
         vocab_size = 4
         output_size = 4
-        alpha, beta, core = get_init_params_onehot(
+        alpha, beta, core = get_onehot_mps(
             batch_size=batch_size,
             rank=rank,
             vocab_size=vocab_size,

@@ -527,6 +527,18 @@ class TTDist:
         )
         return torch.tensor(beams)
 
+    def get_params(self) -> Dict[str, torch.Tensor]:
+        """Get the parameters of the TTDist object.
+
+        Returns:
+            Dict[str, torch.Tensor]: Parameters of the TTDist object.
+        """
+        return {
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "core": self.core,
+        }
+
 
 class TTDistOLD:
     def __init__(

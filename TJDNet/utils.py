@@ -22,11 +22,13 @@ def batched_index_select(
 
 
 def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool = True):
-    if torch.isnan(x).any() or torch.isinf(x).any():
-        if raise_error:
-            raise ValueError(f"NaN/Inf detected in tensor: {msg}")
-        else:
-            return True
+    if raise_error:
+        if torch.isnan(x).any():
+            raise ValueError(f"NaN detected in tensor: {msg}")
+        elif torch.isinf(x).any():
+            raise ValueError(f"Inf detected in tensor: {msg}")
+    else:
+        return True
 
 
 def umps_batch_select_marginalize(
@@ -108,69 +110,11 @@ def umps_batch_select_marginalize(
     return result
 
 
-def get_init_params_uniform_std_positive(batch_size, rank, vocab_size):
-    # TODO: Add noise to the identities
-    # TODO: Pass alpha  and beta through renormalization layer
-    # TODO: Parameterize the residuals
-    alpha = (
-        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
-    ).abs()
-    beta = (
-        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
-    ).abs()
-    core = torch.nn.Parameter(
-        torch.eye(rank)
-        .unsqueeze(1)
-        .repeat(1, vocab_size, 1)
-        .unsqueeze(0)
-        .repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_init_params_onehot(
-    batch_size: int, rank: int, vocab_size: int, onehot_idx: int = 1, *args, **kwargs
-):
-    """Create initial parameters for a TT distribution with a one-hot cores.
-
-    Args:
-        batch_size (int): Batch size.
-        rank (int): Rank of the TT decomposition.
-        vocab_size (int): Vocabulary size.
-        onehot_idx (int): Index of the one-hot core.
-
-    Returns:
-        _type_: _description_
-    """
-    alpha = torch.ones(1, rank).repeat(batch_size, 1)
-    beta = torch.ones(1, rank).repeat(batch_size, 1)
-    coreZero = torch.zeros(rank, vocab_size, rank)
-    coreOneHot = torch.zeros(rank, vocab_size, rank)
-    coreOneHot[:, onehot_idx, :] = torch.eye(rank)
-    core = torch.nn.Parameter(
-        (coreZero + coreOneHot).unsqueeze(0).repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_init_params_randn_positive(batch_size, rank, vocab_size, *args, **kwargs):
-    alpha = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
-    beta = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
-    core = torch.nn.Parameter(
-        torch.randn(rank, vocab_size, rank)
-        .abs()
-        .unsqueeze(0)
-        .repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
 def get_preference_loss(
     ttdist: TTDist,
     samples: torch.Tensor,
     eps: float = 1e-6,
     vocab_size: int = 4,
-    neg_samples_multiplier: int = 1000,
     num_neg_batches: int = 10,
 ):
     """_summary_
@@ -211,7 +155,7 @@ def get_preference_loss(
     )
     preference_loss = preference_loss.mean()
 
-    return preference_loss, probs_tilde_neg_sum
+    return preference_loss
 
 
 def get_entropy_loss(
@@ -222,4 +166,4 @@ def get_entropy_loss(
     probs_tilde.retain_grad()
     norm_constant.retain_grad()
     loss = (-torch.log(probs_tilde + eps) + torch.log(norm_constant)).mean()
-    return loss, norm_constant
+    return loss
