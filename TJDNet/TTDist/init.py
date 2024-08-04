@@ -1,17 +1,19 @@
 import torch
 
 
-def get_random_mps(batch_size, rank, vocab_size, dist="randn", *args, **kwargs):
+def get_random_mps(batch_size, rank, vocab_size, dist="randn", trainable: bool = False):
     distrib_func = {"randn": torch.randn, "rand": torch.rand}[dist]
     alpha = distrib_func(1, rank).repeat(batch_size, 1).abs()
     beta = distrib_func(1, rank).repeat(batch_size, 1).abs()
-    core = torch.nn.Parameter(
+    core = (
         distrib_func(rank)
         .unsqueeze(1)
         .repeat(1, vocab_size, 1)
         .unsqueeze(0)
         .repeat(batch_size, 1, 1, 1)
     )
+    if trainable:
+        core = torch.nn.Parameter(core.detach())
     return alpha, beta, core
 
 

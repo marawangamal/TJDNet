@@ -26,9 +26,7 @@ class TTDist:
         core: torch.Tensor,
         n_core_repititions: int,
         repeat_batch_size: Optional[int] = None,
-        eps: float = 1e-10,
         norm_method: str = "abs",
-        norm_method_alpha: str = "abs",
     ) -> None:
         """Tensor Train Parameterization of Joint Distribution.
 
@@ -52,7 +50,6 @@ class TTDist:
             "sigmoid",
         ], f"Normalization method must be one of {norm_method}"
         self.norm_method = norm_method
-        self.norm_method_alpha = norm_method_alpha
 
         self.precond_func = {
             "relu": torch.relu,
@@ -61,16 +58,10 @@ class TTDist:
             "softmax": torch.exp,
         }[self.norm_method]
 
-        self.precond_func_alpha = {
-            "relu": torch.relu,
-            "abs": torch.abs,
-            "sigmoid": torch.sigmoid,
-            "softmax": torch.exp,
-        }[self.norm_method_alpha]
-
-        self.alpha = self.precond_func_alpha(alpha) + eps
-        self.beta = self.precond_func_alpha(beta) + eps
-        self.core = self.precond_func(core) + eps
+        self.alpha = self.precond_func(alpha)
+        self.beta = self.precond_func(beta)
+        self._core = core
+        self.core = self.precond_func(self._core)
         self.batch_size = alpha.shape[0]
         self.n_core_repititions = n_core_repititions
         self.norm_const = None
@@ -212,23 +203,6 @@ class TTDist:
             )
             core_results.append(core_result)
 
-        # core_result = cores_after_selection[0]  # (B, R, R)
-        # for i in range(1, n_core_repititions):
-        #     check_naninf(core_result, f"core_result_{i}")
-        #     check_naninf(cores_after_selection[i], f"cores_after_selection_{i}")
-        #     core_result = torch.einsum(
-        #         "ik, kj->ij",
-        #         core_result,
-        #         cores_after_selection[i],
-        #     )
-
-        # core_result = torch.einsum(
-        #     "bi, bij, bj->b",
-        #     alpha,
-        #     core_result,
-        #     beta,
-        # )
-
         return torch.stack(core_results)
 
     @staticmethod
@@ -351,7 +325,7 @@ class TTDist:
         check_naninf(unormalized_probs, f"get_prob:unormalized_probs")
         return unormalized_probs
 
-    def get_prob_and_norm(self, indices: torch.Tensor) -> Tuple[Tensor, Tensor]:
+    def get_unnorm_prob_and_norm(self, indices: torch.Tensor) -> Tuple[Tensor, Tensor]:
         """Get the unnormalized probability and normalization constant of the TTDist.
 
         Args:
@@ -387,13 +361,6 @@ class TTDist:
             core=self.core,
             n_core_repititions=self.n_core_repititions,
         )
-        # check_naninf(normalization_constant, f"get_prob:normalization_constant")
-
-        # max_unorm_prob = torch.max(torch.abs(unormalized_probs)).item()
-        # min_unorm_prob = torch.min(torch.abs(unormalized_probs)).item()
-        # logger.debug(f"Max unnormalized prob: {max_unorm_prob:.4f}")
-        # logger.debug(f"Min unnormalized prob: {min_unorm_prob:.4f}")
-        # logger.debug(f"Normalization constant: {normalization_constant}")
 
         return unormalized_probs, normalization_constant
 
@@ -537,6 +504,7 @@ class TTDist:
             "alpha": self.alpha,
             "beta": self.beta,
             "core": self.core,
+            "_core": self._core,
         }
 
 

@@ -115,6 +115,7 @@ def get_true_ttdist(
         rank=rank,
         vocab_size=vocab_size,
         dist=dist,
+        trainable=False,
     )
     ttdist = TTDist(
         alpha,
@@ -122,8 +123,6 @@ def get_true_ttdist(
         core,
         output_size,
         norm_method="abs",
-        norm_method_alpha="abs",
-        eps=0.0,
     )
     return ttdist
 
@@ -135,10 +134,13 @@ def get_learned_ttdist(
     output_size: int,
     init_dist: str,
     norm_method: str,
-    norm_method_alpha: str,
 ):
     alpha, beta, core = get_random_mps(
-        batch_size=batch_size, rank=rank, vocab_size=vocab_size, dist=init_dist
+        batch_size=batch_size,
+        rank=rank,
+        vocab_size=vocab_size,
+        dist=init_dist,
+        trainable=True,
     )
     # Forward pass:
     ttdist = TTDist(
@@ -147,8 +149,6 @@ def get_learned_ttdist(
         core,
         output_size,
         norm_method=norm_method,
-        norm_method_alpha=norm_method_alpha,
-        eps=0.0,
     )
     return ttdist
 
@@ -200,23 +200,31 @@ def main(
         dist=true_dist,
     )
 
-    learned_ttdist = get_learned_ttdist(
+    alpha, beta, core = get_random_mps(
         batch_size=batch_size,
         rank=rank,
         vocab_size=vocab_size,
-        output_size=output_size,
-        init_dist=init_dist,
-        norm_method=norm_method,
-        norm_method_alpha=norm_method,
+        dist=init_dist,
+        trainable=True,
     )
 
-    optimizer = torch.optim.AdamW([learned_ttdist.core], lr=lr)
+    optimizer = torch.optim.AdamW([core], lr=lr)
     loss_func = {
         "entropy": get_entropy_loss,
         "preference": get_preference_loss,
     }[loss_type]
 
     for i in range(n_iters):
+
+        # Forward pass:
+        learned_ttdist = TTDist(
+            alpha,
+            beta,
+            core,
+            output_size,
+            norm_method=norm_method,
+        )
+
         samples = true_ttdist.sample(batch_size)
         optimizer.zero_grad()
 
@@ -230,12 +238,8 @@ def main(
 
         # Clip gradients to prevent exploding
         params_dict = learned_ttdist.get_params()
-        alpha, beta, core = (
-            params_dict["alpha"],
-            params_dict["beta"],
-            params_dict["core"],
-        )
-        torch.nn.utils.clip_grad_value_((alpha, beta, core), 1.0)
+        core = params_dict["_core"]
+        torch.nn.utils.clip_grad_value_([core], 1.0)
 
         if i % log_freq == 0 or i == 0:
             log_results(
