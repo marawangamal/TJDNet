@@ -36,7 +36,7 @@ class MPSDist(nn.Module):
                         batch_size,
                         max_len - t,
                         dtype=torch.long,
-                        device=self.alpha.device,
+                        device=alpha.device,
                     ),
                 ]
             )
