@@ -425,7 +425,7 @@ class TTDist:
     def sample(self, n_samples: int = 1, batch_idx: int = 0) -> torch.Tensor:
         return torch.stack([self._sample_one(batch_idx) for _ in range(n_samples)])
 
-    def materialize(self, normalize: bool = True) -> torch.Tensor:
+    def materialize(self, normalize: bool) -> torch.Tensor:
         """Materialize the TTDist object.
 
         Returns:

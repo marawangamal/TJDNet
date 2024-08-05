@@ -2,8 +2,7 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 
-from TJDNet.tensop import BaseTensorizedDistribution
-from TJDNet.utils import umps_select_marginalize_batched
+from TJDNet.utils import umps_select_marginalize_batched, umps_materialize_batched
 
 
 class MPSDist(nn.Module):
@@ -17,11 +16,53 @@ class MPSDist(nn.Module):
         self.beta = nn.Parameter(torch.randn(1, rank))
         self.core = nn.Parameter(torch.randn(1, rank, n_vocab, rank))
 
-    def materialize(self):
-        raise NotImplementedError
+    def _sample_one(self, max_len: int, batch_size: int = 1) -> torch.Tensor:
+        selection_map = (
+            torch.ones(batch_size, max_len, dtype=torch.long, device=self.alpha.device)
+            * -1
+        )  # (batch_size, max_len)
+        for t in range(max_len):
+            marginalize_mask = torch.concatenate(
+                [
+                    torch.zeros(
+                        batch_size, t, dtype=torch.long, device=self.alpha.device
+                    ),
+                    torch.ones(
+                        batch_size,
+                        max_len - t,
+                        dtype=torch.long,
+                        device=self.alpha.device,
+                    ),
+                ]
+            )
+            p_vec_tilde = umps_select_marginalize_batched(
+                alpha=self.alpha,
+                beta=self.beta,
+                core=self.core,
+                selection_map=selection_map,
+                marginalize_mask=marginalize_mask,
+            )  # (batch_size, n_vocab)
+            p_vec = p_vec_tilde / p_vec_tilde.sum(dim=-1, keepdim=True)
+            indices = torch.multinomial(p_vec, 1)  # (batch_size, 1)
+            selection_map[:, t] = indices.squeeze()
 
-    def sample(self):
-        raise NotImplementedError
+        # Get indices from selection_map
+        return selection_map
+
+    def sample(self, max_len: int, n_samples: int = 1) -> torch.Tensor:
+        """Sample sequences from the MPS distribution.
+
+        Args:
+            max_len (int): Maximum length of the sequences.
+            batch_size (int, optional): Batch size. Defaults to 1.
+
+        Returns:
+            torch.Tensor: Sampled sequences. Shape: (batch_size, max_len)
+        """
+        samples = [
+            self._sample_one(max_len) for _ in range(n_samples)
+        ]  # List of (1, max_len)
+        return torch.stack(samples).squeeze(1)  # (n_samples, max_len)
 
     def get_unnorm_prob(self, y: torch.Tensor) -> torch.Tensor:
         """Get the unnormalized probability of a sequence. (i.e, :math:`\tilde{p}(y)`)
@@ -70,3 +111,12 @@ class MPSDist(nn.Module):
         )
         z = z_one.sum()
         return p_tilde, z
+
+    def materialize(self, normalize: bool = True) -> torch.Tensor:
+        return umps_materialize_batched(
+            alpha=self.alpha,
+            beta=self.beta,
+            core=self.core,
+            n_core_repititions=self.n_vocab,
+            normalize=normalize,
+        )

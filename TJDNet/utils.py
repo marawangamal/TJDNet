@@ -171,3 +171,59 @@ def umps_select_marginalize_batched(
         res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)
     res = torch.einsum("bi, bidj, bj -> bd", res_left, core, res_right)
     return res
+
+
+def umps_materialize_batched(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    n_core_repititions: int,
+    normalize: bool,
+):
+    """Materialize the joint distribution of a uMPS.
+
+    Args:
+        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
+        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
+        core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
+        n_core_repititions (int): Number of core repetitions.
+        normalize (bool, optional): Normalize the joint distribution. Defaults to True.
+
+    Returns:
+        torch.Tensor: Materialized joint distribution. Shape: (B, D, D, ..., D)
+    """
+
+    batch_size, rank_size, vocab_size, _ = core.shape
+
+    result = torch.einsum(
+        "bi, bidj->bdj",
+        alpha,
+        core,
+    )
+
+    for i in range(1, n_core_repititions):
+        result = torch.einsum(
+            "bdi, bivj->bdvj",
+            result,
+            core,
+        )
+        result = result.reshape(batch_size, -1, rank_size)
+
+    result = torch.einsum(
+        "bdj, bj->bd",
+        result,
+        beta,
+    )
+
+    # Break out all vocab_size dimensions
+    result = result.reshape(
+        batch_size, *[vocab_size for _ in range(n_core_repititions)]
+    )
+    if normalize:
+        norm_const = (
+            result.reshape(batch_size, -1)
+            .sum(1)
+            .reshape(tuple([batch_size, *[1 for _ in range(n_core_repititions)]]))
+        )
+        result = result / norm_const
+    return result
