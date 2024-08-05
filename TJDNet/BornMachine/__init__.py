@@ -1,1 +1,1 @@
-from .born_machine import BornMachineOps
+from .born_machine import MPSDist

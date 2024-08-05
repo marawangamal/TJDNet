@@ -134,8 +134,8 @@ def umps_select_marginalize_batched(
     assert len(beta.shape) == 2, "Beta should be a 2D tensor"
     assert len(core.shape) == 4, "Beta should be a 4D tensor"
 
-    free_legs = selection_map == -1 * marginalize_mask == 0
-    assert torch.any(free_legs.sum(dim=-1) != 1), "Must have excatly one free leg"
+    free_legs = torch.logical_and(selection_map == -1, marginalize_mask == 0)
+    assert torch.all(free_legs.sum(dim=-1) == 1), "Must have excatly one free leg"
 
     _, rank, _, _ = core.shape
 

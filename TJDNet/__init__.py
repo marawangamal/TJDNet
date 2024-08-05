@@ -1,3 +1,3 @@
 from .TTDist import TTDist
-from .BornMachine import BornMachineOps
+from .BornMachine import MPSDist
 from .utils import *
