@@ -2,10 +2,7 @@ from typing import Optional, Dict
 import logging
 
 
-from TJDNet.utils import (
-    check_naninf,
-    umps_batch_select_marginalize,
-)
+from TJDNet.utils import check_naninf, umps_select_marginalize_old
 
 
 import torch
@@ -298,7 +295,7 @@ class TTDist:
         selection_ids = {}
         for i in range(self.n_core_repititions):
             marginalize_ids = list(range(i + 1, self.n_core_repititions))
-            p_vec_tilde = umps_batch_select_marginalize(
+            p_vec_tilde = umps_select_marginalize_old(
                 self.alpha[batch_idx],
                 self.beta[batch_idx],
                 self.core[batch_idx],
@@ -313,7 +310,7 @@ class TTDist:
             selection_ids[i] = idx.item()
         return torch.tensor([selection_ids[i] for i in range(self.n_core_repititions)])
 
-    def get_prob(self, indices: torch.Tensor) -> torch.Tensor:
+    def get_unnorm_prob(self, indices: torch.Tensor) -> torch.Tensor:
         """Get the unnormalized probability and normalization constant of the TTDist.
 
         Args:

@@ -29,7 +29,7 @@ def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool =
         return True
 
 
-def umps_batch_select_marginalize(
+def umps_select_marginalize_old(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,
@@ -40,12 +40,12 @@ def umps_batch_select_marginalize(
     """Given a uMPS, perform select and/or marginalize operations.
 
     Args:
-        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
-        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
+        alpha (torch.Tensor): Parameter tensor. Shape: (R).
+        beta (torch.Tensor): Parameter tensor. Shape: (R).
         core (torch.Tensor): Core tensor. Shape: (R, D, R).
         n_core_repititions (int): Number of core repetitions.
-        selection_ids (List[int]): Shape: (B, s1).
-        marginalize_ids (List[int]):Shape: (B, s2).
+        selection_ids (Dict[int, int]): Dictionary of selection indices.
+        marginalize_ids (List[int]) : List of marginalization indices.
 
     Returns:
          torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
@@ -78,7 +78,6 @@ def umps_batch_select_marginalize(
         if i in selection_ids:
             sid = selection_ids[i]
             node = core[:, sid, :]
-
         elif i in marginalize_ids:
             node = core_margin
         else:
@@ -104,5 +103,68 @@ def umps_batch_select_marginalize(
     result = result.reshape(shape_init[0], -1, shape_init[-1])
     result = torch.einsum("i,idj,j->d", alpha, result, beta)
     result = result.reshape(tuple(shape_init[1:-1]))
-
     return result
+
+
+def umps_select_marginalize_batched(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    n_core_repititions: int,
+    selection_map: torch.Tensor,
+    marginalize_mask: torch.Tensor,
+):
+    """Given a uMPS, perform select and/or marginalize operations.
+
+    Args:
+        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
+        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
+        core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
+        n_core_repititions (int): Number of core repetitions.
+        selection_map (torch.Tensor): Batched selection indices. Negative denote non-select indices. Shape: (B, N).
+        marginalize_mask (torch.Tensor): Batched marginalization mask. Shape: (B, N).
+
+    Returns:
+         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
+
+    """
+
+    # Validation
+    assert len(alpha.shape) == 2, "Alpha should be a 2D tensor"
+    assert len(beta.shape) == 2, "Beta should be a 2D tensor"
+    assert len(core.shape) == 4, "Beta should be a 4D tensor"
+
+    free_legs = selection_map == -1 * marginalize_mask == 0
+    assert torch.any(free_legs.sum(dim=-1) != 1), "Must have excatly one free leg"
+
+    _, rank, _, _ = core.shape
+
+    res_left = alpha
+    res_right = beta
+    for t in range(n_core_repititions):
+        res_left_prime = torch.stack(
+            [
+                (
+                    core[b, :, selection_map[b, t], :]
+                    if selection_map[b, t]
+                    else torch.eye(rank, device=core.device)
+                )
+                for b in range(core.shape[0])
+            ]
+        )
+        res_left = torch.einsum("bi,bij->bj", res_left, res_left_prime)
+
+    for t in range(n_core_repititions):
+        res_right_prime = torch.stack(
+            [
+                (
+                    core[b, :, t, :]
+                    if marginalize_mask[b, t]
+                    else torch.eye(rank, device=core.device)
+                )
+                for b in range(core.shape[0])
+            ]
+        )
+        res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)
+    res = torch.einsum("bi, bidj, bj -> bd", res_left, core, res_right)
+    return res

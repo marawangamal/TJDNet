@@ -28,10 +28,10 @@ def get_preference_loss(
     batch_size = samples_pos.shape[0]
     seq_len = samples_pos.shape[1]
     # make a batch of negative samples by creating rand tensor of size batch_size x seq_len with indices in [0, vocab_size-1]
-    probs_tilde_pos = ttdist.get_prob(samples_pos)
+    probs_tilde_pos = ttdist.get_unnorm_prob(samples_pos)
     # probs_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(samples_neg)
     probs_tilde_neg_lst = [
-        ttdist.get_prob(
+        ttdist.get_unnorm_prob(
             torch.randint(
                 0,
                 vocab_size,

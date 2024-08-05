@@ -1,1 +1,1 @@
-from .born_machine import BornMachine
+from .born_machine import BornMachineOps
