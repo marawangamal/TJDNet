@@ -110,7 +110,6 @@ def umps_select_marginalize_batched(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,
-    n_core_repititions: int,
     selection_map: torch.Tensor,
     marginalize_mask: torch.Tensor,
 ):
@@ -120,7 +119,6 @@ def umps_select_marginalize_batched(
         alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
         beta (torch.Tensor): Parameter tensor. Shape: (B, R).
         core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
-        n_core_repititions (int): Number of core repetitions.
         selection_map (torch.Tensor): Batched selection indices. Negative denote non-select indices. Shape: (B, N).
         marginalize_mask (torch.Tensor): Batched marginalization mask. Shape: (B, N).
 
@@ -128,16 +126,21 @@ def umps_select_marginalize_batched(
          torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
 
     """
-
+    # FIXME: Does not support interleave selection and marginalization
     # Validation
     assert len(alpha.shape) == 2, "Alpha should be a 2D tensor"
     assert len(beta.shape) == 2, "Beta should be a 2D tensor"
     assert len(core.shape) == 4, "Beta should be a 4D tensor"
-
+    assert len(selection_map.shape) == 2, "Selection map should be a 2D tensor"
+    assert len(marginalize_mask.shape) == 2, "Marginalize mask should be a 2D tensor"
+    assert (
+        selection_map.shape == marginalize_mask.shape
+    ), "Selection and marginalize mask should have same shape"
     free_legs = torch.logical_and(selection_map == -1, marginalize_mask == 0)
     assert torch.all(free_legs.sum(dim=-1) == 1), "Must have excatly one free leg"
 
     _, rank, _, _ = core.shape
+    n_core_repititions = selection_map.shape[1]
 
     res_left = alpha
     res_right = beta

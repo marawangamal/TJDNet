@@ -48,7 +48,6 @@ class TestTTDist(unittest.TestCase):
             alpha=alpha,
             beta=beta,
             core=core,
-            n_core_repititions=n_core_repititions,
             selection_map=selection_map,
             marginalize_mask=marginalize_mask,
         )
@@ -72,7 +71,6 @@ class TestTTDist(unittest.TestCase):
             alpha=alpha,
             beta=beta,
             core=core,
-            n_core_repititions=n_core_repititions,
             selection_map=selection_map,
             marginalize_mask=marginalize_mask,
         )
@@ -96,7 +94,6 @@ class TestTTDist(unittest.TestCase):
             alpha=alpha,
             beta=beta,
             core=core,
-            n_core_repititions=n_core_repititions,
             selection_map=selection_map,
             marginalize_mask=marginalize_mask,
         )
@@ -126,7 +123,6 @@ class TestTTDist(unittest.TestCase):
             alpha=alpha,
             beta=beta,
             core=core,
-            n_core_repititions=n_core_repititions,
             selection_map=selection_map,
             marginalize_mask=marginalize_mask,
         )
