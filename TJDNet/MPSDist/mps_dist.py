@@ -14,7 +14,7 @@ class MPSDist(nn.Module):
     ):
         super(MPSDist, self).__init__()
         assert positivity_func in ["square", "abs"]
-        assert init_method in ["randn", "unit_var", "one_hot"]
+        assert init_method in ["randn", "unit_var", "one_hot", "sparse"]
         self.rank = rank
         self.init_method = init_method
         self.n_vocab = n_vocab
@@ -31,6 +31,8 @@ class MPSDist(nn.Module):
             self._init_unit_var()
         elif init_method == "one_hot":
             self._init_one_hot()
+        elif init_method == "sparse":
+            self._init_one_sparse()
 
     def _init_unit_var(self):
         # Core
@@ -66,6 +68,29 @@ class MPSDist(nn.Module):
 
         alpha_data = torch.zeros_like(self.alpha, device=self.alpha.device)
         alpha_data[0, one_hot_idx] = 1
+
+        self.alpha.data = alpha_data
+        self.beta.data = beta_data
+        self.core.data = core_data
+
+    def _init_one_sparse(self):
+
+        # want T(x1, ..., xn) = 1 with probability 0.5 and 0 otherwise
+
+        # Core
+        core_data = torch.zeros_like(self.core, device=self.core.device)
+        for k in range(self.n_vocab):
+            if k % 2 == 0:
+                core_data[0, :, k, :] = torch.eye(self.rank, device=self.core.device)
+
+        # Alpha, Beta
+        beta_data = torch.zeros_like(self.beta, device=self.beta.device)
+        alpha_data = torch.zeros_like(self.alpha, device=self.alpha.device)
+
+        for k in range(self.rank):
+            if k % 2 == 0:
+                beta_data[0, k] = 1
+                alpha_data[0, k] = 1
 
         self.alpha.data = alpha_data
         self.beta.data = beta_data

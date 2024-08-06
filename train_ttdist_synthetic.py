@@ -187,7 +187,7 @@ def main(
     true_mpsdist = MPSDist(
         n_vocab=vocab_size,
         rank=true_rank,
-        init_method="one_hot",
+        init_method="sparse",
     )
     # Print the true distribution
     print_transition_matrix(true_mpsdist, "MPSDist (True)")
