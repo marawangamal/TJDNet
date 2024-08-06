@@ -54,17 +54,17 @@ def parse_args():
         "--rank", type=int, default=4, help="Rank of the tensor decomposition"
     )
     parser.add_argument(
-        "--true_rank", type=int, default=4, help="Rank of the tensor decomposition"
+        "--true_rank", type=int, default=8, help="Rank of the tensor decomposition"
     )
 
     parser.add_argument(
-        "--output_size", type=int, default=3, help="Output size of the tensor"
+        "--output_size", type=int, default=5, help="Output size of the tensor"
     )
     parser.add_argument("--vocab_size", type=int, default=3, help="Vocabulary size")
     parser.add_argument(
         "--norm_method", type=str, default="abs", help="Normalization method"
     )
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument(
         "--n_iters", type=int, default=20000, help="Number of iterations"
     )
@@ -152,21 +152,32 @@ def log_results(
     )
 
 
+def print_transition_matrix(mpsdist: MPSDist, tag: str):
+    # print(
+    #     f"[{tag}]: p(0, 0) = {mpsdist.get_unnorm_prob(torch.tensor([[0, 0]])).item():.1f}"
+    # )
+    # print(
+    #     f"[{tag}]: p(0, 1) = {mpsdist.get_unnorm_prob(torch.tensor([[0, 1]])).item():.1f}"
+    # )
+    mat = mpsdist.materialize(n_core_repititions=2).detach().numpy().squeeze()
+    print(f"[{tag}]: Transition Matrix")
+    print(np.round(mat, 2))
+
+
 def main(
     rank,
     true_rank,
     output_size,
     vocab_size,
-    norm_method,
     batch_size,
     n_iters,
     log_freq,
     lr,
     eps,
     eps_norm,
-    init_dist,
     loss_type,  # entropy or preference
-    true_dist,  # normal or dirac
+    *args,
+    **kwargs,
 ):
 
     # Assertions
@@ -176,7 +187,10 @@ def main(
     true_mpsdist = MPSDist(
         n_vocab=vocab_size,
         rank=true_rank,
+        init_method="one_hot",
     )
+    # Print the true distribution
+    print_transition_matrix(true_mpsdist, "MPSDist (True)")
 
     learned_mpsdist = MPSDist(
         n_vocab=vocab_size,
@@ -191,7 +205,10 @@ def main(
 
     for i in range(n_iters):
 
-        samples = true_mpsdist.sample(batch_size).detach()
+        samples = true_mpsdist.sample(
+            n_samples=batch_size,
+            max_len=output_size,
+        ).detach()
         optimizer.zero_grad()
 
         loss = loss_func(
@@ -212,6 +229,7 @@ def main(
                 true_ttdist=true_mpsdist,
                 loss=loss,
             )
+            print_transition_matrix(learned_mpsdist, "MPSDist (Learned)")
 
         optimizer.step()
 

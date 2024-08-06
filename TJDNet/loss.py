@@ -12,6 +12,8 @@ def get_preference_loss(
     eps: float = 1e-6,
     vocab_size: int = 4,
     num_neg_batches: int = 10,
+    *args,
+    **kwargs,
 ):
     """_summary_
 
@@ -58,7 +60,8 @@ def get_entropy_loss(
     ttdist: Union[TTDist, MPSDist],
     samples: torch.Tensor,
     eps: float = 1e-6,
-    vocab_size: int = 4,
+    *args,
+    **kwargs,
 ):
     probs_tilde, norm_constant = ttdist.get_unnorm_prob_and_norm(samples)
     # retain_grad on probs_tilde to compute the gradient of the loss w.r.t. probs_tilde
