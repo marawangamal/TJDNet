@@ -1,10 +1,12 @@
-from typing import Tuple
+from typing import Tuple, Union
 import argparse
 import random
 
 import torch
 import numpy as np
 import wandb
+
+from TJDNet import MPSDist
 
 from TJDNet.TTDist import TTDist
 from TJDNet.TTDist.init import get_random_mps
@@ -58,7 +60,7 @@ def parse_args():
     parser.add_argument(
         "--output_size", type=int, default=3, help="Output size of the tensor"
     )
-    parser.add_argument("--vocab_size", type=int, default=10, help="Vocabulary size")
+    parser.add_argument("--vocab_size", type=int, default=3, help="Vocabulary size")
     parser.add_argument(
         "--norm_method", type=str, default="abs", help="Normalization method"
     )
@@ -91,7 +93,7 @@ def parse_args():
 
 
 def get_sae_and_mae(
-    learned_ttdist: TTDist, true_ttdist: TTDist
+    learned_ttdist: Union[TTDist, MPSDist], true_ttdist: Union[TTDist, MPSDist]
 ) -> Tuple[float, float, float]:
     learned_dist = learned_ttdist.materialize().detach().numpy().squeeze()
     true_dist = true_ttdist.materialize().detach().numpy().squeeze()
@@ -130,7 +132,10 @@ def get_true_ttdist(
 
 
 def log_results(
-    iteration: int, learned_ttdist: TTDist, true_ttdist: TTDist, loss: torch.Tensor
+    iteration: int,
+    learned_ttdist: Union[TTDist, MPSDist],
+    true_ttdist: Union[TTDist, MPSDist],
+    loss: torch.Tensor,
 ):
     sae, mae, norm_const = get_sae_and_mae(learned_ttdist, true_ttdist)
     print(
@@ -168,23 +173,17 @@ def main(
     assert eps != eps_norm, "eps and eps_norm cannot be the same"
 
     # 1. Get the true distribution
-    true_ttdist = get_true_ttdist(
-        batch_size=1,
-        output_size=output_size,
-        vocab_size=vocab_size,
+    true_mpsdist = MPSDist(
+        n_vocab=vocab_size,
         rank=true_rank,
-        dist=true_dist,
     )
 
-    alpha, beta, core = get_random_mps(
-        batch_size=batch_size,
+    learned_mpsdist = MPSDist(
+        n_vocab=vocab_size,
         rank=rank,
-        vocab_size=vocab_size,
-        dist=init_dist,
-        trainable=True,
     )
 
-    optimizer = torch.optim.AdamW([core], lr=lr)
+    optimizer = torch.optim.AdamW(learned_mpsdist.parameters(), lr=lr)
     loss_func = {
         "entropy": get_entropy_loss,
         "preference": get_preference_loss,
@@ -192,20 +191,11 @@ def main(
 
     for i in range(n_iters):
 
-        # Forward pass:
-        learned_ttdist = TTDist(
-            alpha,
-            beta,
-            core,
-            output_size,
-            norm_method=norm_method,
-        )
-
-        samples = true_ttdist.sample(batch_size)
+        samples = true_mpsdist.sample(batch_size).detach()
         optimizer.zero_grad()
 
         loss = loss_func(
-            ttdist=learned_ttdist, samples=samples, eps=eps, vocab_size=vocab_size
+            ttdist=learned_mpsdist, samples=samples, eps=eps, vocab_size=vocab_size
         )
         loss.backward()
 
@@ -213,15 +203,13 @@ def main(
         check_naninf(loss, msg="Loss")
 
         # Clip gradients to prevent exploding
-        params_dict = learned_ttdist.get_params()
-        core = params_dict["_core"]
-        torch.nn.utils.clip_grad_value_([core], 1.0)
+        torch.nn.utils.clip_grad_value_(learned_mpsdist.parameters(), 1.0)
 
         if i % log_freq == 0 or i == 0:
             log_results(
                 iteration=i,
-                learned_ttdist=learned_ttdist,
-                true_ttdist=true_ttdist,
+                learned_ttdist=learned_mpsdist,
+                true_ttdist=true_mpsdist,
                 loss=loss,
             )
 

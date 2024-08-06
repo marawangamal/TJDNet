@@ -139,11 +139,18 @@ def umps_select_marginalize_batched(
     free_legs = torch.logical_and(selection_map == -1, marginalize_mask == 0)
     assert torch.all(free_legs.sum(dim=-1) == 1), "Must have excatly one free leg"
 
-    _, rank, _, _ = core.shape
+    batch_size, rank, vocab_size, _ = core.shape
     n_core_repititions = selection_map.shape[1]
 
     res_left = alpha
     res_right = beta
+
+    core_margins = torch.einsum(
+        "bijk,bj->bik",
+        core,
+        torch.ones(batch_size, vocab_size, device=core.device),
+    )
+
     for t in range(n_core_repititions):
         res_left_prime = torch.stack(
             [
@@ -161,7 +168,7 @@ def umps_select_marginalize_batched(
         res_right_prime = torch.stack(
             [
                 (
-                    core[b, :, t, :]
+                    core_margins[b]
                     if marginalize_mask[b, t]
                     else torch.eye(rank, device=core.device)
                 )

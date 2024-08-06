@@ -1,11 +1,13 @@
+from typing import Union
 from TJDNet import TTDist
+from TJDNet import MPSDist
 
 
 import torch
 
 
 def get_preference_loss(
-    ttdist: TTDist,
+    ttdist: Union[TTDist, MPSDist],
     samples: torch.Tensor,
     eps: float = 1e-6,
     vocab_size: int = 4,
@@ -53,7 +55,10 @@ def get_preference_loss(
 
 
 def get_entropy_loss(
-    ttdist: TTDist, samples: torch.Tensor, eps: float = 1e-6, vocab_size: int = 4
+    ttdist: Union[TTDist, MPSDist],
+    samples: torch.Tensor,
+    eps: float = 1e-6,
+    vocab_size: int = 4,
 ):
     probs_tilde, norm_constant = ttdist.get_unnorm_prob_and_norm(samples)
     # retain_grad on probs_tilde to compute the gradient of the loss w.r.t. probs_tilde
