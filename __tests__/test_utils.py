@@ -102,7 +102,7 @@ class TestTTDist(unittest.TestCase):
         if result is not None:
             self.assertEqual(tuple(result.shape), expected_shape)
 
-    def test_umps_select_marginalize_batched__values(self):
+    def test_umps_select_marginalize_batched__correct_values_select(self):
         rank = 3
         vocab_size = 4
         batch_size = 1
@@ -128,6 +128,28 @@ class TestTTDist(unittest.TestCase):
         )
 
         self.assertEqual(expected_output, result[0, 0].item())
+
+    def test_umps_select_marginalize_batched__correct_values_margin(self):
+        rank = 3
+        vocab_size = 4
+        alpha = torch.ones(1, rank)
+        beta = torch.ones(1, rank)
+        core = torch.zeros(1, rank, vocab_size, rank)
+        for i in range(vocab_size):
+            core[0, :, i, :] = torch.eye(rank) * (1 / vocab_size)
+
+        selection_map = torch.tensor([[-1, -1, -1]])
+        marginalize_mask = torch.tensor([[0, 1, 1]])
+
+        result = umps_select_marginalize_batched(
+            alpha=alpha,
+            beta=beta,
+            core=core,
+            selection_map=selection_map,
+            marginalize_mask=marginalize_mask,
+        )
+
+        self.assertEqual(rank, result.sum())
 
 
 if __name__ == "__main__":

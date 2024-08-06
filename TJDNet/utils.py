@@ -156,7 +156,7 @@ def umps_select_marginalize_batched(
             [
                 (
                     core[b, :, selection_map[b, t], :]
-                    if selection_map[b, t]
+                    if selection_map[b, t] >= 0
                     else torch.eye(rank, device=core.device)
                 )
                 for b in range(core.shape[0])
