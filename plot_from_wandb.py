@@ -5,6 +5,9 @@ import re
 import json
 import matplotlib.pyplot as plt
 
+
+PROJECT_NAME = "marawan-gamal/tjdnet-synthetic"
+
 LEGEND_FONT_SIZE = 20
 AXIS_LABEL_FONT_SIZE = 18
 TICK_LABEL_FONT_SIZE = 16
@@ -105,28 +108,31 @@ experiments = {
         "legend": True,
         "aggregations": [
             [
-                "tdirac_r2_o10_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
-                # tdirac_r2_o10_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference SSE_MAX	0.9999920129776001
-                "tdirac_r2_o8_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
-                "tdirac_r2_o6_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
-                "tdirac_r2_o4_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
+                "trand_irandn_r4_tr8_o12_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_loentropy",
+                "trand_irandn_r4_tr8_o10_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_loentropy",
+                "trand_irandn_r4_tr8_o8_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_loentropy",
+                "trand_irandn_r4_tr8_o6_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_loentropy",
+                "trand_irandn_r4_tr8_o4_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_loentropy",
+                "trand_irandn_r4_tr8_o2_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_loentropy",
             ],
             [
-                "tdirac_r2_o10_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
-                "tdirac_r2_o8_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
-                "tdirac_r2_o6_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
-                "tdirac_r2_o4_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+                "trand_irandn_r4_tr8_o12_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_lopreference",
+                "trand_irandn_r4_tr8_o10_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_lopreference",
+                "trand_irandn_r4_tr8_o8_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_lopreference",
+                "trand_irandn_r4_tr8_o6_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_lopreference",
+                "trand_irandn_r4_tr8_o4_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_lopreference",
+                "trand_irandn_r4_tr8_o2_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_lopreference",
             ],
         ],
     },
-    "SE_MAX": {
+    "MAE": {
         "title": None,
-        "filename": "figures/se_max_vs_epoch.pdf",
+        "filename": "figures/mae_vs_epoch.pdf",
         "ylabel": "Max Squared Error",
         "xlabel": "Epoch",
         "metric_fn": lambda run: get_points(
             run,
-            "SSE_MAX",
+            "MAE",
             color_fn=se_color_fn,
             label_fn=lambda run: (
                 # f"S={json.loads(run.json_config)['output_size']['value']} {'(preference loss)' if 'lopreference' in run.name else ''}"
@@ -138,14 +144,10 @@ experiments = {
         "legend": True,
         "aggregate": False,
         "valid_exps_list": [
-            "tdirac_r2_o10_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
-            "tdirac_r2_o8_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
-            # "tdirac_r2_o6_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
-            "tdirac_r2_o4_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_irandn_positive_loentropy",
-            "tdirac_r2_o10_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
-            "tdirac_r2_o8_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
-            # "r2tdirac__o6_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
-            "tdirac_r2_o4_v4_nabs_b16_n_2000_l100_lr0.001_e1e-06_ep0.0_aFalse_iuniform_positive_lopreference",
+            "trand_irandn_r4_tr8_o8_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_loentropy",
+            "trand_irandn_r4_tr8_o10_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_loentropy",
+            "trand_irandn_r4_tr8_o8_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_lopreference",
+            "trand_irandn_r4_tr8_o10_v3_nabs_b32_n_20000_l100_lr0.001_e1e-09_ep0.0_lopreference",
         ],
     },
 }
@@ -158,11 +160,8 @@ def main_aggr(exp_name):
     # Initialize W&B API
     api = wandb.Api()
 
-    # Specify the project name
-    project_name = "marawan-gamal/TJDNet (Synthetic)"
-
     # Fetch all runs in the project
-    runs = api.runs(f"{project_name}")
+    runs = api.runs(f"{PROJECT_NAME}")
 
     aggregation_name_lists = exp_config["aggregations"]
     aggregations = []
@@ -198,11 +197,8 @@ def main_basic(exp_name):
     # Initialize W&B API
     api = wandb.Api()
 
-    # Specify the project name
-    project_name = "marawan-gamal/TJDNet (Synthetic)"
-
     # Fetch all runs in the project
-    runs = api.runs(f"{project_name}")
+    runs = api.runs(f"{PROJECT_NAME}")
 
     plt.figure(figsize=(10, 5))
 
@@ -245,5 +241,5 @@ def main(exp_name):
 
 
 if __name__ == "__main__":
-    main("SE_MAX")
+    main("MAE")
     main("NORM_CONST")

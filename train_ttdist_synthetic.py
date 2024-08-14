@@ -31,11 +31,12 @@ def parse_args():
     parser.add_argument(
         "--true_dist",
         type=str,
-        default="rand",
+        default="sparse",
         help="True distribution",
         choices=[
-            "rand",  # Uniform random initialization [0, 1]
-            "randn",  # Normal random initialization
+            "unit_var",
+            "one_hot",
+            "sparse",
         ],
     )
 
@@ -153,12 +154,6 @@ def log_results(
 
 
 def print_transition_matrix(mpsdist: MPSDist, tag: str):
-    # print(
-    #     f"[{tag}]: p(0, 0) = {mpsdist.get_unnorm_prob(torch.tensor([[0, 0]])).item():.1f}"
-    # )
-    # print(
-    #     f"[{tag}]: p(0, 1) = {mpsdist.get_unnorm_prob(torch.tensor([[0, 1]])).item():.1f}"
-    # )
     mat = mpsdist.materialize(n_core_repititions=2).detach().numpy().squeeze()
     print(f"[{tag}]: Transition Matrix")
     print(np.round(mat, 2))
@@ -166,6 +161,7 @@ def print_transition_matrix(mpsdist: MPSDist, tag: str):
 
 def main(
     rank,
+    true_dist,
     true_rank,
     output_size,
     vocab_size,
@@ -187,7 +183,7 @@ def main(
     true_mpsdist = MPSDist(
         n_vocab=vocab_size,
         rank=true_rank,
-        init_method="sparse",
+        init_method=true_dist,
     )
     # Print the true distribution
     print_transition_matrix(true_mpsdist, "MPSDist (True)")
@@ -229,7 +225,7 @@ def main(
                 true_ttdist=true_mpsdist,
                 loss=loss,
             )
-            print_transition_matrix(learned_mpsdist, "MPSDist (Learned)")
+            # print_transition_matrix(learned_mpsdist, "MPSDist (Learned)")
 
         optimizer.step()
 
@@ -240,7 +236,7 @@ if __name__ == "__main__":
 
     experiment_name = get_experiment_name(experiment_config)
     wandb.init(
-        project="TJDNet (Synthetic)",
+        project="tjdnet-synthetic",
         config=experiment_config,
         name=experiment_name,
     )
