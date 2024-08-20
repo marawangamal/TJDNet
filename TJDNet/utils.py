@@ -112,7 +112,7 @@ def umps_select_marginalize_batched(
     core: torch.Tensor,
     selection_map: torch.Tensor,
     marginalize_mask: torch.Tensor,
-    divide_by_norm_const: bool = True,
+    apply_scale_factor: bool = True,
 ):
     """Given a uMPS, perform select and/or marginalize operations (batched version).
 
@@ -186,9 +186,9 @@ def umps_select_marginalize_batched(
         res_right = res_right / z_tmp.unsqueeze(1)
         res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)
     res = torch.einsum("bi, bidj, bj -> bd", res_left, core, res_right)
-    if divide_by_norm_const:
+    if apply_scale_factor:
         norm_const = torch.stack(norm_consts, dim=1).prod(dim=1)
-        res = res * norm_const
+        res = res * norm_const.unsqueeze(1)
     return res
 
 

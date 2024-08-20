@@ -167,7 +167,10 @@ class MPSDist(nn.Module):
         ]  # List of (1, max_len)
         return torch.stack(samples).squeeze(1)  # (n_samples, max_len)
 
-    def get_unnorm_prob(self, y: torch.Tensor) -> torch.Tensor:
+    def get_unnorm_prob(
+        self,
+        y: torch.Tensor,
+    ) -> torch.Tensor:
         """Get the unnormalized probability of a sequence. (i.e, :math:`\tilde{p}(y)`)
 
         Args:
@@ -192,24 +195,30 @@ class MPSDist(nn.Module):
         p_tilde = torch.stack([p_tilde_one[b, y[b, 0]] for b in range(batch_size)])
         return p_tilde
 
-    def get_norm_constant(self, y: torch.Tensor) -> torch.Tensor:
+    def get_norm_constant(
+        self, y: torch.Tensor, apply_scale_factor: bool = True
+    ) -> torch.Tensor:
         alpha, beta, core = self.get_params()
         marginalize_mask = torch.ones_like(y, device=y.device)
         marginalize_mask[:, 0] = 0
         batch_size = y.shape[0]
+        # Function umps_select_marginalize_batched needs to output a vector. So this marginalizes all except the first element.
         z_one = umps_select_marginalize_batched(
             alpha=alpha.repeat(batch_size, 1),
             beta=beta.repeat(batch_size, 1),
             core=core.repeat(batch_size, 1, 1, 1),
             selection_map=torch.ones_like(y, device=y.device) * -1,
             marginalize_mask=marginalize_mask,
+            apply_scale_factor=apply_scale_factor,
         )
         z = z_one.sum()
         self.norm_const = z
         return z
 
     def get_unnorm_prob_and_norm(
-        self, y: torch.Tensor
+        self,
+        y: torch.Tensor,
+        apply_scale_factor: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get the unnormalized probability and normalization constant of a sequence. (i.e, :math:`\tilde{p}(y)` and :math:`Z`)
 
@@ -221,7 +230,7 @@ class MPSDist(nn.Module):
         """
 
         p_tilde = self.get_unnorm_prob(y)
-        z = self.get_norm_constant(y)
+        z = self.get_norm_constant(y, apply_scale_factor)
 
         assert torch.all(p_tilde >= 0), "p_tilde must be non-negative"
         assert torch.all(z >= 0), "Z must be non-negative"

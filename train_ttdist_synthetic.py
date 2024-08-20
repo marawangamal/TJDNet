@@ -8,8 +8,7 @@ import wandb
 
 from TJDNet import MPSDist
 
-from TJDNet.loss import get_entropy_loss
-from TJDNet.loss import get_preference_loss
+from TJDNet.loss import get_preference_loss, get_entropy_loss, get_entropy_unnorm_loss
 from TJDNet.utils import check_naninf
 from utils.utils import get_experiment_name
 
@@ -82,6 +81,7 @@ def parse_args():
         default="entropy",
         choices=[
             "entropy",
+            "entropy:unnorm",
             "preference",
         ],
         help="Initialization method",
@@ -172,6 +172,7 @@ def main(
     optimizer = torch.optim.AdamW(learned_mpsdist.parameters(), lr=lr)
     loss_func = {
         "entropy": get_entropy_loss,
+        "entropy:unnorm": get_entropy_unnorm_loss,
         "preference": get_preference_loss,
     }[loss_type]
 
