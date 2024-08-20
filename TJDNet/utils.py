@@ -112,8 +112,9 @@ def umps_select_marginalize_batched(
     core: torch.Tensor,
     selection_map: torch.Tensor,
     marginalize_mask: torch.Tensor,
+    divide_by_norm_const: bool = True,
 ):
-    """Given a uMPS, perform select and/or marginalize operations.
+    """Given a uMPS, perform select and/or marginalize operations (batched version).
 
     Args:
         alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
@@ -151,6 +152,8 @@ def umps_select_marginalize_batched(
         torch.ones(batch_size, vocab_size, device=core.device),
     )
 
+    norm_consts = []
+
     for t in range(n_core_repititions):
         res_left_prime = torch.stack(
             [
@@ -162,6 +165,9 @@ def umps_select_marginalize_batched(
                 for b in range(core.shape[0])
             ]
         )
+        z_tmp = res_left.sum(dim=1)
+        norm_consts.append(z_tmp)
+        res_left = res_left / z_tmp.unsqueeze(1)
         res_left = torch.einsum("bi,bij->bj", res_left, res_left_prime)
 
     for t in range(n_core_repititions):
@@ -175,8 +181,14 @@ def umps_select_marginalize_batched(
                 for b in range(core.shape[0])
             ]
         )
+        z_tmp = res_right.sum(dim=1)
+        norm_consts.append(z_tmp)
+        res_right = res_right / z_tmp.unsqueeze(1)
         res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)
     res = torch.einsum("bi, bidj, bj -> bd", res_left, core, res_right)
+    if divide_by_norm_const:
+        norm_const = torch.stack(norm_consts, dim=1).prod(dim=1)
+        res = res * norm_const
     return res
 
 
