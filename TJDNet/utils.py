@@ -1,8 +1,6 @@
 from typing import Optional, Dict, List
 import torch
 
-from TJDNet import TTDist
-
 
 def batched_index_select(
     input: torch.Tensor,
@@ -22,14 +20,16 @@ def batched_index_select(
 
 
 def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool = True):
-    if torch.isnan(x).any() or torch.isinf(x).any():
-        if raise_error:
-            raise ValueError(f"NaN/Inf detected in tensor: {msg}")
-        else:
-            return True
+    if raise_error:
+        if torch.isnan(x).any():
+            raise ValueError(f"NaN detected in tensor: {msg}")
+        elif torch.isinf(x).any():
+            raise ValueError(f"Inf detected in tensor: {msg}")
+    else:
+        return True
 
 
-def umps_batch_select_marginalize(
+def umps_select_marginalize_old(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,
@@ -40,12 +40,12 @@ def umps_batch_select_marginalize(
     """Given a uMPS, perform select and/or marginalize operations.
 
     Args:
-        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
-        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
+        alpha (torch.Tensor): Parameter tensor. Shape: (R).
+        beta (torch.Tensor): Parameter tensor. Shape: (R).
         core (torch.Tensor): Core tensor. Shape: (R, D, R).
         n_core_repititions (int): Number of core repetitions.
-        selection_ids (List[int]): Shape: (B, s1).
-        marginalize_ids (List[int]):Shape: (B, s2).
+        selection_ids (Dict[int, int]): Dictionary of selection indices.
+        marginalize_ids (List[int]) : List of marginalization indices.
 
     Returns:
          torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
@@ -78,7 +78,6 @@ def umps_batch_select_marginalize(
         if i in selection_ids:
             sid = selection_ids[i]
             node = core[:, sid, :]
-
         elif i in marginalize_ids:
             node = core_margin
         else:
@@ -104,109 +103,134 @@ def umps_batch_select_marginalize(
     result = result.reshape(shape_init[0], -1, shape_init[-1])
     result = torch.einsum("i,idj,j->d", alpha, result, beta)
     result = result.reshape(tuple(shape_init[1:-1]))
-
     return result
 
 
-def get_init_params_uniform_std_positive(batch_size, rank, output_size, vocab_size):
-    # TODO: Add noise to the identities
-    # TODO: Pass alpha  and beta through renormalization layer
-    # TODO: Parameterize the residuals
-    alpha = (
-        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
-    ).abs()
-    beta = (
-        torch.randn(1, rank).repeat(batch_size, 1) * torch.sqrt(torch.tensor(1 / rank))
-    ).abs()
-    core = torch.nn.Parameter(
-        torch.eye(rank)
-        .unsqueeze(1)
-        .repeat(1, vocab_size, 1)
-        .unsqueeze(0)
-        .repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_init_params_onehot(batch_size, rank, vocab_size, onehot_idx):
-    alpha = torch.ones(1, rank).repeat(batch_size, 1)
-    beta = torch.ones(1, rank).repeat(batch_size, 1)
-    coreZero = torch.zeros(rank, vocab_size, rank)
-    coreOneHot = torch.zeros(rank, vocab_size, rank)
-    coreOneHot[:, onehot_idx, :] = torch.eye(rank)
-    core = torch.nn.Parameter(
-        (coreZero + coreOneHot).unsqueeze(0).repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_init_params_randn_positive(batch_size, rank, output_size, vocab_size):
-    alpha = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
-    beta = (torch.randn(1, rank).repeat(batch_size, 1)).abs()
-    core = torch.nn.Parameter(
-        torch.randn(rank, vocab_size, rank)
-        .abs()
-        .unsqueeze(0)
-        .repeat(batch_size, 1, 1, 1)
-    )
-    return alpha, beta, core
-
-
-def get_preference_loss(
-    ttdist: TTDist,
-    samples: torch.Tensor,
-    eps: float = 1e-6,
-    vocab_size: int = 4,
-    neg_samples_multiplier: int = 1000,
-    num_neg_batches: int = 10,
+def umps_select_marginalize_batched(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    selection_map: torch.Tensor,
+    marginalize_mask: torch.Tensor,
 ):
-    """_summary_
+    """Given a uMPS, perform select and/or marginalize operations.
 
     Args:
-        ttdist (TTDist): Instance of TTDist.
-        samples (torch.Tensor): Samples over which to maximize the preference. Shape: (batch_size, seq_len).
-        eps (float, optional): _description_. Defaults to 1e-6.
-        vocab_size (int, optional): _description_. Defaults to 4.
-        neg_samples_multiplier (int, optional): _description_. Defaults to 1000.
-        num_neg_batches (int, optional): _description_. Defaults to 10.
+        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
+        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
+        core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
+        selection_map (torch.Tensor): Batched selection indices. Negative denote non-select indices. Shape: (B, N).
+        marginalize_mask (torch.Tensor): Batched marginalization mask. Shape: (B, N).
 
     Returns:
-        _type_: _description_
+         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
+
     """
-    samples_pos = samples
-    batch_size = samples_pos.shape[0]
-    seq_len = samples_pos.shape[1]
-    # make a batch of negative samples by creating rand tensor of size batch_size x seq_len with indices in [0, vocab_size-1]
-    probs_tilde_pos = ttdist.get_prob(samples_pos)
-    # probs_tilde_neg, norm_constant_neg = ttdist.get_prob_and_norm(samples_neg)
-    probs_tilde_neg_lst = [
-        ttdist.get_prob(
-            torch.randint(
-                0,
-                vocab_size,
-                (batch_size, seq_len),
-                dtype=torch.long,
-                device=samples.device,
-            )
-        )
-        for _ in range(num_neg_batches)
-    ]
+    # FIXME: Does not support interleave selection and marginalization
+    # Validation
+    assert len(alpha.shape) == 2, "Alpha should be a 2D tensor"
+    assert len(beta.shape) == 2, "Beta should be a 2D tensor"
+    assert len(core.shape) == 4, "Beta should be a 4D tensor"
+    assert len(selection_map.shape) == 2, "Selection map should be a 2D tensor"
+    assert len(marginalize_mask.shape) == 2, "Marginalize mask should be a 2D tensor"
+    assert (
+        selection_map.shape == marginalize_mask.shape
+    ), "Selection and marginalize mask should have same shape"
+    free_legs = torch.logical_and(selection_map == -1, marginalize_mask == 0)
+    assert torch.all(free_legs.sum(dim=-1) == 1), "Must have excatly one free leg"
 
-    probs_tilde_neg_sum = torch.stack(probs_tilde_neg_lst, dim=0).sum(dim=0)
-    preference_loss = -torch.log(probs_tilde_pos + eps) + torch.log(
-        probs_tilde_neg_sum + eps
+    batch_size, rank, vocab_size, _ = core.shape
+    n_core_repititions = selection_map.shape[1]
+
+    res_left = alpha
+    res_right = beta
+
+    core_margins = torch.einsum(
+        "bijk,bj->bik",
+        core,
+        torch.ones(batch_size, vocab_size, device=core.device),
     )
-    preference_loss = preference_loss.mean()
 
-    return preference_loss, probs_tilde_neg_sum
+    for t in range(n_core_repititions):
+        res_left_prime = torch.stack(
+            [
+                (
+                    core[b, :, selection_map[b, t], :]
+                    if selection_map[b, t] >= 0
+                    else torch.eye(rank, device=core.device)
+                )
+                for b in range(core.shape[0])
+            ]
+        )
+        res_left = torch.einsum("bi,bij->bj", res_left, res_left_prime)
+
+    for t in range(n_core_repititions):
+        res_right_prime = torch.stack(
+            [
+                (
+                    core_margins[b]
+                    if marginalize_mask[b, t]
+                    else torch.eye(rank, device=core.device)
+                )
+                for b in range(core.shape[0])
+            ]
+        )
+        res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)
+    res = torch.einsum("bi, bidj, bj -> bd", res_left, core, res_right)
+    return res
 
 
-def get_entropy_loss(
-    ttdist: TTDist, samples: torch.Tensor, eps: float = 1e-6, vocab_size: int = 4
+def umps_materialize_batched(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    n_core_repititions: int,
+    normalize: bool,
 ):
-    probs_tilde, norm_constant = ttdist.get_prob_and_norm(samples)
-    # retain_grad on probs_tilde to compute the gradient of the loss w.r.t. probs_tilde
-    probs_tilde.retain_grad()
-    norm_constant.retain_grad()
-    loss = (-torch.log(probs_tilde + eps) + torch.log(norm_constant)).mean()
-    return loss, norm_constant
+    """Materialize the joint distribution of a uMPS.
+
+    Args:
+        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
+        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
+        core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
+        n_core_repititions (int): Number of core repetitions.
+        normalize (bool, optional): Normalize the joint distribution. Defaults to True.
+
+    Returns:
+        torch.Tensor: Materialized joint distribution. Shape: (B, D, D, ..., D)
+    """
+
+    batch_size, rank_size, vocab_size, _ = core.shape
+
+    result = torch.einsum(
+        "bi, bidj->bdj",
+        alpha,
+        core,
+    )
+
+    for i in range(1, n_core_repititions):
+        result = torch.einsum(
+            "bdi, bivj->bdvj",
+            result,
+            core,
+        )
+        result = result.reshape(batch_size, -1, rank_size)
+
+    result = torch.einsum(
+        "bdj, bj->bd",
+        result,
+        beta,
+    )
+
+    # Break out all vocab_size dimensions
+    result = result.reshape(
+        batch_size, *[vocab_size for _ in range(n_core_repititions)]
+    )
+    if normalize:
+        norm_const = (
+            result.reshape(batch_size, -1)
+            .sum(1)
+            .reshape(tuple([batch_size, *[1 for _ in range(n_core_repititions)]]))
+        )
+        result = result / norm_const
+    return result

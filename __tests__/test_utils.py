@@ -2,7 +2,7 @@ import unittest
 import torch
 from TJDNet.utils import (
     batched_index_select,
-    umps_batch_select_marginalize,
+    umps_select_marginalize_batched,
 )
 
 
@@ -33,53 +33,123 @@ class TestTTDist(unittest.TestCase):
         ), "Test Failed: Output does not match expected output"
         print("Test Passed: Output matches the expected output")
 
-    def test_select_and_marginalize_uMPS_1D(self):
+    def test_umps_select_marginalize_batched__shape(self):
         rank = 3
         vocab_size = 4
-        output_size = 3
-        alpha = torch.randn(rank)
-        beta = torch.randn(rank)
-        core = torch.randn(rank, vocab_size, rank)
+        n_core_repititions = 3
+        alpha = torch.randn(1, rank)
+        beta = torch.randn(1, rank)
+        core = torch.randn(1, rank, vocab_size, rank)
 
-        result = umps_batch_select_marginalize(
-            alpha, beta, core, output_size, {0: 1}, [2]
+        selection_map = torch.tensor([[1, -1, -1]])
+        marginalize_mask = torch.tensor([[0, 0, 1]])
+
+        result = umps_select_marginalize_batched(
+            alpha=alpha,
+            beta=beta,
+            core=core,
+            selection_map=selection_map,
+            marginalize_mask=marginalize_mask,
         )
-        expected_shape = (vocab_size,)
+        expected_shape = (1, vocab_size)
         self.assertIsNotNone(result)
         if result is not None:
             self.assertEqual(tuple(result.shape), expected_shape)
 
-    def test_select_and_marginalize_uMPS_2D(self):
+    def test_umps_select_marginalize_batched__select_only(self):
         rank = 3
         vocab_size = 4
-        output_size = 4
-        alpha = torch.randn(rank)
-        beta = torch.randn(rank)
-        core = torch.randn(rank, vocab_size, rank)
+        n_core_repititions = 3
+        alpha = torch.randn(1, rank)
+        beta = torch.randn(1, rank)
+        core = torch.randn(1, rank, vocab_size, rank)
 
-        result = umps_batch_select_marginalize(
-            alpha, beta, core, output_size, {0: 1}, [2]
+        selection_map = torch.tensor([[1, 1, -1]])
+        marginalize_mask = torch.tensor([[0, 0, 0]])
+
+        result = umps_select_marginalize_batched(
+            alpha=alpha,
+            beta=beta,
+            core=core,
+            selection_map=selection_map,
+            marginalize_mask=marginalize_mask,
         )
-        expected_shape = (vocab_size, vocab_size)
+        expected_shape = (1, vocab_size)
         self.assertIsNotNone(result)
         if result is not None:
             self.assertEqual(tuple(result.shape), expected_shape)
 
-    def test_select_and_marginalize_uMPS_3D(self):
+    def test_umps_select_marginalize_batched__marginalize_only(self):
         rank = 3
         vocab_size = 4
-        output_size = 5
-        alpha = torch.randn(rank)
-        beta = torch.randn(rank)
-        core = torch.randn(rank, vocab_size, rank)
+        n_core_repititions = 3
+        alpha = torch.randn(1, rank)
+        beta = torch.randn(1, rank)
+        core = torch.randn(1, rank, vocab_size, rank)
 
-        result = umps_batch_select_marginalize(
-            alpha, beta, core, output_size, {0: 1, 3: 1}, [2]
+        selection_map = torch.tensor([[-1, -1, -1]])
+        marginalize_mask = torch.tensor([[1, 1, 0]])
+
+        result = umps_select_marginalize_batched(
+            alpha=alpha,
+            beta=beta,
+            core=core,
+            selection_map=selection_map,
+            marginalize_mask=marginalize_mask,
         )
-        expected_shape = (vocab_size, vocab_size)
+        expected_shape = (1, vocab_size)
         self.assertIsNotNone(result)
         if result is not None:
             self.assertEqual(tuple(result.shape), expected_shape)
+
+    def test_umps_select_marginalize_batched__correct_values_select(self):
+        rank = 3
+        vocab_size = 4
+        batch_size = 1
+        n_core_repititions = 3
+        expected_output = 44
+        alpha = torch.eye(1, rank)
+        beta = torch.eye(1, rank)
+        core = torch.zeros(1, rank, vocab_size, rank)
+        for i in range(vocab_size):
+            core[0, :, i, :] = torch.eye(rank)
+
+        core[0, 0, 0, 0] = expected_output
+
+        selection_map = torch.tensor([[1, 1, -1]])
+        marginalize_mask = torch.tensor([[0, 0, 0]])
+
+        result = umps_select_marginalize_batched(
+            alpha=alpha,
+            beta=beta,
+            core=core,
+            selection_map=selection_map,
+            marginalize_mask=marginalize_mask,
+        )
+
+        self.assertEqual(expected_output, result[0, 0].item())
+
+    def test_umps_select_marginalize_batched__correct_values_margin(self):
+        rank = 3
+        vocab_size = 4
+        alpha = torch.ones(1, rank)
+        beta = torch.ones(1, rank)
+        core = torch.zeros(1, rank, vocab_size, rank)
+        for i in range(vocab_size):
+            core[0, :, i, :] = torch.eye(rank) * (1 / vocab_size)
+
+        selection_map = torch.tensor([[-1, -1, -1]])
+        marginalize_mask = torch.tensor([[0, 1, 1]])
+
+        result = umps_select_marginalize_batched(
+            alpha=alpha,
+            beta=beta,
+            core=core,
+            selection_map=selection_map,
+            marginalize_mask=marginalize_mask,
+        )
+
+        self.assertEqual(rank, result.sum())
 
 
 if __name__ == "__main__":

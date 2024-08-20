@@ -1,32 +1,18 @@
-"""Script to investigate using different non-linearities for the TT Dist.
-
-Compares: 
-1. ReLU
-2. Softplus
-3. Sigmoid
-4. Exponential
-5. (Baseline) Unrestricted
-"""
-
-from typing import Tuple
-import os
+from typing import Tuple, Union
 import argparse
-import shutil
 import random
 
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
 import wandb
 
+from TJDNet import MPSDist
+
 from TJDNet.TTDist import TTDist
-from TJDNet.utils import (
-    get_entropy_loss,
-    get_init_params_uniform_std_positive,
-    get_init_params_onehot,
-    get_init_params_randn_positive,
-    get_preference_loss,
-)
+from TJDNet.TTDist.init import get_random_mps
+from TJDNet.loss import get_entropy_loss
+from TJDNet.loss import get_preference_loss
+from TJDNet.utils import check_naninf
 from utils.utils import get_experiment_name
 
 
@@ -38,305 +24,64 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(42)
 
 
-def remove_dir(dir_path: str):
-    # Avoid accidentally deleting the root directory
-    protected_dirs = ["/", ".", ".."]
-    min_dir_path_len = 10
-    assert dir_path not in protected_dirs, "Refusing to delete protected directory"
-    assert len(dir_path) > min_dir_path_len, "Refusing to delete root directory"
-    if os.path.exists(dir_path):
-        shutil.rmtree(dir_path)
-
-
-def plot_grad_distribution(core):
-    grads = core.grad.detach().cpu().numpy().flatten()
-    plt.hist(grads, bins=50, alpha=0.75)
-    plt.xlabel("Gradient")
-    plt.ylabel("Frequency")
-    plt.title("Gradient Distribution of Core Parameter")
-    plt.grid(True)
-    plt.show()
-
-
-def get_true_ttdist(
-    output_size: int,
-    vocab_size: int,
-    batch_size=1,
-    rank=2,
-):
-    alpha, beta, core = get_init_params_onehot(
-        batch_size, rank, vocab_size, onehot_idx=1
-    )
-    ttdist = TTDist(
-        alpha,
-        beta,
-        core,
-        output_size,
-        norm_method="abs",
-        norm_method_alpha="abs",
-        eps=0.0,
-    )
-    return ttdist
-
-
-def get_sse_and_sse_max_approx(
-    learned_ttdist: TTDist, true_ttdist: TTDist, n_samples: int = 1000
-) -> Tuple[float, float, float]:
-    # approx_samples = true_ttdist.sample(100)
-    vocab_size = learned_ttdist.core.shape[2]
-    n_core_repititions = learned_ttdist.n_core_repititions
-    n_possibilities = vocab_size**n_core_repititions
-    approx_samples = torch.randint(
-        0, vocab_size, (n_samples, n_core_repititions), dtype=torch.long
-    )
-    learned_probs_tilde, learned_norm_const = (
-        learned_ttdist.get_prob_and_norm_for_single_batch(approx_samples, batch_idx=0)
-    )
-    true_probs_tilde, _ = true_ttdist.get_prob_and_norm_for_single_batch(
-        approx_samples, batch_idx=0
-    )
-
-    learned_norm_const_estimate = learned_probs_tilde.mean() * n_possibilities
-    true_norm_const_estimate = true_probs_tilde.mean() * n_possibilities
-
-    true_probs = true_probs_tilde / true_norm_const_estimate
-    learned_probs = learned_probs_tilde / learned_norm_const_estimate
-
-    sse = ((learned_probs - true_probs) ** 2).sum()
-    sse_max = ((learned_probs - true_probs) ** 2).max()
-    return sse, sse_max, learned_norm_const_estimate
-
-
-def get_sse_and_sse_max(
-    learned_ttdist: TTDist, true_ttdist: TTDist
-) -> Tuple[float, float, float]:
-    learned_dist = learned_ttdist.materialize().detach().numpy().squeeze()
-    true_dist = true_ttdist.materialize().detach().numpy().squeeze()
-    if learned_ttdist.norm_const is not None:
-        learned_norm_const = learned_ttdist.norm_const.detach().numpy().squeeze().max()
-    else:
-        learned_norm_const = -1
-    sse = ((learned_dist - true_dist) ** 2).sum()
-    sse_max = ((learned_dist - true_dist) ** 2).max()
-    return sse, sse_max, learned_norm_const
-
-
-def get_max_sse(learned_dist: TTDist, true_dist: TTDist) -> float:
-    raise NotImplementedError
-
-
-def main(
-    rank: int = 1,
-    output_size: int = 3,
-    vocab_size: int = 4,
-    norm_method: str = "abs",
-    batch_size: int = 16,
-    n_iters: int = 1000,
-    log_freq: int = 100,
-    lr: float = 1e-4,
-    eps: float = 0.0,
-    eps_norm: float = 1e-6,
-    init_method: str = "uniform_positive",
-    loss_type: str = "entropy",  # entropy or preference
-    approx: bool = False,
-):
-
-    assert eps != eps_norm, "eps and eps_norm cannot be the same"
-    assert init_method in [
-        "uniform_positive",
-        "randn_positive",
-    ], f"init_method must be one of ['uniform_positive', 'randn_positive']"
-    init_func = {
-        "uniform_positive": get_init_params_uniform_std_positive,
-        "randn_positive": get_init_params_randn_positive,
-    }[init_method]
-    assert loss_type in [
-        "entropy",
-        "preference",
-    ], "loss_type must be one of ['entropy', 'preference']"
-
-    true_ttdist = get_true_ttdist(output_size, vocab_size)
-    samples = true_ttdist.sample(batch_size)
-
-    # Initialize the parameters
-    alpha, beta, core = init_func(batch_size, rank, output_size, vocab_size)
-
-    optimizer = torch.optim.AdamW([core], lr=lr)
-
-    for i in range(n_iters):
-        optimizer.zero_grad()
-
-        # Forward pass:
-        learned_ttdist = TTDist(
-            alpha,
-            beta,
-            core,
-            output_size,
-            norm_method=norm_method,
-            norm_method_alpha=norm_method,
-            eps=0.0,
-        )
-        # loss = {get_entropy_loss}(ttdist, samples, eps=eps)
-        loss, norm_constant = {
-            "entropy": get_entropy_loss,
-            "preference": get_preference_loss,
-        }[loss_type](learned_ttdist, samples, eps=eps, vocab_size=vocab_size)
-
-        # Backward pass:
-        if loss is None:
-            if i % log_freq == 0 or i == 0:
-                print("Loss is None. Skipping")
-            continue
-        loss.backward()
-
-        # Check if loss is NaN/Inf
-        if torch.isnan(loss):
-            print(f"[FAIL]: Loss is NaN. Breaking at iteration {i}")
-            break
-        elif torch.isinf(loss):
-            print(f"[FAIL]: Loss is Inf. Breaking at iteration {i}")
-            break
-
-        # Clip gradients to prevent exploding
-        torch.nn.utils.clip_grad_value_((alpha, beta, core), 1.0)
-
-        if i % log_freq == 0 or i == 0:
-            # Materialize the learned distribution
-
-            if approx:
-                sse, sse_max, norm_const = -1, -1, -1
-            else:
-                sse, sse_max, norm_const = get_sse_and_sse_max(
-                    learned_ttdist, true_ttdist
-                )
-            expected_sse, expected_sse_max, expected_norm_const = (
-                get_sse_and_sse_max_approx(learned_ttdist, true_ttdist)
-            )
-            print(
-                f"[{i}] Loss = {loss.item():.3f} | SSE = {sse:.3f} (E[SSE] = {expected_sse:.3f}) | SSE_MAX = {sse_max:.3f} (E[SSE_MAX] = {expected_sse_max:.3f}) | norm_constant = {norm_const:.3f} (E[norm_constant] = {expected_norm_const:.3f})"
-            )
-            # Log to W&B
-            wandb.log(
-                {
-                    "Loss": loss.item(),
-                    "E[SSE]": expected_sse,
-                    "E[SSE_MAX]": expected_sse_max,
-                    "E[norm_constant]": expected_norm_const,
-                    "SSE": sse,
-                    "SSE_MAX": sse_max,
-                    "norm_constant": norm_const,
-                }
-            )
-
-            # cos_dist, norm_const = get_sse_and_sse_max_approx(
-            #     learned_ttdist, true_ttdist
-            # )
-            # print(
-            #     f"[{i}] {norm_method}: SSE (Cos) = {cos_dist:.3f} | Loss = {loss.item():.3f} | norm_constant = {norm_const:.3f}"
-            # )
-            # wandb.log(
-            #     {
-            #         "Expected SSE (COS)": cos_dist,
-            #         "Loss": loss.item(),
-            #         "norm_constant": norm_constant,
-            #     }
-            # )
-
-            if core.grad is not None:
-                wandb.log({f"core_grad": wandb.Histogram(core.grad.cpu().data.numpy())})
-
-        optimizer.step()
-
-
-def run_normalizations_exp():
-    markers = [
-        "o",
-        "v",
-        "^",
-        "<",
-        ">",
-        "1",
-        "2",
-        "3",
-        "4",
-        "s",
-        "p",
-        "*",
-        "h",
-        "H",
-        "+",
-        "x",
-        "D",
-        "d",
-    ]
-    plt.figure(figsize=(10, 5))
-    for init_method in ["uniform_positive", "randn_positive"]:
-        experiment_config = {
-            "rank": 2,
-            "output_size": 3,
-            "vocab_size": 4,
-            "norm_method": "abs",
-            "lr": 1e-4,
-            "n_iters": 20 * 1000,
-            "eps": 1e-6,
-            "eps_norm": 1e-9,
-            "init_method": init_method,
-        }
-        experiment_name = get_experiment_name(experiment_config)
-        remove_dir(os.path.join("logs", experiment_name))
-        main(**experiment_config)
-
-
-if __name__ == "__main__":
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Script to investigate using different non-linearities for the TT Dist."
     )
     parser.add_argument(
-        "--rank", type=int, default=2, help="Rank of the tensor decomposition"
+        "--true_dist",
+        type=str,
+        default="sparse",
+        help="True distribution",
+        choices=[
+            "unit_var",
+            "one_hot",
+            "sparse",
+        ],
+    )
+
+    parser.add_argument(
+        "--init_dist",
+        type=str,
+        default="randn",
+        choices=[
+            "rand",
+            "randn",
+        ],
+        help="Initialization method",
+    )
+
+    parser.add_argument(
+        "--rank", type=int, default=4, help="Rank of the tensor decomposition"
     )
     parser.add_argument(
-        "--output_size", type=int, default=3, help="Output size of the tensor"
+        "--true_rank", type=int, default=8, help="Rank of the tensor decomposition"
     )
-    parser.add_argument("--vocab_size", type=int, default=4, help="Vocabulary size")
+
+    parser.add_argument(
+        "--output_size", type=int, default=5, help="Output size of the tensor"
+    )
+    parser.add_argument("--vocab_size", type=int, default=3, help="Vocabulary size")
     parser.add_argument(
         "--norm_method", type=str, default="abs", help="Normalization method"
     )
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument(
         "--n_iters", type=int, default=20000, help="Number of iterations"
     )
     parser.add_argument("--log_freq", type=int, default=100, help="Log frequency")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument(
-        "--eps", type=float, default=1e-6, help="Epsilon value for numerical stability"
+        "--eps", type=float, default=1e-9, help="Epsilon value for numerical stability"
     )
     parser.add_argument(
         "--eps_norm", type=float, default=0.0, help="Epsilon value for normalization"
     )
 
     parser.add_argument(
-        "--approx",
-        default=False,
-        help="Use approximate sampling",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--init_method",
-        type=str,
-        default="randn_positive",
-        choices=[
-            "concentrated",
-            "uniform_positive",
-            "randn_positive",
-        ],
-        help="Initialization method",
-    )
-
-    parser.add_argument(
         "--loss_type",
         type=str,
-        default="preference",
+        default="entropy",
         choices=[
             "entropy",
             "preference",
@@ -345,11 +90,153 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    return args
+
+
+def get_sae_and_mae(
+    learned_ttdist: Union[TTDist, MPSDist], true_ttdist: Union[TTDist, MPSDist]
+) -> Tuple[float, float, float]:
+    learned_dist = learned_ttdist.materialize().detach().numpy().squeeze()
+    true_dist = true_ttdist.materialize().detach().numpy().squeeze()
+    if learned_ttdist.norm_const is not None:
+        learned_norm_const = learned_ttdist.norm_const.detach().numpy().squeeze().max()
+    else:
+        learned_norm_const = -1
+    sum_abs_error = np.abs(learned_dist - true_dist).sum()
+    max_abs_error = np.abs(learned_dist - true_dist).max()
+    return sum_abs_error, max_abs_error, learned_norm_const
+
+
+def get_true_ttdist(
+    output_size: int,
+    vocab_size: int,
+    batch_size: int,
+    rank: int,
+    dist: str,
+):
+
+    alpha, beta, core = get_random_mps(
+        batch_size=batch_size,
+        rank=rank,
+        vocab_size=vocab_size,
+        dist=dist,
+        trainable=False,
+    )
+    ttdist = TTDist(
+        alpha,
+        beta,
+        core,
+        output_size,
+        norm_method="abs",
+    )
+    return ttdist
+
+
+def log_results(
+    iteration: int,
+    learned_ttdist: Union[TTDist, MPSDist],
+    true_ttdist: Union[TTDist, MPSDist],
+    loss: torch.Tensor,
+):
+    sae, mae, norm_const = get_sae_and_mae(learned_ttdist, true_ttdist)
+    print(
+        f"[{iteration}] Loss = {loss.item():.3f} | SAE = {sae:.3f} | MAE = {mae:.3f} | norm_constant = {norm_const:.3f} "
+    )
+    # Log to W&B
+    wandb.log(
+        {
+            "Loss": loss.item(),
+            "SAE": sae,
+            "MAE": mae,
+            "norm_constant": norm_const,
+        }
+    )
+
+
+def print_transition_matrix(mpsdist: MPSDist, tag: str):
+    mat = mpsdist.materialize(n_core_repititions=2).detach().numpy().squeeze()
+    print(f"[{tag}]: Transition Matrix")
+    print(np.round(mat, 2))
+
+
+def main(
+    rank,
+    true_dist,
+    true_rank,
+    output_size,
+    vocab_size,
+    batch_size,
+    n_iters,
+    log_freq,
+    lr,
+    eps,
+    eps_norm,
+    loss_type,  # entropy or preference
+    *args,
+    **kwargs,
+):
+
+    # Assertions
+    assert eps != eps_norm, "eps and eps_norm cannot be the same"
+
+    # 1. Get the true distribution
+    true_mpsdist = MPSDist(
+        n_vocab=vocab_size,
+        rank=true_rank,
+        init_method=true_dist,
+    )
+    # Print the true distribution
+    print_transition_matrix(true_mpsdist, "MPSDist (True)")
+
+    learned_mpsdist = MPSDist(
+        n_vocab=vocab_size,
+        rank=rank,
+    )
+
+    optimizer = torch.optim.AdamW(learned_mpsdist.parameters(), lr=lr)
+    loss_func = {
+        "entropy": get_entropy_loss,
+        "preference": get_preference_loss,
+    }[loss_type]
+
+    for i in range(n_iters):
+
+        samples = true_mpsdist.sample(
+            n_samples=batch_size,
+            max_len=output_size,
+        ).detach()
+        optimizer.zero_grad()
+
+        loss = loss_func(
+            ttdist=learned_mpsdist, samples=samples, eps=eps, vocab_size=vocab_size
+        )
+        loss.backward()
+
+        # Check if loss is NaN/Inf
+        check_naninf(loss, msg="Loss")
+
+        # Clip gradients to prevent exploding
+        torch.nn.utils.clip_grad_value_(learned_mpsdist.parameters(), 1.0)
+
+        if i % log_freq == 0 or i == 0:
+            log_results(
+                iteration=i,
+                learned_ttdist=learned_mpsdist,
+                true_ttdist=true_mpsdist,
+                loss=loss,
+            )
+            # print_transition_matrix(learned_mpsdist, "MPSDist (Learned)")
+
+        optimizer.step()
+
+
+if __name__ == "__main__":
+    args = parse_args()
     experiment_config = vars(args)
 
     experiment_name = get_experiment_name(experiment_config)
     wandb.init(
-        project="TJDNet (Synthetic)",
+        project="tjdnet-synthetic",
         config=experiment_config,
         name=experiment_name,
     )
