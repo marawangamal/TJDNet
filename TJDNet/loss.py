@@ -80,7 +80,5 @@ def get_entropy_unnorm_loss(
         samples, apply_scale_factor=False
     )
     # Note: normalization constant is correct up to a scale factor
-    probs_tilde
-    norm_constant_tilde
     loss = (-torch.log(probs_tilde + eps) + torch.log(norm_constant_tilde)).mean()
     return loss

@@ -1,4 +1,5 @@
 import unittest
+import math
 import torch
 from TJDNet.utils import (
     batched_index_select,
@@ -148,8 +149,7 @@ class TestTTDist(unittest.TestCase):
             selection_map=selection_map,
             marginalize_mask=marginalize_mask,
         )
-
-        self.assertEqual(rank, result.sum())
+        self.assertTrue(math.isclose(rank, result.sum().item(), abs_tol=0.001))
 
 
 if __name__ == "__main__":

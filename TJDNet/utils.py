@@ -164,8 +164,9 @@ def umps_select_marginalize_batched(
                 )
                 for b in range(core.shape[0])
             ]
-        )
-        z_tmp = res_left.sum(dim=1)
+        )  # (B, R, R)
+        # z_tmp = res_left.sum(dim=1) replace with norm of a vec
+        z_tmp = torch.linalg.norm(res_left, dim=1)
         norm_consts.append(z_tmp)
         res_left = res_left / z_tmp.unsqueeze(1)
         res_left = torch.einsum("bi,bij->bj", res_left, res_left_prime)
@@ -181,7 +182,8 @@ def umps_select_marginalize_batched(
                 for b in range(core.shape[0])
             ]
         )
-        z_tmp = res_right.sum(dim=1)
+        # z_tmp = res_right.sum(dim=1)
+        z_tmp = torch.linalg.norm(res_left, dim=1)
         norm_consts.append(z_tmp)
         res_right = res_right / z_tmp.unsqueeze(1)
         res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)
