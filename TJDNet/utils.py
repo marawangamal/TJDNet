@@ -191,7 +191,7 @@ def umps_select_marginalize_batched(
     if apply_scale_factor:
         norm_const = torch.stack(norm_consts, dim=1).prod(dim=1)
         res = res * norm_const.unsqueeze(1)
-    return res
+    return res, norm_consts
 
 
 def umps_materialize_batched(

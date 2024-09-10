@@ -124,7 +124,7 @@ class MPSDist(nn.Module):
             )
             # margins = 16 - 1 - t
             # selects = t
-            p_vec_tilde = umps_select_marginalize_batched(
+            p_vec_tilde, _ = umps_select_marginalize_batched(
                 alpha=alpha,
                 beta=beta,
                 core=core,
@@ -170,6 +170,7 @@ class MPSDist(nn.Module):
     def get_unnorm_prob(
         self,
         y: torch.Tensor,
+        apply_scale_factor: bool = True,
     ) -> torch.Tensor:
         """Get the unnormalized probability of a sequence. (i.e, :math:`\tilde{p}(y)`)
 
@@ -185,15 +186,16 @@ class MPSDist(nn.Module):
             [torch.ones(batch_size, 1, device=y.device, dtype=y.dtype) * -1, y[:, 1:]],
             1,
         )
-        p_tilde_one = umps_select_marginalize_batched(
+        p_tilde_one, z_list = umps_select_marginalize_batched(
             alpha=alpha.repeat(batch_size, 1),
             beta=beta.repeat(batch_size, 1),
             core=core.repeat(batch_size, 1, 1, 1),
             selection_map=selection_map,
             marginalize_mask=torch.zeros_like(y, device=y.device),
+            apply_scale_factor=apply_scale_factor,
         )  # (batch_size, n_vocab)
         p_tilde = torch.stack([p_tilde_one[b, y[b, 0]] for b in range(batch_size)])
-        return p_tilde
+        return p_tilde, z_list
 
     def get_norm_constant(
         self, y: torch.Tensor, apply_scale_factor: bool = True
@@ -203,7 +205,7 @@ class MPSDist(nn.Module):
         marginalize_mask[:, 0] = 0
         batch_size = y.shape[0]
         # Function umps_select_marginalize_batched needs to output a vector. So this marginalizes all except the first element.
-        z_one = umps_select_marginalize_batched(
+        z_one, z_list = umps_select_marginalize_batched(
             alpha=alpha.repeat(batch_size, 1),
             beta=beta.repeat(batch_size, 1),
             core=core.repeat(batch_size, 1, 1, 1),
@@ -213,7 +215,7 @@ class MPSDist(nn.Module):
         )
         z = z_one.sum()
         self.norm_const = z
-        return z
+        return z, z_list
 
     def get_unnorm_prob_and_norm(
         self,
@@ -229,13 +231,13 @@ class MPSDist(nn.Module):
             Tuple[torch.Tensor, torch.Tensor]: Probability of the sequence and normalization constant. Shape: (batch_size,) and (batch_size,)
         """
 
-        p_tilde = self.get_unnorm_prob(y)
-        z = self.get_norm_constant(y, apply_scale_factor)
+        p_tilde, z_list_select = self.get_unnorm_prob(y, apply_scale_factor)
+        z, z_list_norm = self.get_norm_constant(y, apply_scale_factor)
 
         assert torch.all(p_tilde >= 0), "p_tilde must be non-negative"
         assert torch.all(z >= 0), "Z must be non-negative"
         assert torch.all(p_tilde <= z), "p_tilde must be less than Z"
-        return p_tilde, z
+        return p_tilde, z, z_list_select, z_list_norm
 
     def materialize(
         self, normalize: bool = True, n_core_repititions: int = 3

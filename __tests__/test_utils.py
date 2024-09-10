@@ -45,7 +45,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[1, -1, -1]])
         marginalize_mask = torch.tensor([[0, 0, 1]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
@@ -68,7 +68,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[1, 1, -1]])
         marginalize_mask = torch.tensor([[0, 0, 0]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
@@ -91,7 +91,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[-1, -1, -1]])
         marginalize_mask = torch.tensor([[1, 1, 0]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
@@ -120,7 +120,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[1, 1, -1]])
         marginalize_mask = torch.tensor([[0, 0, 0]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
@@ -142,7 +142,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[-1, -1, -1]])
         marginalize_mask = torch.tensor([[0, 1, 1]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
