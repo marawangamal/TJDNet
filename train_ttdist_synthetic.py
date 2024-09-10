@@ -81,7 +81,7 @@ def parse_args():
         default="entropy",
         choices=[
             "entropy",
-            "entropy:unnorm",
+            "entropy:stable",
             "preference",
         ],
         help="Initialization method",
@@ -96,10 +96,7 @@ def get_sae_and_mae(
 ) -> Tuple[float, float, float]:
     learned_dist = learned_ttdist.materialize().detach().numpy().squeeze()
     true_dist = true_ttdist.materialize().detach().numpy().squeeze()
-    if learned_ttdist.norm_const is not None:
-        learned_norm_const = learned_ttdist.norm_const.detach().numpy().squeeze().max()
-    else:
-        learned_norm_const = -1
+    learned_norm_const = -1
     sum_abs_error = np.abs(learned_dist - true_dist).sum()
     max_abs_error = np.abs(learned_dist - true_dist).max()
     return sum_abs_error, max_abs_error, learned_norm_const
@@ -172,7 +169,7 @@ def main(
     optimizer = torch.optim.AdamW(learned_mpsdist.parameters(), lr=lr)
     loss_func = {
         "entropy": get_entropy_loss,
-        "entropy:unnorm": get_entropy_loss_stable,
+        "entropy:stable": get_entropy_loss_stable,
         "preference": get_preference_loss,
     }[loss_type]
 

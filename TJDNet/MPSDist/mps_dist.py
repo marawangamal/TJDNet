@@ -24,9 +24,6 @@ class MPSDist(nn.Module):
         self.beta = torch.randn(1, rank)
         self.core = nn.Parameter(torch.randn(1, rank, n_vocab, rank))
 
-        # Cache
-        self.norm_const = None
-
         if init_method == "unit_var":
             self._init_unit_var()
         elif init_method == "one_hot":
@@ -214,7 +211,6 @@ class MPSDist(nn.Module):
             apply_scale_factor=apply_scale_factor,
         )
         z = z_one.sum()
-        self.norm_const = z
         return z, z_list
 
     def get_unnorm_prob_and_norm(
