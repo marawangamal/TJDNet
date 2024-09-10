@@ -1,4 +1,4 @@
-from typing import Tuple, Union
+from typing import Tuple
 import argparse
 import random
 
@@ -8,10 +8,7 @@ import wandb
 
 from TJDNet import MPSDist
 
-from TJDNet.TTDist import TTDist
-from TJDNet.TTDist.init import get_random_mps
-from TJDNet.loss import get_entropy_loss
-from TJDNet.loss import get_preference_loss
+from TJDNet.loss import get_preference_loss, get_entropy_loss, get_entropy_loss_stable
 from TJDNet.utils import check_naninf
 from utils.utils import get_experiment_name
 
@@ -84,6 +81,7 @@ def parse_args():
         default="entropy",
         choices=[
             "entropy",
+            "entropy:stable",
             "preference",
         ],
         help="Initialization method",
@@ -94,48 +92,20 @@ def parse_args():
 
 
 def get_sae_and_mae(
-    learned_ttdist: Union[TTDist, MPSDist], true_ttdist: Union[TTDist, MPSDist]
+    learned_ttdist: MPSDist, true_ttdist: MPSDist
 ) -> Tuple[float, float, float]:
     learned_dist = learned_ttdist.materialize().detach().numpy().squeeze()
     true_dist = true_ttdist.materialize().detach().numpy().squeeze()
-    if learned_ttdist.norm_const is not None:
-        learned_norm_const = learned_ttdist.norm_const.detach().numpy().squeeze().max()
-    else:
-        learned_norm_const = -1
+    learned_norm_const = -1
     sum_abs_error = np.abs(learned_dist - true_dist).sum()
     max_abs_error = np.abs(learned_dist - true_dist).max()
     return sum_abs_error, max_abs_error, learned_norm_const
 
 
-def get_true_ttdist(
-    output_size: int,
-    vocab_size: int,
-    batch_size: int,
-    rank: int,
-    dist: str,
-):
-
-    alpha, beta, core = get_random_mps(
-        batch_size=batch_size,
-        rank=rank,
-        vocab_size=vocab_size,
-        dist=dist,
-        trainable=False,
-    )
-    ttdist = TTDist(
-        alpha,
-        beta,
-        core,
-        output_size,
-        norm_method="abs",
-    )
-    return ttdist
-
-
 def log_results(
     iteration: int,
-    learned_ttdist: Union[TTDist, MPSDist],
-    true_ttdist: Union[TTDist, MPSDist],
+    learned_ttdist: MPSDist,
+    true_ttdist: MPSDist,
     loss: torch.Tensor,
 ):
     sae, mae, norm_const = get_sae_and_mae(learned_ttdist, true_ttdist)
@@ -155,8 +125,11 @@ def log_results(
 
 def print_transition_matrix(mpsdist: MPSDist, tag: str):
     mat = mpsdist.materialize(n_core_repititions=2).detach().numpy().squeeze()
-    print(f"[{tag}]: Transition Matrix")
+    # print horizontal line
+    print("-" * 80)
+    print(f"[{tag}] Transition Matrix")
     print(np.round(mat, 2))
+    print("-" * 80)
 
 
 def main(
@@ -196,6 +169,7 @@ def main(
     optimizer = torch.optim.AdamW(learned_mpsdist.parameters(), lr=lr)
     loss_func = {
         "entropy": get_entropy_loss,
+        "entropy:stable": get_entropy_loss_stable,
         "preference": get_preference_loss,
     }[loss_type]
 
@@ -225,7 +199,7 @@ def main(
                 true_ttdist=true_mpsdist,
                 loss=loss,
             )
-            # print_transition_matrix(learned_mpsdist, "MPSDist (Learned)")
+            print_transition_matrix(learned_mpsdist, "MPSDist (Learned)")
 
         optimizer.step()
 

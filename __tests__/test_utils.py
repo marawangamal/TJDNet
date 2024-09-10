@@ -1,4 +1,5 @@
 import unittest
+import math
 import torch
 from TJDNet.utils import (
     batched_index_select,
@@ -44,7 +45,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[1, -1, -1]])
         marginalize_mask = torch.tensor([[0, 0, 1]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
@@ -67,7 +68,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[1, 1, -1]])
         marginalize_mask = torch.tensor([[0, 0, 0]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
@@ -90,7 +91,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[-1, -1, -1]])
         marginalize_mask = torch.tensor([[1, 1, 0]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
@@ -119,7 +120,7 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[1, 1, -1]])
         marginalize_mask = torch.tensor([[0, 0, 0]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
@@ -141,15 +142,14 @@ class TestTTDist(unittest.TestCase):
         selection_map = torch.tensor([[-1, -1, -1]])
         marginalize_mask = torch.tensor([[0, 1, 1]])
 
-        result = umps_select_marginalize_batched(
+        result, _ = umps_select_marginalize_batched(
             alpha=alpha,
             beta=beta,
             core=core,
             selection_map=selection_map,
             marginalize_mask=marginalize_mask,
         )
-
-        self.assertEqual(rank, result.sum())
+        self.assertTrue(math.isclose(rank, result.sum().item(), abs_tol=0.001))
 
 
 if __name__ == "__main__":

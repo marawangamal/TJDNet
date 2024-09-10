@@ -1,5 +1,3 @@
-from typing import Union
-from TJDNet import TTDist
 from TJDNet import MPSDist
 
 
@@ -7,7 +5,7 @@ import torch
 
 
 def get_preference_loss(
-    ttdist: Union[TTDist, MPSDist],
+    ttdist: MPSDist,
     samples: torch.Tensor,
     eps: float = 1e-6,
     vocab_size: int = 4,
@@ -43,7 +41,7 @@ def get_preference_loss(
                 dtype=torch.long,
                 device=samples.device,
             )
-        )
+        )[0]
         for _ in range(num_neg_batches)
     ]
 
@@ -57,15 +55,41 @@ def get_preference_loss(
 
 
 def get_entropy_loss(
-    ttdist: Union[TTDist, MPSDist],
+    ttdist: MPSDist,
     samples: torch.Tensor,
     eps: float = 1e-6,
     *args,
     **kwargs,
 ):
-    probs_tilde, norm_constant = ttdist.get_unnorm_prob_and_norm(samples)
+    probs_tilde, norm_constant, _, _ = ttdist.get_unnorm_prob_and_norm(samples)
     # retain_grad on probs_tilde to compute the gradient of the loss w.r.t. probs_tilde
     probs_tilde.retain_grad()
     norm_constant.retain_grad()
     loss = (-torch.log(probs_tilde + eps) + torch.log(norm_constant)).mean()
+    return loss
+
+
+def get_entropy_loss_stable(
+    ttdist: MPSDist,
+    samples: torch.Tensor,
+    eps: float = 1e-6,
+    *args,
+    **kwargs,
+):
+    probs_tilde, norm_constant_tilde, z_list_select, z_list_norm = (
+        ttdist.get_unnorm_prob_and_norm(samples, apply_scale_factor=False)
+    )
+    # Shapes:
+    # probs_tilde: (B,) <-- downscaled by elements in z_list_select
+    # norm_constant_tilde: (B,) <-- downscaled by elements in z_list_norm
+    # z_list: (B, T)
+    # z_list_norm: (B, T)
+    # Note: normalization constant is correct up to a scale factor
+    loss = (
+        -torch.log(probs_tilde + eps)
+        + torch.log(norm_constant_tilde)
+        - sum([torch.log(z) for z in z_list_select])
+        + sum([torch.log(z) for z in z_list_norm])
+    ).mean()
+
     return loss
