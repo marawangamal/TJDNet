@@ -182,8 +182,7 @@ def umps_select_marginalize_batched(
                 for b in range(core.shape[0])
             ]
         )
-        # z_tmp = res_right.sum(dim=1)
-        z_tmp = torch.linalg.norm(res_left, dim=1)
+        z_tmp = torch.linalg.norm(res_right, dim=1)
         norm_consts.append(z_tmp)
         res_right = res_right / z_tmp.unsqueeze(1)
         res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)

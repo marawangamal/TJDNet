@@ -1,4 +1,4 @@
-from TJDNet import MPSDist
+from TJDNet import MPSDist, MPSDistBase
 
 
 import torch
@@ -70,7 +70,7 @@ def get_entropy_loss(
 
 
 def get_entropy_loss_stable(
-    ttdist: MPSDist,
+    ttdist: MPSDistBase,
     samples: torch.Tensor,
     eps: float = 1e-6,
     *args,
@@ -91,5 +91,4 @@ def get_entropy_loss_stable(
         - sum([torch.log(z) for z in z_list_select])
         + sum([torch.log(z) for z in z_list_norm])
     ).mean()
-
     return loss
