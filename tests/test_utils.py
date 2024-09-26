@@ -4,6 +4,7 @@ import torch
 from TJDNet.utils import (
     batched_index_select,
     umps_select_marginalize_batched,
+    window_input_ids,
 )
 
 
@@ -150,6 +151,31 @@ class TestTTDist(unittest.TestCase):
             marginalize_mask=marginalize_mask,
         )
         self.assertTrue(math.isclose(rank, result.sum().item(), abs_tol=0.001))
+
+    def test_window_input_ids(self):
+        # Sample input_ids
+        input_ids = torch.tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]])
+
+        # Define H
+        H = 3
+
+        # Expected output
+        expected_output = torch.tensor(
+            [
+                [[1, 2, 3], [2, 3, 4], [3, 4, 5], [4, 5, 0], [5, 0, 0]],
+                [[6, 7, 8], [7, 8, 9], [8, 9, 10], [9, 10, 0], [10, 0, 0]],
+            ]
+        )
+
+        # Run the function
+        output = window_input_ids(input_ids, H)
+
+        # Test the result
+        assert torch.equal(
+            output, expected_output
+        ), f"Expected {expected_output}, but got {output}"
+
+        print("Test passed!")
 
 
 if __name__ == "__main__":

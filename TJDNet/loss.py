@@ -76,6 +76,16 @@ def get_entropy_loss_stable(
     *args,
     **kwargs,
 ):
+    """Compute entropy loss using MPSDistBase instance. This version is more stable than get_entropy_loss.
+
+    Args:
+        ttdist (MPSDistBase): MPSDistBase instance.
+        samples (torch.Tensor): Samples over which to compute the entropy loss. Shape: (batch_size, seq_len).
+        eps (float, optional): Small value to prevent log(0). Defaults to 1e-6.
+
+    Returns:
+        torch.Tensor: Entropy loss.
+    """
     probs_tilde, norm_constant_tilde, z_list_select, z_list_norm = (
         ttdist.get_unnorm_prob_and_norm(samples, apply_scale_factor=False)
     )

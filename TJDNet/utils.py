@@ -247,3 +247,28 @@ def umps_materialize_batched(
         )
         result = result / norm_const
     return result
+
+
+def window_input_ids(input_ids: torch.Tensor, horizon: int) -> torch.Tensor:
+    """
+    Window the input_ids so that each position looks H steps ahead.
+
+    Args:
+        input_ids (torch.Tensor): The input tensor of shape (B, T).
+        H (int): The number of steps ahead each position should look.
+
+    Returns:
+        torch.Tensor: The windowed tensor of shape (B, T, H).
+    """
+    B, T = input_ids.shape
+
+    # Create the windowed input tensor
+    input_ids_windowed = torch.stack(
+        [torch.roll(input_ids, -i, dims=1) for i in range(horizon)], dim=-1
+    )
+
+    # Mask out positions that roll beyond the sequence length
+    for i in range(1, horizon):
+        input_ids_windowed[:, -i:, i] = 0  # Replace 0 with padding token if needed
+
+    return input_ids_windowed

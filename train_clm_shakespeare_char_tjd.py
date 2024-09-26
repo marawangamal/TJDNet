@@ -37,6 +37,7 @@ from transformers import DataCollatorForLanguageModeling, get_scheduler
 from character_tokenizer import CharacterTokenizer
 from TJDNet import MPSDistBase
 from TJDNet.loss import get_entropy_loss_stable
+from TJDNet.utils import window_input_ids
 
 
 from utils import get_experiment_name
@@ -146,7 +147,7 @@ class TGPT2(torch.nn.Module):
         sample = learned_ttdist.sample(max_len=max_new_tokens)
         return sample
 
-    def get_tt_dist(self, input_ids: torch.Tensor, **kwargs):
+    def get_tt_dist(self, input_ids: torch.Tensor, horizon=1, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
@@ -155,33 +156,50 @@ class TGPT2(torch.nn.Module):
         hidden_states = transformer_outputs.last_hidden_state
         alpha, beta, core = self.get_tt_params(hidden_states)
 
+        batch_size, seq_len, _ = hidden_states.size()
+
         # Forward pass:
-        learned_ttdist = MPSDistBase(
-            alpha,
-            beta,
-            core,
+        learned_mpsdist = MPSDistBase(
+            alpha.reshape(batch_size * seq_len, -1),
+            beta.reshape(batch_size * seq_len, -1),
+            core.reshape(batch_size * seq_len, -1),
         )
-        return learned_ttdist, transformer_outputs
+
+        # # Shift all input_ids by horizon (B, T) => (B, T-H)
+        # input_ids = input_ids[:, horizon:]
+
+        # 1. Window the `input_ids` to get targets (B, T) => (B, T, H) // each position should look H steps ahead
+        input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
+
+        # Make targets using horizon
+        # (B,T) => (B*T,H)
+        targets = make_targets(input_ids, horizon=horizon)
+
+        return learned_mpsdist, transformer_outputs
 
     def get_tt_params(self, hidden_states: torch.Tensor):
         # Map with linear layer
         batch_size, seq_len, hidden_size = hidden_states.size()
-        tt_latent = self.seq2latents(hidden_states)[:, 0, :]
-        tt_params = self.latent2tt(tt_latent)
+        tt_latent = self.seq2latents(
+            hidden_states
+        )  # (batch_size, seq_len, hidden_size)
+        tt_params = self.latent2tt(
+            tt_latent
+        )  # (batch_size, seq_len, tensor_train_size)
         alpha, core, beta = torch.split(
             tt_params,
             [self.rank, self.rank * self.vocab_size * self.rank, self.rank],
             dim=-1,
         )
-        alpha = alpha.reshape(batch_size, self.rank)
-        beta = beta.reshape(batch_size, self.rank)
-        core = core.reshape(batch_size, self.rank, self.vocab_size, self.rank)
+        alpha = alpha.reshape(batch_size, seq_len, self.rank)
+        beta = beta.reshape(batch_size, seq_len, self.rank)
+        core = core.reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
         return alpha, beta, core
 
     def forward(self, input_ids, labels, *args, **kwargs):
-        learned_ttdist, transformer_outputs = self.get_tt_dist(input_ids, **kwargs)
+        learned_mpsdist, transformer_outputs = self.get_tt_dist(input_ids, **kwargs)
         loss = get_entropy_loss_stable(
-            learned_ttdist, samples=input_ids, eps=self.eps, vocab_size=self.vocab_size
+            learned_mpsdist, samples=input_ids, eps=self.eps, vocab_size=self.vocab_size
         )
         transformer_outputs.loss = loss
         return transformer_outputs
@@ -246,6 +264,28 @@ def get_test_sample(
         temperature=temperature,
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+
+def make_targets(input_ids: torch.Tensor, horizon: int = 1):
+    """Make targets for the model.
+
+    Args:
+        input_ids (torch.Tensor): Input tensor of shape (batch_size, seq_len).
+        horizon (int, optional): Horizon for the targets. Defaults to 1.
+
+    Returns:
+        torch.Tensor: Target tensor of shape (batch_size * seq_len, horizon).
+
+    Example:
+    >>> input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
+    >>> make_targets(input_ids, horizon=1)
+    tensor([[2],
+            [3],
+            [5],
+            [6]])
+
+    """
+    pass
 
 
 # Train function
