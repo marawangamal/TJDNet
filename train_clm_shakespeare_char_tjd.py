@@ -280,7 +280,7 @@ def train(
         progress_bar = tqdm(
             train_dataloader,
             desc=f"Epoch {epoch+1}",
-            bar_format="{l_bar}{bar}| [Duration: {elapsed}][Loss: {postfix}]",
+            bar_format="{l_bar}{bar}| [Duration: {elapsed}][{postfix}]",
         )
         for i, batch in enumerate(progress_bar):
             batch = {k: v.to(device) for k, v in batch.items()}
@@ -292,6 +292,10 @@ def train(
             optimizer.zero_grad()
             # Update progress bar with latest loss
             progress_bar.set_postfix(loss=f"{loss.item():.3f}")
+            if i % 100 == 0:
+                print(
+                    f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
+                )
 
         model.eval()
         losses = []
