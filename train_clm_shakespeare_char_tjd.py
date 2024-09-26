@@ -34,9 +34,10 @@ from transformers import (
 import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
-from TJDNet.loss import get_preference_loss
 from character_tokenizer import CharacterTokenizer
-from TJDNet import TTDist
+from TJDNet import MPSDistBase
+from TJDNet.loss import get_entropy_loss_stable
+
 
 from utils import get_experiment_name
 
@@ -58,7 +59,7 @@ def parse_args():
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=64,
+        default=8,
         help="Batch size for training and evaluation.",
     )
     parser.add_argument(
@@ -141,36 +142,31 @@ class TGPT2(torch.nn.Module):
         return next(self.parameters()).device
 
     def generate(self, input_ids, *args, max_new_tokens=8, **kwargs):
-        learned_ttdist, transformer_outputs = self.get_tt_dist(
-            input_ids,
-            seq_len=max_new_tokens,
-        )
-        sample = learned_ttdist.sample()
+        learned_ttdist, transformer_outputs = self.get_tt_dist(input_ids)
+        sample = learned_ttdist.sample(max_len=max_new_tokens)
         return sample
 
-    def get_tt_dist(self, input_ids: torch.Tensor, seq_len=None, **kwargs):
+    def get_tt_dist(self, input_ids: torch.Tensor, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
         )
+        # todo: use delta_core
         hidden_states = transformer_outputs.last_hidden_state
-        seq_len = hidden_states.size(1) if seq_len is None else seq_len
         alpha, beta, core = self.get_tt_params(hidden_states)
 
         # Forward pass:
-        learned_ttdist = TTDist(
+        learned_ttdist = MPSDistBase(
             alpha,
             beta,
             core,
-            n_core_repititions=seq_len,
-            norm_method=self.norm_method,
         )
         return learned_ttdist, transformer_outputs
 
     def get_tt_params(self, hidden_states: torch.Tensor):
         # Map with linear layer
         batch_size, seq_len, hidden_size = hidden_states.size()
-        tt_latent = self.seq2latents(hidden_states).mean(dim=1)
+        tt_latent = self.seq2latents(hidden_states)[:, 0, :]
         tt_params = self.latent2tt(tt_latent)
         alpha, core, beta = torch.split(
             tt_params,
@@ -184,7 +180,7 @@ class TGPT2(torch.nn.Module):
 
     def forward(self, input_ids, labels, *args, **kwargs):
         learned_ttdist, transformer_outputs = self.get_tt_dist(input_ids, **kwargs)
-        loss, _ = get_preference_loss(
+        loss = get_entropy_loss_stable(
             learned_ttdist, samples=input_ids, eps=self.eps, vocab_size=self.vocab_size
         )
         transformer_outputs.loss = loss
@@ -284,7 +280,7 @@ def train(
         progress_bar = tqdm(
             train_dataloader,
             desc=f"Epoch {epoch+1}",
-            bar_format="{l_bar}{bar}| [Duration: {elapsed}][Loss: {postfix}]",
+            bar_format="{l_bar}{bar}| [Duration: {elapsed}][{postfix}]",
         )
         for i, batch in enumerate(progress_bar):
             batch = {k: v.to(device) for k, v in batch.items()}
@@ -296,6 +292,10 @@ def train(
             optimizer.zero_grad()
             # Update progress bar with latest loss
             progress_bar.set_postfix(loss=f"{loss.item():.3f}")
+            if i % 100 == 0:
+                print(
+                    f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
+                )
 
         model.eval()
         losses = []
@@ -355,10 +355,10 @@ if __name__ == "__main__":
 
     # Data loaders
     train_dataloader = DataLoader(
-        lm_dataset["train"], shuffle=True, batch_size=8, collate_fn=data_collator  # type: ignore
+        lm_dataset["train"], shuffle=True, batch_size=batch_size, collate_fn=data_collator  # type: ignore
     )
     eval_dataloader = DataLoader(
-        lm_dataset["test"], batch_size=8, collate_fn=data_collator  # type: ignore
+        lm_dataset["test"], batch_size=batch_size, collate_fn=data_collator  # type: ignore
     )
 
     # Configuration for a smaller GPT2 model (baby GPT)
@@ -380,6 +380,7 @@ if __name__ == "__main__":
         project="TJDNet (Shakespeare)",
         config=vars(args),
         name=get_experiment_name(vars(args)),
+        mode="disabled",
     )
 
     train(
