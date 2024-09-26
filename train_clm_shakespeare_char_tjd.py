@@ -143,39 +143,40 @@ class TGPT2(torch.nn.Module):
         return next(self.parameters()).device
 
     def generate(self, input_ids, *args, max_new_tokens=8, **kwargs):
-        learned_ttdist, transformer_outputs = self.get_tt_dist(input_ids)
-        sample = learned_ttdist.sample(max_len=max_new_tokens)
-        return sample
+        # learned_ttdist, _, _ = self.get_tt_dist(input_ids)
+        # sample = learned_ttdist.sample(max_len=max_new_tokens)
+        # return sample
+        return torch.randint(0, self.vocab_size, (input_ids.size(0), max_new_tokens))
 
-    def get_tt_dist(self, input_ids: torch.Tensor, horizon=1, **kwargs):
+    # todo: use delta_core
+    def get_tt_dist(self, input_ids: torch.Tensor, horizon=2, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
         )
-        # todo: use delta_core
-        hidden_states = transformer_outputs.last_hidden_state
-        alpha, beta, core = self.get_tt_params(hidden_states)
 
-        batch_size, seq_len, _ = hidden_states.size()
+        hidden_states = transformer_outputs.last_hidden_state
+        alpha, beta, core = self.get_tt_params(hidden_states[:, :-horizon, :])
+        batch_size, seq_len_adj, rank, vocab_size, _ = core.size()
 
         # Forward pass:
         learned_mpsdist = MPSDistBase(
-            alpha.reshape(batch_size * seq_len, -1),
-            beta.reshape(batch_size * seq_len, -1),
-            core.reshape(batch_size * seq_len, -1),
+            alpha.reshape(batch_size * seq_len_adj, -1),
+            beta.reshape(batch_size * seq_len_adj, -1),
+            core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
         )
 
         # # Shift all input_ids by horizon (B, T) => (B, T-H)
         # input_ids = input_ids[:, horizon:]
 
-        # 1. Window the `input_ids` to get targets (B, T) => (B, T, H) // each position should look H steps ahead
+        # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H) // each position should look H steps ahead
         input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
 
-        # Make targets using horizon
-        # (B,T) => (B*T,H)
-        targets = make_targets(input_ids, horizon=horizon)
+        # 2. Make targets using windowed input_ids: (B,T) => (B * (T-H), H)
+        targets = input_ids_windowed[:, :-horizon]
+        targets = targets.reshape(-1, horizon)
 
-        return learned_mpsdist, transformer_outputs
+        return learned_mpsdist, transformer_outputs, targets
 
     def get_tt_params(self, hidden_states: torch.Tensor):
         # Map with linear layer
@@ -197,9 +198,11 @@ class TGPT2(torch.nn.Module):
         return alpha, beta, core
 
     def forward(self, input_ids, labels, *args, **kwargs):
-        learned_mpsdist, transformer_outputs = self.get_tt_dist(input_ids, **kwargs)
+        learned_mpsdist, transformer_outputs, targets = self.get_tt_dist(
+            input_ids, **kwargs
+        )
         loss = get_entropy_loss_stable(
-            learned_mpsdist, samples=input_ids, eps=self.eps, vocab_size=self.vocab_size
+            learned_mpsdist, targets=targets, eps=self.eps, vocab_size=self.vocab_size
         )
         transformer_outputs.loss = loss
         return transformer_outputs
@@ -264,28 +267,6 @@ def get_test_sample(
         temperature=temperature,
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-
-def make_targets(input_ids: torch.Tensor, horizon: int = 1):
-    """Make targets for the model.
-
-    Args:
-        input_ids (torch.Tensor): Input tensor of shape (batch_size, seq_len).
-        horizon (int, optional): Horizon for the targets. Defaults to 1.
-
-    Returns:
-        torch.Tensor: Target tensor of shape (batch_size * seq_len, horizon).
-
-    Example:
-    >>> input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
-    >>> make_targets(input_ids, horizon=1)
-    tensor([[2],
-            [3],
-            [5],
-            [6]])
-
-    """
-    pass
 
 
 # Train function

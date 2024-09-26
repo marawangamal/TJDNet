@@ -71,7 +71,7 @@ def get_entropy_loss(
 
 def get_entropy_loss_stable(
     ttdist: MPSDistBase,
-    samples: torch.Tensor,
+    targets: torch.Tensor,
     eps: float = 1e-6,
     *args,
     **kwargs,
@@ -80,14 +80,14 @@ def get_entropy_loss_stable(
 
     Args:
         ttdist (MPSDistBase): MPSDistBase instance.
-        samples (torch.Tensor): Samples over which to compute the entropy loss. Shape: (batch_size, seq_len).
+        targets (torch.Tensor): Samples over which to compute the entropy loss. Shape: (batch_size, seq_len).
         eps (float, optional): Small value to prevent log(0). Defaults to 1e-6.
 
     Returns:
         torch.Tensor: Entropy loss.
     """
     probs_tilde, norm_constant_tilde, z_list_select, z_list_norm = (
-        ttdist.get_unnorm_prob_and_norm(samples, apply_scale_factor=False)
+        ttdist.get_unnorm_prob_and_norm(targets, apply_scale_factor=False)
     )
     # Shapes:
     # probs_tilde: (B,) <-- downscaled by elements in z_list_select

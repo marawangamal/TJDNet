@@ -131,7 +131,7 @@ def umps_select_marginalize_batched(
     # Validation
     assert len(alpha.shape) == 2, "Alpha should be a 2D tensor"
     assert len(beta.shape) == 2, "Beta should be a 2D tensor"
-    assert len(core.shape) == 4, "Beta should be a 4D tensor"
+    assert len(core.shape) == 4, "Core should be a 4D tensor"
     assert len(selection_map.shape) == 2, "Selection map should be a 2D tensor"
     assert len(marginalize_mask.shape) == 2, "Marginalize mask should be a 2D tensor"
     assert (
