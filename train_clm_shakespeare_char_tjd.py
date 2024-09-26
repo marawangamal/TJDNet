@@ -143,10 +143,24 @@ class TGPT2(torch.nn.Module):
         return next(self.parameters()).device
 
     def generate(self, input_ids, *args, max_new_tokens=8, **kwargs):
-        # learned_ttdist, _, _ = self.get_tt_dist(input_ids)
-        # sample = learned_ttdist.sample(max_len=max_new_tokens)
-        # return sample
-        return torch.randint(0, self.vocab_size, (input_ids.size(0), max_new_tokens))
+
+        transformer_outputs = self.model.transformer(
+            input_ids=input_ids,
+        )
+
+        hidden_states = transformer_outputs.last_hidden_state
+        alpha, beta, core = self.get_tt_params(hidden_states[:, -1:, :])
+        batch_size, seq_len_adj, rank, vocab_size, _ = core.size()
+
+        # Forward pass:
+        learned_mpsdist = MPSDistBase(
+            alpha.reshape(batch_size * seq_len_adj, -1),
+            beta.reshape(batch_size * seq_len_adj, -1),
+            core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
+        )
+
+        sample = learned_mpsdist.sample(max_len=max_new_tokens)
+        return sample
 
     # todo: use delta_core
     def get_tt_dist(self, input_ids: torch.Tensor, horizon=2, **kwargs):
