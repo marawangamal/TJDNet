@@ -150,25 +150,44 @@ class TGPT2(torch.nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def generate(self, input_ids, *args, max_new_tokens=8, **kwargs):
+    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
+        """_summary_
 
-        transformer_outputs = self.model.transformer(
-            input_ids=input_ids,
-        )
+        Args:
+            input_ids (torch.Tensor): Input prompt tensor of shape (B, T).
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
 
-        hidden_states = transformer_outputs.last_hidden_state
-        alpha, beta, core = self.get_tt_params(hidden_states[:, -1:, :])
-        batch_size, seq_len_adj, rank, vocab_size, _ = core.size()
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, max_new_tokens).
+        """
 
-        # Forward pass:
-        learned_mpsdist = MPSDistBase(
-            alpha.reshape(batch_size * seq_len_adj, -1),
-            beta.reshape(batch_size * seq_len_adj, -1),
-            core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
-        )
+        batch_size, seq_len = input_ids.size()
+        n_passes = max_new_tokens // self.horizon
+        output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
+        input_tens = input_ids
 
-        sample = learned_mpsdist.sample(max_len=max_new_tokens)
-        return sample
+        for _ in range(n_passes):
+            transformer_outputs = self.model.transformer(
+                input_ids=input_tens,
+            )
+            hidden_states = transformer_outputs.last_hidden_state
+
+            alpha, beta, core = self.get_tt_params(
+                hidden_states[:, -1:, :]
+            )  # (B, 1, R, D, R)
+            _, seq_len_adj, rank, vocab_size, _ = core.size()
+
+            # Forward pass:
+            learned_mpsdist = MPSDistBase(
+                alpha.reshape(batch_size * seq_len_adj, -1),
+                beta.reshape(batch_size * seq_len_adj, -1),
+                core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
+            )
+
+            sample = learned_mpsdist.sample(max_len=self.horizon)  # (B, H)
+            output_tens = torch.cat([output_tens, sample], dim=1)
+            input_tens = torch.cat([input_tens, sample], dim=1)
+        return output_tens
 
     # todo: use delta_core
     def get_tt_dist(self, input_ids: torch.Tensor, **kwargs):
