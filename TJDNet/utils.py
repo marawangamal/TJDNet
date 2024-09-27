@@ -193,6 +193,29 @@ def umps_select_marginalize_batched(
     return res, norm_consts
 
 
+def umps_select_marginalize_batched_new(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    selection_map: torch.Tensor,
+    marginalize_mask: torch.Tensor,
+    apply_scale_factor: bool = True,
+):
+    """Given a uMPS, perform select and/or marginalize operations (batched version).
+
+    Args:
+        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
+        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
+        core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
+        operation_map (dict): Dictionary of selection and marginalization indices. {idx: {"select" | "marginalize": int}}.
+
+    Returns:
+         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, 1 or D).
+
+    """
+    pass
+
+
 def umps_materialize_batched(
     alpha: torch.Tensor,
     beta: torch.Tensor,

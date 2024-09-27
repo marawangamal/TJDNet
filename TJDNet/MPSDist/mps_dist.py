@@ -114,6 +114,7 @@ class MPSDistBase:
         ]  # List of (1, max_len)
         return torch.stack(samples).squeeze(1)  # (n_samples, max_len)
 
+    # TODO: Add support scalar output from `umps_select_marginalize_batched`
     def get_unnorm_prob(
         self,
         y: torch.Tensor,
