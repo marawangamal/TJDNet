@@ -70,6 +70,12 @@ def parse_args():
         help="Block size for model input sequences.",
     )
     parser.add_argument(
+        "--horizon",
+        type=int,
+        default=8,
+        help="Block size for model input sequences.",
+    )
+    parser.add_argument(
         "--n_embd",
         type=int,
         default=384,
@@ -119,6 +125,7 @@ class TGPT2(torch.nn.Module):
         rank: int = 2,
         norm_method: str = "abs",
         eps: float = 1e-9,
+        horizon: int = 8,
     ):
         super().__init__()
         self.model = GPT2LMHeadModel(config)
@@ -137,6 +144,7 @@ class TGPT2(torch.nn.Module):
         )
         self.latent2tt = torch.nn.Linear(config.n_embd, self.tensor_train_size)
         self.loss_fn = torch.nn.CrossEntropyLoss()
+        self.horizon = horizon
 
     @property
     def device(self):
@@ -163,14 +171,14 @@ class TGPT2(torch.nn.Module):
         return sample
 
     # todo: use delta_core
-    def get_tt_dist(self, input_ids: torch.Tensor, horizon=2, **kwargs):
+    def get_tt_dist(self, input_ids: torch.Tensor, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
         )
 
         hidden_states = transformer_outputs.last_hidden_state
-        alpha, beta, core = self.get_tt_params(hidden_states[:, :-horizon, :])
+        alpha, beta, core = self.get_tt_params(hidden_states[:, : -self.horizon, :])
         batch_size, seq_len_adj, rank, vocab_size, _ = core.size()
 
         # Forward pass:
@@ -184,11 +192,11 @@ class TGPT2(torch.nn.Module):
         # input_ids = input_ids[:, horizon:]
 
         # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H) // each position should look H steps ahead
-        input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
+        input_ids_windowed = window_input_ids(input_ids, horizon=self.horizon)
 
         # 2. Make targets using windowed input_ids: (B,T) => (B * (T-H), H)
-        targets = input_ids_windowed[:, :-horizon]
-        targets = targets.reshape(-1, horizon)
+        targets = input_ids_windowed[:, : -self.horizon]
+        targets = targets.reshape(-1, self.horizon)
 
         return learned_mpsdist, transformer_outputs, targets
 
@@ -406,7 +414,7 @@ if __name__ == "__main__":
         pad_token_id=tokenizer.pad_token_id,
     )
     model = (
-        TGPT2(config, rank=args.rank)
+        TGPT2(config, rank=args.rank, horizon=args.horizon)
         if args.model == "tgpt2"
         else GPT2LMHeadModel(config)
     )
