@@ -130,6 +130,7 @@ class MPSDistBase:
         """
         alpha, beta, core = self.get_params()
         batch_size = y.shape[0]
+        # BUG: y[:, 1:] makes it not work for seq_len=1
         selection_map = torch.cat(
             [torch.ones(batch_size, 1, device=y.device, dtype=y.dtype) * -1, y[:, 1:]],
             1,
