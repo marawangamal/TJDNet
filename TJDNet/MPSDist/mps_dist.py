@@ -106,23 +106,26 @@ class MPSDistBase:
             torch.Tensor: Sampled sequences. Shape: (batch_size, max_len)
         """
         alpha, beta, core = self.get_params()
-        operation_map = torch.ones(1, max_len, device=alpha.device) * -1
+        operation_map = (
+            torch.ones(alpha.size(0), max_len, device=alpha.device) * -1
+        ).long()
         for t in range(max_len):
             res_right, scale_factors = umps_select_marginalize_batched(
                 alpha=alpha,
                 beta=beta,
                 core=core,
-                operation_map=torch.ones(alpha.size(0), max_len, device=alpha.device)
-                * -1,
+                operation_map=operation_map,
                 reversed=True,
                 skip_last=True,
                 apply_scale_factors=False,
             )  # (batch_size, rank)
+            print(t, res_right, operation_map)
             p_tilde = torch.einsum("bi,bidj,bj->bd", alpha, core, res_right)
-            sample = torch.argmax(p_tilde, dim=-1)  # (batch_size,)
+            sample = torch.argmax(p_tilde, dim=-1).long()
             operation_map[:, t] = sample
+
         # BUG: the last index always is the most probable one
-        return sample
+        return operation_map
 
     def get_unnorm_prob(
         self,
