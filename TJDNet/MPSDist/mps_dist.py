@@ -102,19 +102,19 @@ class MPSDistBase:
         Returns:
             torch.Tensor: Sampled sequences. Shape: (batch_size, max_len)
         """
-        alpha, beta, core = self.get_params()
-        samples = [
-            self._sample_one(
-                alpha=alpha,
-                beta=beta,
-                core=core,
-                max_len=max_len,
-            )
-            for _ in range(n_samples)
-        ]  # List of (1, max_len)
-        return torch.stack(samples).squeeze(1)  # (n_samples, max_len)
+        # alpha, beta, core = self.get_params()
+        # samples = [
+        #     self._sample_one(
+        #         alpha=alpha,
+        #         beta=beta,
+        #         core=core,
+        #         max_len=max_len,
+        #     )
+        #     for _ in range(n_samples)
+        # ]  # List of (1, max_len)
+        # return torch.stack(samples).squeeze(1)  # (n_samples, max_len)
+        raise NotImplementedError
 
-    # TODO: Add support scalar output from `umps_select_marginalize_batched`
     def get_unnorm_prob(
         self,
         y: torch.Tensor,
@@ -130,26 +130,19 @@ class MPSDistBase:
         """
         alpha, beta, core = self.get_params()
         batch_size = y.shape[0]
-        # BUG: y[:, 1:] makes it not work for seq_len=1
-        selection_map = torch.cat(
-            [torch.ones(batch_size, 1, device=y.device, dtype=y.dtype) * -1, y[:, 1:]],
-            1,
-        )
 
         alpha_batched, beta_batched, core_batched = self._make_batched_params(
             batch_size, alpha, beta, core
         )
 
-        p_tilde_one, z_list = umps_select_marginalize_batched(
+        p_tilde, scale_factors = umps_select_marginalize_batched(
             alpha=alpha_batched,
             beta=beta_batched,
             core=core_batched,
-            selection_map=selection_map,
-            marginalize_mask=torch.zeros_like(y, device=y.device),
-            apply_scale_factor=apply_scale_factor,
+            operation_map=y,
+            apply_scale_factors=apply_scale_factor,
         )  # (batch_size, n_vocab)
-        p_tilde = torch.stack([p_tilde_one[b, y[b, 0]] for b in range(batch_size)])
-        return p_tilde, z_list
+        return p_tilde, scale_factors
 
     def get_norm_constant(
         self, y: torch.Tensor, apply_scale_factor: bool = True
@@ -164,16 +157,14 @@ class MPSDistBase:
         )
 
         # Function umps_select_marginalize_batched needs to output a vector. So this marginalizes all except the first element.
-        z_one, z_list = umps_select_marginalize_batched(
+        z, scale_factors = umps_select_marginalize_batched(
             alpha=alpha_batched,
             beta=beta_batched,
             core=core_batched,
-            selection_map=torch.ones_like(y, device=y.device) * -1,
-            marginalize_mask=marginalize_mask,
-            apply_scale_factor=apply_scale_factor,
+            operation_map=torch.ones_like(y, device=y.device) * -1,
+            apply_scale_factors=apply_scale_factor,
         )
-        z = z_one.sum()
-        return z, z_list
+        return z, scale_factors
 
     def get_unnorm_prob_and_norm(
         self,
@@ -189,13 +180,13 @@ class MPSDistBase:
             Tuple[torch.Tensor, torch.Tensor]: Probability of the sequence and normalization constant. Shape: (batch_size,) and (batch_size,)
         """
 
-        p_tilde, z_list_select = self.get_unnorm_prob(y, apply_scale_factor)
-        z, z_list_norm = self.get_norm_constant(y, apply_scale_factor)
+        p_tilde, p_tilde_scale_factors = self.get_unnorm_prob(y, apply_scale_factor)
+        z, z_scale_factors = self.get_norm_constant(y, apply_scale_factor)
 
         assert torch.all(p_tilde >= 0), "p_tilde must be non-negative"
         assert torch.all(z >= 0), "Z must be non-negative"
         assert torch.all(p_tilde <= z), "p_tilde must be less than Z"
-        return p_tilde, z, z_list_select, z_list_norm
+        return p_tilde, z, p_tilde_scale_factors, z_scale_factors
 
     def materialize(
         self, normalize: bool = True, n_core_repititions: int = 3

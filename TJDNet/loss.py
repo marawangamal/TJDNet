@@ -86,7 +86,7 @@ def get_entropy_loss_stable(
     Returns:
         torch.Tensor: Entropy loss.
     """
-    probs_tilde, norm_constant_tilde, z_list_select, z_list_norm = (
+    probs_tilde, z, p_tilde_scale_factors, z_scale_factors = (
         ttdist.get_unnorm_prob_and_norm(targets, apply_scale_factor=False)
     )
     # Shapes:
@@ -97,8 +97,8 @@ def get_entropy_loss_stable(
     # Note: normalization constant is correct up to a scale factor
     loss = (
         -torch.log(probs_tilde + eps)
-        + torch.log(norm_constant_tilde)
-        - sum([torch.log(z) for z in z_list_select])
-        + sum([torch.log(z) for z in z_list_norm])
+        + torch.log(z)
+        - sum([torch.log(z) for z in p_tilde_scale_factors])
+        + sum([torch.log(z) for z in z_scale_factors])
     ).mean()
     return loss

@@ -110,9 +110,8 @@ def umps_select_marginalize_batched(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,
-    selection_map: torch.Tensor,
-    marginalize_mask: torch.Tensor,
-    apply_scale_factor: bool = True,
+    operation_map: torch.Tensor,
+    apply_scale_factors: bool = True,
 ):
     """Given a uMPS, perform select and/or marginalize operations (batched version).
 
@@ -120,100 +119,61 @@ def umps_select_marginalize_batched(
         alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
         beta (torch.Tensor): Parameter tensor. Shape: (B, R).
         core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
-        selection_map (torch.Tensor): Batched selection indices. Negative denote non-select indices. Shape: (B, N).
-        marginalize_mask (torch.Tensor): Batched marginalization mask. Shape: (B, N).
+        operation_map (torch.Tensor): Operations to perform on indices. Shape: (B, N). -2 for free leg, -1 for marginalize, [0, V) for select
 
     Returns:
-         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
+        torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, 1 or D).
 
     """
-    # FIXME: Does not support interleave selection and marginalization
-    # Validation
+    # Input validation: alpha, beta, core
     assert len(alpha.shape) == 2, "Alpha should be a 2D tensor"
     assert len(beta.shape) == 2, "Beta should be a 2D tensor"
     assert len(core.shape) == 4, "Core should be a 4D tensor"
-    assert len(selection_map.shape) == 2, "Selection map should be a 2D tensor"
-    assert len(marginalize_mask.shape) == 2, "Marginalize mask should be a 2D tensor"
-    assert (
-        selection_map.shape == marginalize_mask.shape
-    ), "Selection and marginalize mask should have same shape"
-    free_legs = torch.logical_and(selection_map == -1, marginalize_mask == 0)
-    assert torch.all(free_legs.sum(dim=-1) == 1), "Must have excatly one free leg"
+
+    # Input validation: selection_map, marginalize_mask
+    assert len(operation_map.shape) == 2, "Operation map should be a 2D tensor"
+
+    free_legs = (operation_map == -2).sum(dim=-1)
+    assert torch.all(free_legs.sum(dim=-1) <= 1), "Must have at most one free leg"
 
     batch_size, rank, vocab_size, _ = core.shape
-    n_core_repititions = selection_map.shape[1]
-
-    res_left = alpha
-    res_right = beta
-
     core_margins = torch.einsum(
         "bijk,bj->bik",
         core,
         torch.ones(batch_size, vocab_size, device=core.device),
     )
 
-    norm_consts = []
+    n_core_repititions = operation_map.shape[1]
+    res_left = alpha
+    scale_factors = []
+
+    def get_contracted_core(
+        core: torch.Tensor, batch_idx: int, time_idx: int, operation_map: torch.Tensor
+    ):
+        if operation_map[batch_idx, time_idx] >= 0:  # Select
+            return core[batch_idx, :, operation_map[batch_idx, time_idx], :]
+        elif operation_map[batch_idx, time_idx] == -1:  # Marginalize
+            return core_margins[batch_idx]
+        else:  # Not accepted
+            raise ValueError("Invalid operation")
 
     for t in range(n_core_repititions):
         res_left_prime = torch.stack(
             [
-                (
-                    core[b, :, selection_map[b, t], :]
-                    if selection_map[b, t] >= 0
-                    else torch.eye(rank, device=core.device)
-                )
+                get_contracted_core(core, b, t, operation_map)
                 for b in range(core.shape[0])
             ]
         )  # (B, R, R)
-        # z_tmp = res_left.sum(dim=1) replace with norm of a vec
         z_tmp = torch.linalg.norm(res_left, dim=1)
-        norm_consts.append(z_tmp)
+        scale_factors.append(z_tmp)
         res_left = res_left / z_tmp.unsqueeze(1)
         res_left = torch.einsum("bi,bij->bj", res_left, res_left_prime)
-
-    for t in range(n_core_repititions):
-        res_right_prime = torch.stack(
-            [
-                (
-                    core_margins[b]
-                    if marginalize_mask[b, t]
-                    else torch.eye(rank, device=core.device)
-                )
-                for b in range(core.shape[0])
-            ]
-        )
-        z_tmp = torch.linalg.norm(res_right, dim=1)
-        norm_consts.append(z_tmp)
-        res_right = res_right / z_tmp.unsqueeze(1)
-        res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)
-    res = torch.einsum("bi, bidj, bj -> bd", res_left, core, res_right)
-    if apply_scale_factor:
-        norm_const = torch.stack(norm_consts, dim=1).prod(dim=1)
+    res = torch.einsum("bi, bidj, bj -> bd", res_left, core, beta)
+    if apply_scale_factors:
+        norm_const = torch.stack(scale_factors, dim=1).prod(dim=1)
         res = res * norm_const.unsqueeze(1)
-    return res, norm_consts
-
-
-def umps_select_marginalize_batched_new(
-    alpha: torch.Tensor,
-    beta: torch.Tensor,
-    core: torch.Tensor,
-    selection_map: torch.Tensor,
-    marginalize_mask: torch.Tensor,
-    apply_scale_factor: bool = True,
-):
-    """Given a uMPS, perform select and/or marginalize operations (batched version).
-
-    Args:
-        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
-        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
-        core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
-        operation_map (dict): Dictionary of selection and marginalization indices. {idx: {"select" | "marginalize": int}}.
-
-    Returns:
-         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, 1 or D).
-
-    """
-    pass
+        scale_factors = []
+    return res, scale_factors
 
 
 def umps_materialize_batched(
