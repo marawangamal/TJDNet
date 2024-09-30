@@ -21,6 +21,7 @@ class TestTTDist(unittest.TestCase):
         self.assertEqual(tuple(sample.shape), (batch_size, 10), "Incorrect shape")
 
     def test_mps_dist__values(self):
+        # BUG: the last index always is the most probable one?
         batch_size = 1
         rank = 8
         vocab_size = 10

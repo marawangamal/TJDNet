@@ -124,7 +124,6 @@ class MPSDistBase:
             sample = torch.argmax(p_tilde, dim=-1).long()
             operation_map[:, t] = sample
 
-        # BUG: the last index always is the most probable one
         return operation_map
 
     def get_unnorm_prob(
