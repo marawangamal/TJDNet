@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List
+from typing import Optional, Union
 import torch
 
 
@@ -18,6 +18,8 @@ def umps_select_marginalize_batched(
     core: torch.Tensor,
     operation_map: torch.Tensor,
     apply_scale_factors: bool = True,
+    reversed: bool = False,
+    skip_last: bool = False,
 ):
     """Given a uMPS, perform select and/or marginalize operations (batched version).
 
@@ -25,7 +27,7 @@ def umps_select_marginalize_batched(
         alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
         beta (torch.Tensor): Parameter tensor. Shape: (B, R).
         core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
-        operation_map (torch.Tensor): Operations to perform on indices. Shape: (B, N). -2 for free leg, -1 for marginalize, [0, V) for select
+        operation_map (torch.Tensor): Operations to perform on indices. Shape: (B, N).  -1 for marginalize, [0, V) for select
 
     Returns:
         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B,)
@@ -50,7 +52,7 @@ def umps_select_marginalize_batched(
     )
 
     n_core_repititions = operation_map.shape[1]
-    res_left = alpha
+    res_tmp = beta if reversed else alpha
     scale_factors = []
 
     def get_contracted_core(
@@ -63,18 +65,24 @@ def umps_select_marginalize_batched(
         else:  # Not accepted
             raise ValueError("Invalid operation")
 
-    for t in range(n_core_repititions):
-        res_left_prime = torch.stack(
+    time_steps = n_core_repititions - 1 if skip_last else n_core_repititions
+    for t in range(time_steps):
+        res_tmp_prime = torch.stack(
             [
                 get_contracted_core(core, b, t, operation_map)
                 for b in range(core.shape[0])
             ]
         )  # (B, R, R)
-        z_tmp = torch.linalg.norm(res_left, dim=1)
+        z_tmp = torch.linalg.norm(res_tmp, dim=1)
         scale_factors.append(z_tmp)
-        res_left = res_left / z_tmp.unsqueeze(1)
-        res_left = torch.einsum("bi,bij->bj", res_left, res_left_prime)
-    res = torch.einsum("bi, bi -> b", res_left, beta)
+        res_tmp = res_tmp / z_tmp.unsqueeze(1)
+        if reversed:
+            res_tmp = torch.einsum("bij, bi->bj", res_tmp_prime, res_tmp)
+        else:
+            res_tmp = torch.einsum("bi,bij->bj", res_tmp, res_tmp_prime)
+    if skip_last:
+        return res_tmp, scale_factors
+    res = torch.einsum("bi, bi -> b", res_tmp, alpha if reversed else beta)
     if apply_scale_factors:
         norm_const = torch.stack(scale_factors, dim=1).prod(dim=1)
         res = res * norm_const

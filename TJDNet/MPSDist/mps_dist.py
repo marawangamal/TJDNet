@@ -92,28 +92,37 @@ class MPSDistBase:
         core = func["born"](self.core)
         return alpha, beta, core
 
-    def sample(self, max_len: int, n_samples: int = 1) -> torch.Tensor:
-        """Sample sequences from the MPS distribution.
+    def sample(
+        self, max_len: int, n_samples: int = 1, batch_idx: int = 0
+    ) -> torch.Tensor:
+        """Sample sequences from the MPS distribution. (i.e, :math:`y \sim p(y)`)
 
         Args:
             max_len (int): Maximum length of the sequences.
-            batch_size (int, optional): Batch size. Defaults to 1.
+            n_samples (int, optional): Number of samples to draw. Defaults to 1.
+            batch_idx (int, optional): Index of the batch to sample from. Defaults to 0.
 
         Returns:
             torch.Tensor: Sampled sequences. Shape: (batch_size, max_len)
         """
-        # alpha, beta, core = self.get_params()
-        # samples = [
-        #     self._sample_one(
-        #         alpha=alpha,
-        #         beta=beta,
-        #         core=core,
-        #         max_len=max_len,
-        #     )
-        #     for _ in range(n_samples)
-        # ]  # List of (1, max_len)
-        # return torch.stack(samples).squeeze(1)  # (n_samples, max_len)
-        raise NotImplementedError
+        alpha, beta, core = self.get_params()
+        operation_map = torch.ones(1, max_len, device=alpha.device) * -1
+        for t in range(max_len):
+            res_right, scale_factors = umps_select_marginalize_batched(
+                alpha=alpha,
+                beta=beta,
+                core=core,
+                operation_map=torch.ones(alpha.size(0), max_len, device=alpha.device)
+                * -1,
+                reversed=True,
+                skip_last=True,
+                apply_scale_factors=False,
+            )  # (batch_size, rank)
+            p_tilde = torch.einsum("bi,bidj,bj->bd", alpha, core, res_right)
+            sample = torch.argmax(p_tilde, dim=-1)  # (batch_size,)
+            operation_map[:, t] = sample
+        # BUG: the last index always is the most probable one
+        return sample
 
     def get_unnorm_prob(
         self,
