@@ -72,7 +72,7 @@ def parse_args():
     parser.add_argument(
         "--horizon",
         type=int,
-        default=8,
+        default=2,
         help="Block size for model input sequences.",
     )
     parser.add_argument(
@@ -96,7 +96,7 @@ def parse_args():
     parser.add_argument(
         "--rank",
         type=int,
-        default=2,
+        default=4,
         help="Rank of the tensor train decomposition.",
     )
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")

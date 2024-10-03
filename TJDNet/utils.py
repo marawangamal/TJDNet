@@ -65,8 +65,7 @@ def umps_select_marginalize_batched(
         else:  # Not accepted
             raise ValueError("Invalid operation")
 
-    time_steps = n_core_repititions - 1 if skip_last else n_core_repititions
-    for t in range(time_steps):
+    for t in range(n_core_repititions):
         res_tmp_prime = torch.stack(
             [
                 get_contracted_core(core, b, t, operation_map)

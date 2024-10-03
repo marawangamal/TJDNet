@@ -106,25 +106,44 @@ class MPSDistBase:
             torch.Tensor: Sampled sequences. Shape: (batch_size, max_len)
         """
         alpha, beta, core = self.get_params()
-        operation_map = (
-            torch.ones(alpha.size(0), max_len, device=alpha.device) * -1
-        ).long()
+        batch_size = alpha.size(0)
+        left_n = 0
+        right_n = max_len - 1
+        operation_map_left = torch.ones(batch_size, left_n, device=alpha.device).long()
+        operation_map_right = (
+            torch.ones(batch_size, right_n, device=alpha.device).long() * -1
+        )
+        # BUG: should apply the selected indices in the operation_map_left and only marginalize indices in the operation_map_right
         for t in range(max_len):
+            res_left, scale_factors = umps_select_marginalize_batched(
+                alpha=alpha,
+                beta=beta,
+                core=core,
+                operation_map=operation_map_left,
+                reversed=False,
+                skip_last=True,
+                apply_scale_factors=False,
+            )  # (batch_size, rank) (alpha-A-...-A-)
             res_right, scale_factors = umps_select_marginalize_batched(
                 alpha=alpha,
                 beta=beta,
                 core=core,
-                operation_map=operation_map,
+                operation_map=operation_map_right,
                 reversed=True,
                 skip_last=True,
                 apply_scale_factors=False,
-            )  # (batch_size, rank)
-            print(t, res_right, operation_map)
-            p_tilde = torch.einsum("bi,bidj,bj->bd", alpha, core, res_right)
-            sample = torch.argmax(p_tilde, dim=-1).long()
-            operation_map[:, t] = sample
+            )  # (batch_size, rank) (-A-...-A-beta)
 
-        return operation_map
+            p_tilde = torch.einsum("bi,bidj,bj->bd", res_left, core, res_right)
+            sample = torch.argmax(p_tilde, dim=-1).long()
+
+            # Update operation_map_left and operation_map_right
+            operation_map_left = torch.cat(
+                [operation_map_left, sample.unsqueeze(1)], dim=1
+            )
+            operation_map_right = operation_map_right[:, 1:]
+
+        return operation_map_left
 
     def get_unnorm_prob(
         self,
