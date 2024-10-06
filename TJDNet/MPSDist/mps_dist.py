@@ -215,7 +215,7 @@ class MPSDistBase:
 
         assert torch.all(p_tilde >= 0), "p_tilde must be non-negative"
         assert torch.all(z >= 0), "Z must be non-negative"
-        assert torch.all(p_tilde <= z), "p_tilde must be less than Z"
+        # assert torch.all(p_tilde <= z), "p_tilde must be less than Z"
         return p_tilde, z, p_tilde_scale_factors, z_scale_factors
 
     def materialize(

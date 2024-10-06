@@ -37,7 +37,7 @@ from transformers import DataCollatorForLanguageModeling, get_scheduler
 from character_tokenizer import CharacterTokenizer
 from TJDNet import MPSDistBase
 from TJDNet.loss import get_entropy_loss_stable
-from TJDNet.utils import window_input_ids
+from TJDNet.utils import window_input_ids, AverageMeter
 
 
 from utils import get_experiment_name
@@ -146,6 +146,9 @@ class TGPT2(torch.nn.Module):
         self.loss_fn = torch.nn.CrossEntropyLoss()
         self.horizon = horizon
 
+        self.forward_avg_meter = AverageMeter()
+        self.loss_avg_meter = AverageMeter()
+
     @property
     def device(self):
         return next(self.parameters()).device
@@ -239,13 +242,30 @@ class TGPT2(torch.nn.Module):
         return alpha, beta, core
 
     def forward(self, input_ids, labels, *args, **kwargs):
+        start_forward = torch.cuda.Event(enable_timing=True)
+        end_forward = torch.cuda.Event(enable_timing=True)
+        start_loss = torch.cuda.Event(enable_timing=True)
+        end_loss = torch.cuda.Event(enable_timing=True)
+
+        start_forward.record()
         learned_mpsdist, transformer_outputs, targets = self.get_tt_dist(
             input_ids, **kwargs
         )
+        end_forward.record()
+
+        start_loss.record()
         loss = get_entropy_loss_stable(
             learned_mpsdist, targets=targets, eps=self.eps, vocab_size=self.vocab_size
         )
         transformer_outputs.loss = loss
+        end_loss.record()
+
+        torch.cuda.synchronize()
+        forward_time = start_forward.elapsed_time(end_forward)
+        loss_time = start_loss.elapsed_time(end_loss)
+        self.forward_avg_meter.update(forward_time)
+        self.loss_avg_meter.update(loss_time)
+
         return transformer_outputs
 
 
@@ -294,18 +314,19 @@ def get_test_sample(
     tokenizer,
     prompt="\n",
     max_new_tokens=8,
-    top_k=200,
-    temperature=0.8,
+    # top_k=200,
+    # temperature=0.8,
+    num_beams=1,
+    do_sample=False,
 ):
     # Inference
     model.eval()
     inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
     outputs = model.generate(
         inputs,
+        num_beams=num_beams,
+        do_sample=do_sample,
         max_new_tokens=max_new_tokens,
-        do_sample=True,
-        top_k=top_k,
-        temperature=temperature,
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
@@ -353,7 +374,17 @@ def train(
             lr_scheduler.step()
             optimizer.zero_grad()
             # Update progress bar with latest loss
-            progress_bar.set_postfix(loss=f"{loss.item():.3f}")
+            # Check if model has forward_avg_meter and loss_avg_meter
+            model_fwd_time = 0
+            model_loss_time = 0
+            if hasattr(model, "forward_avg_meter") and hasattr(model, "loss_avg_meter"):
+                model_fwd_time = model.forward_avg_meter.avg
+                model_loss_time = model.loss_avg_meter.avg
+            progress_bar.set_postfix(
+                loss=f"{loss.item():.3f}",
+                time_fwd_ms=f"{model_fwd_time:.3f}",
+                time_loss_ms=f"{model_loss_time:.3f}",
+            )
             if i % 100 == 0:
                 print(
                     f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
