@@ -53,6 +53,44 @@ class TestTTDist(unittest.TestCase):
         )
         self.assertAlmostEqual(target_val, result[target_batch_idx].item(), places=3)
 
+    def test_window_input_ids_single_sequence(self):
+        # Sample input_ids with a single sequence
+        input_ids = torch.tensor([[1, 2, 3, 4]])
+
+        # Define H
+        H = 2
+
+        # Expected output
+        expected_output = torch.tensor([[[2, 3], [3, 4], [4, 0], [0, 0]]])
+
+        # Run the function
+        output = window_input_ids(input_ids, H)
+
+        # Test the result
+        assert torch.equal(
+            output, expected_output
+        ), f"Expected {expected_output}, but got {output}"
+
+    def test_window_input_ids_large_horizon(self):
+        # Sample input_ids
+        input_ids = torch.tensor([[1, 2, 3]])
+
+        # Define H larger than sequence length
+        H = 5
+
+        # Expected output
+        expected_output = torch.tensor(
+            [[[2, 3, 0, 0, 0], [3, 0, 0, 0, 0], [0, 0, 0, 0, 0]]]
+        )
+
+        # Run the function
+        output = window_input_ids(input_ids, H)
+
+        # Test the result
+        assert torch.equal(
+            output, expected_output
+        ), f"Expected {expected_output}, but got {output}"
+
     def test_window_input_ids(self):
         # Sample input_ids
         input_ids = torch.tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]])
@@ -75,8 +113,6 @@ class TestTTDist(unittest.TestCase):
         assert torch.equal(
             output, expected_output
         ), f"Expected {expected_output}, but got {output}"
-
-        print("Test passed!")
 
 
 if __name__ == "__main__":
