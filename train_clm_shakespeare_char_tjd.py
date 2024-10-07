@@ -36,7 +36,7 @@ from transformers import DataCollatorForLanguageModeling, get_scheduler
 
 from character_tokenizer import CharacterTokenizer
 from TJDNet import MPSDistBase
-from TJDNet.loss import get_entropy_loss_stable
+from TJDNet.loss import get_entropy_loss_stable, get_entropy_loss_stable_debug
 from TJDNet.utils import window_input_ids, AverageMeter
 
 
@@ -254,11 +254,11 @@ class TGPT2(torch.nn.Module):
         #     eps=self.eps,
         # )
 
-        # DEBUG: entropy loss
+        # DEBUG: entropy loss works so no issues with `alpha`, `beta`, `core` and sampling
         probs_tilde = learned_mpsdist.materialize(
             n_core_repititions=self.horizon, normalize=False
         )
-        loss = torch.nn.functional.cross_entropy(
+        loss = get_entropy_loss_stable_debug(
             probs_tilde,
             targets.flatten(),
         )
