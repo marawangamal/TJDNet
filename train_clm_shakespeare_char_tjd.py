@@ -1,5 +1,5 @@
 """
-Fine-tune GPT-2 on ELI5 dataset.
+Fine-tune GPT-2 using TJDNet on Shakespeare dataset.
 
 Resources: 
 https://huggingface.co/docs/transformers/tasks/language_modeling
@@ -126,6 +126,7 @@ class TGPT2(torch.nn.Module):
         norm_method: str = "abs",
         eps: float = 1e-9,
         horizon: int = 8,
+        tokenizer=None,
     ):
         super().__init__()
         self.model = GPT2LMHeadModel(config)
@@ -136,6 +137,7 @@ class TGPT2(torch.nn.Module):
         self.custom_unembedding = torch.nn.Linear(
             config.n_embd, config.vocab_size, bias=False
         )
+        self.tokenizer = tokenizer
         self.tensor_train_size = rank + (rank * config.vocab_size * rank) + rank
         self.seq2latents = torch.nn.Sequential(
             # Average pool the seq_len dimension
@@ -200,7 +202,9 @@ class TGPT2(torch.nn.Module):
         )
 
         hidden_states = transformer_outputs.last_hidden_state
-        alpha, beta, core = self.get_tt_params(hidden_states[:, : -self.horizon, :])
+        alpha, beta, core = self.get_tt_params(
+            hidden_states[:, : -self.horizon, :]
+        )  # (B, T-H, R), (B, T-H, R), (B, T-H, R, D, R)
         batch_size, seq_len_adj, rank, vocab_size, _ = core.size()
 
         # Forward pass:
@@ -210,15 +214,13 @@ class TGPT2(torch.nn.Module):
             core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
         )
 
-        # # Shift all input_ids by horizon (B, T) => (B, T-H)
-        # input_ids = input_ids[:, horizon:]
-
-        # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H) // each position should look H steps ahead
+        # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
+        #   each position should look H steps ahead
         input_ids_windowed = window_input_ids(input_ids, horizon=self.horizon)
 
-        # 2. Make targets using windowed input_ids: (B,T) => (B * (T-H), H)
-        targets = input_ids_windowed[:, : -self.horizon]
-        targets = targets.reshape(-1, self.horizon)
+        # 2. Make targets using windowed input_ids
+        targets = input_ids_windowed[:, : -self.horizon]  # (B, T-H, H)
+        targets = targets.reshape(-1, self.horizon)  # (B * (T-H), H)
 
         return learned_mpsdist, transformer_outputs, targets
 
@@ -242,30 +244,27 @@ class TGPT2(torch.nn.Module):
         return alpha, beta, core
 
     def forward(self, input_ids, labels, *args, **kwargs):
-        start_forward = torch.cuda.Event(enable_timing=True)
-        end_forward = torch.cuda.Event(enable_timing=True)
-        start_loss = torch.cuda.Event(enable_timing=True)
-        end_loss = torch.cuda.Event(enable_timing=True)
 
-        start_forward.record()
         learned_mpsdist, transformer_outputs, targets = self.get_tt_dist(
             input_ids, **kwargs
         )
-        end_forward.record()
+        # loss = get_entropy_loss_stable(
+        #     learned_mpsdist,
+        #     targets=targets,
+        #     eps=self.eps,
+        # )
 
-        start_loss.record()
-        loss = get_entropy_loss_stable(
-            learned_mpsdist, targets=targets, eps=self.eps, vocab_size=self.vocab_size
+        # DEBUG: entropy loss
+        probs_tilde = learned_mpsdist.materialize(
+            n_core_repititions=self.horizon, normalize=False
+        )
+        loss = torch.nn.functional.cross_entropy(
+            probs_tilde,
+            targets.flatten(),
         )
         transformer_outputs.loss = loss
-        end_loss.record()
 
         torch.cuda.synchronize()
-        forward_time = start_forward.elapsed_time(end_forward)
-        loss_time = start_loss.elapsed_time(end_loss)
-        self.forward_avg_meter.update(forward_time)
-        self.loss_avg_meter.update(loss_time)
-
         return transformer_outputs
 
 
@@ -464,7 +463,7 @@ if __name__ == "__main__":
         pad_token_id=tokenizer.pad_token_id,
     )
     model = (
-        TGPT2(config, rank=args.rank, horizon=args.horizon)
+        TGPT2(config, rank=args.rank, horizon=args.horizon, tokenizer=tokenizer)
         if args.model == "tgpt2"
         else GPT2LMHeadModel(config)
     )

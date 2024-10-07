@@ -43,13 +43,7 @@ def umps_select_marginalize_batched(
 
     free_legs = (operation_map == -2).sum(dim=-1)
     assert torch.all(free_legs.sum(dim=-1) <= 1), "Must have at most one free leg"
-
-    batch_size, rank, vocab_size, _ = core.shape
-    core_margins = torch.einsum(
-        "bijk,bj->bik",
-        core,
-        torch.ones(batch_size, vocab_size, device=core.device),
-    )
+    core_margins = core.sum(dim=2)
 
     n_core_repititions = operation_map.shape[1]
     res_tmp = beta if reversed else alpha
@@ -145,9 +139,8 @@ def umps_materialize_batched(
     return result
 
 
-def window_input_ids(input_ids: torch.Tensor, horizon: int) -> torch.Tensor:
-    """
-    Window the input_ids so that each position looks H steps ahead.
+def window_input_ids(input_ids: torch.Tensor, horizon: int, shift: int = 1):
+    """Window the input_ids so that each position looks H steps ahead.
 
     Args:
         input_ids (torch.Tensor): The input tensor of shape (B, T).
@@ -160,12 +153,21 @@ def window_input_ids(input_ids: torch.Tensor, horizon: int) -> torch.Tensor:
 
     # Create the windowed input tensor
     input_ids_windowed = torch.stack(
-        [torch.roll(input_ids, -i, dims=1) for i in range(horizon)], dim=-1
+        [torch.roll(input_ids, -i - shift, dims=1) for i in range(horizon)], dim=-1
     )
 
     # Mask out positions that roll beyond the sequence length
     for i in range(1, horizon):
-        input_ids_windowed[:, -i:, i] = 0  # Replace 0 with padding token if needed
+        input_ids_windowed[:, -i - shift :, i] = (
+            0  # Replace 0 with padding token if needed
+        )
+
+    # Correct the padding (zeroing) for positions that have rolled beyond the valid sequence length
+    for i in range(horizon):
+        # Calculate the index from which zeroing should start based on the shift
+        zero_start = T - i - shift
+        if zero_start < T:  # Only apply zeroing if we're within valid range
+            input_ids_windowed[:, zero_start:, i] = 0
 
     return input_ids_windowed
 
