@@ -110,8 +110,9 @@ def parse_args():
     )
     parser.add_argument(
         "--positivity_func",
-        type=Literal["born", "abs", "exp"],
-        default="born",
+        type=str,
+        default="exp",
+        choices=["born", "abs", "exp"],
         help="Positivity function to use for MPSDist.",
     )
 

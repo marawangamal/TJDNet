@@ -104,7 +104,7 @@ def get_entropy_loss_stable(
     return loss
 
 
-def entropy_loss(
+def get_entropy_loss_stable_debug(
     probs_tilde: torch.Tensor,
     targets: torch.Tensor,
     *args,
