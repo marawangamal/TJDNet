@@ -104,29 +104,27 @@ def get_entropy_loss_stable(
     return loss
 
 
-def get_entropy_loss_stable_debug(
+def entropy_loss(
     probs_tilde: torch.Tensor,
     targets: torch.Tensor,
-    eps: float = 1e-6,
     *args,
     **kwargs,
 ):
-    """Compute entropy loss using MPSDistBase instance. This version is more stable than get_entropy_loss.
+    """Compute entropy loss using unnormalized probabilities.
 
     Args:
         probs_tilde (torch.Tensor): Unnormalized probabilities. Shape: (batch_size, n_classes).
         targets (torch.Tensor): Samples over which to compute the entropy loss. Shape: (batch_size, seq_len).
-        eps (float, optional): Small value to prevent log(0). Defaults to 1e-6.
 
     Returns:
         torch.Tensor: Entropy loss.
     """
-    # No exponentiation (this fails)
+    # (1) No exponentiation (this fails)
     log_z = torch.log(probs_tilde.sum(dim=-1))
     probs_tilde_select = torch.gather(probs_tilde, 1, targets.reshape(-1, 1)).squeeze()
     loss = (-torch.log(probs_tilde_select) + log_z).mean()
 
-    # # LogSumExp (this works)
+    # (2) LogSumExp (this works)
     # log_z = torch.logsumexp(probs_tilde, dim=-1)
     # probs_tilde_select = torch.gather(probs_tilde, 1, targets.reshape(-1, 1)).squeeze()
     # loss = (-probs_tilde_select + log_z).mean()

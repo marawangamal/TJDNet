@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Literal
 import torch
 import torch.nn as nn
 
@@ -9,7 +9,13 @@ from TJDNet.utils import umps_select_marginalize_batched, umps_materialize_batch
 
 
 class MPSDistBase:
-    def __init__(self, alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor):
+    def __init__(
+        self,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+        core: torch.Tensor,
+        positivity_func: Literal["born", "abs", "exp"] = "abs",
+    ):
         """Initialize the MPS distribution.
 
         Args:
@@ -24,6 +30,7 @@ class MPSDistBase:
         self.alpha = alpha
         self.beta = beta
         self.core = core
+        self.positivity_func = positivity_func
 
     @staticmethod
     def _sample_one(
@@ -86,10 +93,10 @@ class MPSDistBase:
         return alpha_batched, beta_batched, core_batched
 
     def get_params(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        func = {"born": lambda x: x**2, "abs": lambda x: torch.abs(x)}
-        alpha = func["born"](self.alpha)
-        beta = func["born"](self.beta)
-        core = func["born"](self.core)
+        func = {"born": lambda x: x**2, "abs": lambda x: torch.abs(x), "exp": torch.exp}
+        alpha = func[self.positivity_func](self.alpha)
+        beta = func[self.positivity_func](self.beta)
+        core = func[self.positivity_func](self.core)
         return alpha, beta, core
 
     def sample(

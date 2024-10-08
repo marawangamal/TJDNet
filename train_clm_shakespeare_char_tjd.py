@@ -20,6 +20,7 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 """
 
+from typing import Literal
 import string
 import math
 import argparse
@@ -64,7 +65,7 @@ def parse_args():
         help="Batch size for training and evaluation.",
     )
     parser.add_argument(
-        "--block_size",
+        "--input_seq_len",
         type=int,
         default=256,
         help="Block size for model input sequences.",
@@ -107,6 +108,12 @@ def parse_args():
         help="Type of model to use (gpt2 or tgpt2).",
         choices=["gpt2", "tgpt2"],
     )
+    parser.add_argument(
+        "--positivity_func",
+        type=Literal["born", "abs", "exp"],
+        default="born",
+        help="Positivity function to use for MPSDist.",
+    )
 
     # Evaluation only arguments
     parser.add_argument(
@@ -123,15 +130,15 @@ class TGPT2(torch.nn.Module):
         self,
         config: GPT2Config,
         rank: int = 2,
-        norm_method: str = "abs",
         eps: float = 1e-9,
         horizon: int = 8,
         tokenizer=None,
+        positivity_func: str = "born",
     ):
         super().__init__()
         self.model = GPT2LMHeadModel(config)
         self.rank = rank
-        self.norm_method = norm_method
+        self.positivity_func = positivity_func
         self.vocab_size = config.vocab_size
         self.eps = eps
         self.custom_unembedding = torch.nn.Linear(
@@ -187,6 +194,7 @@ class TGPT2(torch.nn.Module):
                 alpha.reshape(batch_size * seq_len_adj, -1),
                 beta.reshape(batch_size * seq_len_adj, -1),
                 core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
+                positivity_func=self.positivity_func,
             )
 
             sample = learned_mpsdist.sample(max_len=self.horizon)  # (B, H)
@@ -212,6 +220,7 @@ class TGPT2(torch.nn.Module):
             alpha.reshape(batch_size * seq_len_adj, -1),
             beta.reshape(batch_size * seq_len_adj, -1),
             core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
+            positivity_func=self.positivity_func,
         )
 
         # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
@@ -277,31 +286,31 @@ def tokenize(examples, tokenizer):
     return tokenizer(examples["text"], add_special_tokens=False)
 
 
-def group_texts(examples, block_size):
+def group_texts(examples, input_seq_len):
     # Concatenate all texts.
     concatenated_examples = {k: sum(examples[k], []) for k in examples.keys()}
     total_length = len(concatenated_examples[list(examples.keys())[0]])  # type: ignore
     # We drop the small remainder, we could add padding if the model supported it instead of this drop, you can
     # customize this part to your needs.
-    if total_length >= block_size:
-        total_length = (total_length // block_size) * block_size
-    # Split by chunks of block_size.
+    if total_length >= input_seq_len:
+        total_length = (total_length // input_seq_len) * input_seq_len
+    # Split by chunks of input_seq_len.
     result = {
-        k: [t[i : i + block_size] for i in range(0, total_length, block_size)]
+        k: [t[i : i + input_seq_len] for i in range(0, total_length, input_seq_len)]
         for k, t in concatenated_examples.items()
     }
     result["labels"] = result["input_ids"].copy()
     return result
 
 
-def load_shakespeare_data(tokenizer, block_size, test_size=0.2):
+def load_shakespeare_data(tokenizer, input_seq_len, test_size=0.2):
     dataset = load_dataset("tiny_shakespeare", split="train")
     # d = d.map(preprocess_shakespeare)
     dataset = dataset.map(
         lambda x: tokenize(x, tokenizer),
         remove_columns=["text"],
     )
-    dataset = dataset.map(lambda x: group_texts(x, block_size), batched=True)
+    dataset = dataset.map(lambda x: group_texts(x, input_seq_len), batched=True)
     dataset = dataset.train_test_split(test_size=test_size)  # type: ignore
     # DEBUG: print first example decoded
     # print(f"First example: \n{tokenizer.decode(dataset['train']['input_ids'][0])}")  # type: ignore
@@ -417,7 +426,7 @@ if __name__ == "__main__":
     warmup_steps = args.warmup_steps
     num_epochs = args.num_epochs
     batch_size = args.batch_size
-    block_size = args.block_size
+    input_seq_len = args.input_seq_len
 
     # Model
     n_embd = args.n_embd
@@ -430,7 +439,7 @@ if __name__ == "__main__":
         " ",
         "\t",
     ]
-    tokenizer = CharacterTokenizer(characters, block_size)
+    tokenizer = CharacterTokenizer(characters, input_seq_len)
 
     # Sanity check tokenizer
     # print(f"Tokenizer test: {tokenizer.encode('Hello, my dog is cute.!')}")
@@ -442,7 +451,7 @@ if __name__ == "__main__":
     ), f"[FAIL] Tokenizer test failed: {decoded}"
     print(f"[PASS] Tokenizer test passed.")
 
-    lm_dataset = load_shakespeare_data(tokenizer, block_size)
+    lm_dataset = load_shakespeare_data(tokenizer, input_seq_len)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     # Data loaders
@@ -463,7 +472,13 @@ if __name__ == "__main__":
         pad_token_id=tokenizer.pad_token_id,
     )
     model = (
-        TGPT2(config, rank=args.rank, horizon=args.horizon, tokenizer=tokenizer)
+        TGPT2(
+            config,
+            rank=args.rank,
+            horizon=args.horizon,
+            positivity_func=args.positivity_func,
+            tokenizer=tokenizer,
+        )
         if args.model == "tgpt2"
         else GPT2LMHeadModel(config)
     )
