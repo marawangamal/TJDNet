@@ -258,20 +258,20 @@ class TGPT2(torch.nn.Module):
         learned_mpsdist, transformer_outputs, targets = self.get_tt_dist(
             input_ids, **kwargs
         )
-        # loss = get_entropy_loss_stable(
-        #     learned_mpsdist,
-        #     targets=targets,
-        #     eps=self.eps,
-        # )
+        loss = get_entropy_loss_stable(
+            learned_mpsdist,
+            targets=targets,
+            eps=self.eps,
+        )
 
         # DEBUG: entropy loss works so no issues with `alpha`, `beta`, `core` and sampling
-        probs_tilde = learned_mpsdist.materialize(
-            n_core_repititions=self.horizon, normalize=False
-        )
-        loss = get_entropy_loss_stable_debug(
-            probs_tilde,
-            targets.flatten(),
-        )
+        # probs_tilde = learned_mpsdist.materialize(
+        #     n_core_repititions=self.horizon, normalize=False
+        # )
+        # loss = get_entropy_loss_stable_debug(
+        #     probs_tilde,
+        #     targets.flatten(),
+        # )
         transformer_outputs.loss = loss
 
         torch.cuda.synchronize()
