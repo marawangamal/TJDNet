@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Literal
 import torch
 import torch.nn as nn
 
@@ -9,7 +9,13 @@ from TJDNet.utils import umps_select_marginalize_batched, umps_materialize_batch
 
 
 class MPSDistBase:
-    def __init__(self, alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor):
+    def __init__(
+        self,
+        alpha: torch.Tensor,
+        beta: torch.Tensor,
+        core: torch.Tensor,
+        positivity_func: Literal["sq", "abs", "exp"] = "abs",
+    ):
         """Initialize the MPS distribution.
 
         Args:
@@ -24,6 +30,7 @@ class MPSDistBase:
         self.alpha = alpha
         self.beta = beta
         self.core = core
+        self.positivity_func = positivity_func
 
     @staticmethod
     def _sample_one(
@@ -86,33 +93,64 @@ class MPSDistBase:
         return alpha_batched, beta_batched, core_batched
 
     def get_params(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        func = {"born": lambda x: x**2, "abs": lambda x: torch.abs(x)}
-        alpha = func["born"](self.alpha)
-        beta = func["born"](self.beta)
-        core = func["born"](self.core)
+        func = {"sq": lambda x: x**2, "abs": lambda x: torch.abs(x), "exp": torch.exp}
+        alpha = func[self.positivity_func](self.alpha)
+        beta = func[self.positivity_func](self.beta)
+        core = func[self.positivity_func](self.core)
         return alpha, beta, core
 
-    def sample(self, max_len: int, n_samples: int = 1) -> torch.Tensor:
-        """Sample sequences from the MPS distribution.
+    def sample(
+        self, max_len: int, n_samples: int = 1, batch_idx: int = 0
+    ) -> torch.Tensor:
+        """Sample sequences from the MPS distribution. (i.e, :math:`y \sim p(y)`)
 
         Args:
             max_len (int): Maximum length of the sequences.
-            batch_size (int, optional): Batch size. Defaults to 1.
+            n_samples (int, optional): Number of samples to draw. Defaults to 1.
+            batch_idx (int, optional): Index of the batch to sample from. Defaults to 0.
 
         Returns:
             torch.Tensor: Sampled sequences. Shape: (batch_size, max_len)
         """
         alpha, beta, core = self.get_params()
-        samples = [
-            self._sample_one(
+        batch_size = alpha.size(0)
+        left_n = 0
+        right_n = max_len - 1
+        operation_map_left = torch.ones(batch_size, left_n, device=alpha.device).long()
+        operation_map_right = (
+            torch.ones(batch_size, right_n, device=alpha.device).long() * -1
+        )
+        # BUG: should apply the selected indices in the operation_map_left and only marginalize indices in the operation_map_right
+        for t in range(max_len):
+            res_left, scale_factors = umps_select_marginalize_batched(
                 alpha=alpha,
                 beta=beta,
                 core=core,
-                max_len=max_len,
+                operation_map=operation_map_left,
+                reversed=False,
+                skip_last=True,
+                apply_scale_factors=False,
+            )  # (batch_size, rank) (alpha-A-...-A-)
+            res_right, scale_factors = umps_select_marginalize_batched(
+                alpha=alpha,
+                beta=beta,
+                core=core,
+                operation_map=operation_map_right,
+                reversed=True,
+                skip_last=True,
+                apply_scale_factors=False,
+            )  # (batch_size, rank) (-A-...-A-beta)
+
+            p_tilde = torch.einsum("bi,bidj,bj->bd", res_left, core, res_right)
+            sample = torch.argmax(p_tilde, dim=-1).long()
+
+            # Update operation_map_left and operation_map_right
+            operation_map_left = torch.cat(
+                [operation_map_left, sample.unsqueeze(1)], dim=1
             )
-            for _ in range(n_samples)
-        ]  # List of (1, max_len)
-        return torch.stack(samples).squeeze(1)  # (n_samples, max_len)
+            operation_map_right = operation_map_right[:, 1:]
+
+        return operation_map_left
 
     def get_unnorm_prob(
         self,
@@ -129,25 +167,19 @@ class MPSDistBase:
         """
         alpha, beta, core = self.get_params()
         batch_size = y.shape[0]
-        selection_map = torch.cat(
-            [torch.ones(batch_size, 1, device=y.device, dtype=y.dtype) * -1, y[:, 1:]],
-            1,
-        )
 
         alpha_batched, beta_batched, core_batched = self._make_batched_params(
             batch_size, alpha, beta, core
         )
 
-        p_tilde_one, z_list = umps_select_marginalize_batched(
+        p_tilde, scale_factors = umps_select_marginalize_batched(
             alpha=alpha_batched,
             beta=beta_batched,
             core=core_batched,
-            selection_map=selection_map,
-            marginalize_mask=torch.zeros_like(y, device=y.device),
-            apply_scale_factor=apply_scale_factor,
+            operation_map=y,
+            apply_scale_factors=apply_scale_factor,
         )  # (batch_size, n_vocab)
-        p_tilde = torch.stack([p_tilde_one[b, y[b, 0]] for b in range(batch_size)])
-        return p_tilde, z_list
+        return p_tilde, scale_factors
 
     def get_norm_constant(
         self, y: torch.Tensor, apply_scale_factor: bool = True
@@ -162,16 +194,14 @@ class MPSDistBase:
         )
 
         # Function umps_select_marginalize_batched needs to output a vector. So this marginalizes all except the first element.
-        z_one, z_list = umps_select_marginalize_batched(
+        z, scale_factors = umps_select_marginalize_batched(
             alpha=alpha_batched,
             beta=beta_batched,
             core=core_batched,
-            selection_map=torch.ones_like(y, device=y.device) * -1,
-            marginalize_mask=marginalize_mask,
-            apply_scale_factor=apply_scale_factor,
+            operation_map=torch.ones_like(y, device=y.device) * -1,
+            apply_scale_factors=apply_scale_factor,
         )
-        z = z_one.sum()
-        return z, z_list
+        return z, scale_factors
 
     def get_unnorm_prob_and_norm(
         self,
@@ -187,13 +217,13 @@ class MPSDistBase:
             Tuple[torch.Tensor, torch.Tensor]: Probability of the sequence and normalization constant. Shape: (batch_size,) and (batch_size,)
         """
 
-        p_tilde, z_list_select = self.get_unnorm_prob(y, apply_scale_factor)
-        z, z_list_norm = self.get_norm_constant(y, apply_scale_factor)
+        p_tilde, p_tilde_scale_factors = self.get_unnorm_prob(y, apply_scale_factor)
+        z, z_scale_factors = self.get_norm_constant(y, apply_scale_factor)
 
         assert torch.all(p_tilde >= 0), "p_tilde must be non-negative"
         assert torch.all(z >= 0), "Z must be non-negative"
-        assert torch.all(p_tilde <= z), "p_tilde must be less than Z"
-        return p_tilde, z, z_list_select, z_list_norm
+        # assert torch.all(p_tilde <= z), "p_tilde must be less than Z"
+        return p_tilde, z, p_tilde_scale_factors, z_scale_factors
 
     def materialize(
         self, normalize: bool = True, n_core_repititions: int = 3

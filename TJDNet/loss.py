@@ -71,13 +71,23 @@ def get_entropy_loss(
 
 def get_entropy_loss_stable(
     ttdist: MPSDistBase,
-    samples: torch.Tensor,
+    targets: torch.Tensor,
     eps: float = 1e-6,
     *args,
     **kwargs,
 ):
-    probs_tilde, norm_constant_tilde, z_list_select, z_list_norm = (
-        ttdist.get_unnorm_prob_and_norm(samples, apply_scale_factor=False)
+    """Compute entropy loss using MPSDistBase instance. This version is more stable than get_entropy_loss.
+
+    Args:
+        ttdist (MPSDistBase): MPSDistBase instance.
+        targets (torch.Tensor): Samples over which to compute the entropy loss. Shape: (batch_size, seq_len).
+        eps (float, optional): Small value to prevent log(0). Defaults to 1e-6.
+
+    Returns:
+        torch.Tensor: Entropy loss.
+    """
+    probs_tilde, z, p_tilde_scale_factors, z_scale_factors = (
+        ttdist.get_unnorm_prob_and_norm(targets, apply_scale_factor=False)
     )
     # Shapes:
     # probs_tilde: (B,) <-- downscaled by elements in z_list_select
@@ -87,8 +97,35 @@ def get_entropy_loss_stable(
     # Note: normalization constant is correct up to a scale factor
     loss = (
         -torch.log(probs_tilde + eps)
-        + torch.log(norm_constant_tilde)
-        - sum([torch.log(z) for z in z_list_select])
-        + sum([torch.log(z) for z in z_list_norm])
+        + torch.log(z)
+        - sum([torch.log(z) for z in p_tilde_scale_factors])
+        + sum([torch.log(z) for z in z_scale_factors])
     ).mean()
+    return loss
+
+
+def get_entropy_loss_stable_debug(
+    probs_tilde: torch.Tensor,
+    targets: torch.Tensor,
+    *args,
+    **kwargs,
+):
+    """Compute entropy loss using unnormalized probabilities.
+
+    Args:
+        probs_tilde (torch.Tensor): Unnormalized probabilities. Shape: (batch_size, n_classes).
+        targets (torch.Tensor): Samples over which to compute the entropy loss. Shape: (batch_size, seq_len).
+
+    Returns:
+        torch.Tensor: Entropy loss.
+    """
+    # (1) No exponentiation (this fails)
+    log_z = torch.log(probs_tilde.sum(dim=-1))
+    probs_tilde_select = torch.gather(probs_tilde, 1, targets.reshape(-1, 1)).squeeze()
+    loss = (-torch.log(probs_tilde_select) + log_z).mean()
+
+    # (2) LogSumExp (this works)
+    # log_z = torch.logsumexp(probs_tilde, dim=-1)
+    # probs_tilde_select = torch.gather(probs_tilde, 1, targets.reshape(-1, 1)).squeeze()
+    # loss = (-probs_tilde_select + log_z).mean()
     return loss

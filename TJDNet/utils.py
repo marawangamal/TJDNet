@@ -1,22 +1,5 @@
-from typing import Optional, Dict, List
+from typing import Optional, Union
 import torch
-
-
-def batched_index_select(
-    input: torch.Tensor,
-    batched_index: torch.Tensor,
-):
-    """Perform a batched index select operation.
-
-    Args:
-        input (torch.Tensor): Input tensor. Shape: (d1, d2, ..., dN).
-        batched_index (torch.Tensor): Batched index tensor. Shape: (batch_size, N).
-
-    Returns:
-        torch.Tensor: Output tensor. Shape: (batch_size, d2, ..., dN).
-    """
-    cols = [batched_index[:, i] for i in range(batched_index.shape[1])]
-    return input[cols]
 
 
 def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool = True):
@@ -29,90 +12,14 @@ def check_naninf(x: torch.Tensor, msg: Optional[str] = None, raise_error: bool =
         return True
 
 
-def umps_select_marginalize_old(
-    alpha: torch.Tensor,
-    beta: torch.Tensor,
-    core: torch.Tensor,
-    n_core_repititions: int,
-    selection_ids: Dict[int, int],
-    marginalize_ids: List[int],
-):
-    """Given a uMPS, perform select and/or marginalize operations.
-
-    Args:
-        alpha (torch.Tensor): Parameter tensor. Shape: (R).
-        beta (torch.Tensor): Parameter tensor. Shape: (R).
-        core (torch.Tensor): Core tensor. Shape: (R, D, R).
-        n_core_repititions (int): Number of core repetitions.
-        selection_ids (Dict[int, int]): Dictionary of selection indices.
-        marginalize_ids (List[int]) : List of marginalization indices.
-
-    Returns:
-         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
-
-    """
-
-    # Validation
-    assert len(alpha.shape) == 1, "Alpha should be a 1D tensor"
-    assert len(beta.shape) == 1, "Beta should be a 1D tensor"
-
-    # Can't have same index in both selection and marginalization
-    assert not any(
-        [sid in marginalize_ids for sid in selection_ids.keys()]
-    ), "Can't have same index in both selection and marginalization"
-
-    # Can't have indices out of range
-    assert all(
-        [sid < n_core_repititions for sid in selection_ids.keys()]
-    ), "Selection index out of range"
-
-    assert all(
-        [mid < n_core_repititions for mid in marginalize_ids]
-    ), "Marginalization index out of range"
-
-    result = None
-    core_margin = torch.einsum(
-        "idj,d->ij", core, torch.ones(core.shape[1], device=core.device)
-    )
-    for i in range(n_core_repititions):
-        if i in selection_ids:
-            sid = selection_ids[i]
-            node = core[:, sid, :]
-        elif i in marginalize_ids:
-            node = core_margin
-        else:
-            node = core
-
-        if result is None:
-            result = node
-        elif len(node.shape) == 2:
-            shape_init = result.shape
-            result = result.reshape(-1, shape_init[-1]) @ node
-            result = result.reshape(tuple(shape_init[:-1]) + tuple(node.shape[1:]))
-        else:
-            shape_init = result.shape
-            result_tmp = result.reshape(-1, shape_init[-1])
-            result = torch.einsum("ij,jdl->idl", result_tmp, node)
-            result = result.reshape(tuple(shape_init[:-1]) + tuple(node.shape[1:]))
-
-    # Contract with alpha and beta
-    if result is None:
-        raise ValueError("No core nodes selected or marginalized")
-
-    shape_init = result.shape
-    result = result.reshape(shape_init[0], -1, shape_init[-1])
-    result = torch.einsum("i,idj,j->d", alpha, result, beta)
-    result = result.reshape(tuple(shape_init[1:-1]))
-    return result
-
-
 def umps_select_marginalize_batched(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,
-    selection_map: torch.Tensor,
-    marginalize_mask: torch.Tensor,
-    apply_scale_factor: bool = True,
+    operation_map: torch.Tensor,
+    apply_scale_factors: bool = True,
+    reversed: bool = False,
+    skip_last: bool = False,
 ):
     """Given a uMPS, perform select and/or marginalize operations (batched version).
 
@@ -120,77 +27,60 @@ def umps_select_marginalize_batched(
         alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
         beta (torch.Tensor): Parameter tensor. Shape: (B, R).
         core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
-        selection_map (torch.Tensor): Batched selection indices. Negative denote non-select indices. Shape: (B, N).
-        marginalize_mask (torch.Tensor): Batched marginalization mask. Shape: (B, N).
+        operation_map (torch.Tensor): Operations to perform on indices. Shape: (B, N).  -1 for marginalize, [0, V) for select
 
     Returns:
-         torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B, n_core_repititions - (s1 + s2)).
+        torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B,)
 
     """
-    # FIXME: Does not support interleave selection and marginalization
-    # Validation
+    # Input validation: alpha, beta, core
     assert len(alpha.shape) == 2, "Alpha should be a 2D tensor"
     assert len(beta.shape) == 2, "Beta should be a 2D tensor"
-    assert len(core.shape) == 4, "Beta should be a 4D tensor"
-    assert len(selection_map.shape) == 2, "Selection map should be a 2D tensor"
-    assert len(marginalize_mask.shape) == 2, "Marginalize mask should be a 2D tensor"
-    assert (
-        selection_map.shape == marginalize_mask.shape
-    ), "Selection and marginalize mask should have same shape"
-    free_legs = torch.logical_and(selection_map == -1, marginalize_mask == 0)
-    assert torch.all(free_legs.sum(dim=-1) == 1), "Must have excatly one free leg"
+    assert len(core.shape) == 4, "Core should be a 4D tensor"
 
-    batch_size, rank, vocab_size, _ = core.shape
-    n_core_repititions = selection_map.shape[1]
+    # Input validation: selection_map, marginalize_mask
+    assert len(operation_map.shape) == 2, "Operation map should be a 2D tensor"
 
-    res_left = alpha
-    res_right = beta
+    free_legs = (operation_map == -2).sum(dim=-1)
+    assert torch.all(free_legs.sum(dim=-1) <= 1), "Must have at most one free leg"
+    core_margins = core.sum(dim=2)
 
-    core_margins = torch.einsum(
-        "bijk,bj->bik",
-        core,
-        torch.ones(batch_size, vocab_size, device=core.device),
-    )
+    n_core_repititions = operation_map.shape[1]
+    res_tmp = beta if reversed else alpha
+    scale_factors = []
 
-    norm_consts = []
+    def get_contracted_core(
+        core: torch.Tensor, batch_idx: int, time_idx: int, operation_map: torch.Tensor
+    ):
+        if operation_map[batch_idx, time_idx] >= 0:  # Select
+            return core[batch_idx, :, operation_map[batch_idx, time_idx], :]
+        elif operation_map[batch_idx, time_idx] == -1:  # Marginalize
+            return core_margins[batch_idx]
+        else:  # Not accepted
+            raise ValueError("Invalid operation")
 
     for t in range(n_core_repititions):
-        res_left_prime = torch.stack(
+        res_tmp_prime = torch.stack(
             [
-                (
-                    core[b, :, selection_map[b, t], :]
-                    if selection_map[b, t] >= 0
-                    else torch.eye(rank, device=core.device)
-                )
+                get_contracted_core(core, b, t, operation_map)
                 for b in range(core.shape[0])
             ]
         )  # (B, R, R)
-        # z_tmp = res_left.sum(dim=1) replace with norm of a vec
-        z_tmp = torch.linalg.norm(res_left, dim=1)
-        norm_consts.append(z_tmp)
-        res_left = res_left / z_tmp.unsqueeze(1)
-        res_left = torch.einsum("bi,bij->bj", res_left, res_left_prime)
-
-    for t in range(n_core_repititions):
-        res_right_prime = torch.stack(
-            [
-                (
-                    core_margins[b]
-                    if marginalize_mask[b, t]
-                    else torch.eye(rank, device=core.device)
-                )
-                for b in range(core.shape[0])
-            ]
-        )
-        z_tmp = torch.linalg.norm(res_right, dim=1)
-        norm_consts.append(z_tmp)
-        res_right = res_right / z_tmp.unsqueeze(1)
-        res_right = torch.einsum("bij, bj->bi", res_right_prime, res_right)
-    res = torch.einsum("bi, bidj, bj -> bd", res_left, core, res_right)
-    if apply_scale_factor:
-        norm_const = torch.stack(norm_consts, dim=1).prod(dim=1)
-        res = res * norm_const.unsqueeze(1)
-    return res, norm_consts
+        z_tmp = torch.linalg.norm(res_tmp, dim=1)
+        scale_factors.append(z_tmp)
+        res_tmp = res_tmp / z_tmp.unsqueeze(1)
+        if reversed:
+            res_tmp = torch.einsum("bij, bi->bj", res_tmp_prime, res_tmp)
+        else:
+            res_tmp = torch.einsum("bi,bij->bj", res_tmp, res_tmp_prime)
+    if skip_last:
+        return res_tmp, scale_factors
+    res = torch.einsum("bi, bi -> b", res_tmp, alpha if reversed else beta)
+    if apply_scale_factors:
+        norm_const = torch.stack(scale_factors, dim=1).prod(dim=1)
+        res = res * norm_const
+        scale_factors = []
+    return res, scale_factors
 
 
 def umps_materialize_batched(
@@ -247,3 +137,55 @@ def umps_materialize_batched(
         )
         result = result / norm_const
     return result
+
+
+def window_input_ids(input_ids: torch.Tensor, horizon: int, shift: int = 1):
+    """Window the input_ids so that each position looks H steps ahead.
+
+    Args:
+        input_ids (torch.Tensor): The input tensor of shape (B, T).
+        H (int): The number of steps ahead each position should look.
+
+    Returns:
+        torch.Tensor: The windowed tensor of shape (B, T, H).
+    """
+    B, T = input_ids.shape
+
+    # Create the windowed input tensor
+    input_ids_windowed = torch.stack(
+        [torch.roll(input_ids, -i - shift, dims=1) for i in range(horizon)], dim=-1
+    )
+
+    # Mask out positions that roll beyond the sequence length
+    for i in range(1, horizon):
+        input_ids_windowed[:, -i - shift :, i] = (
+            0  # Replace 0 with padding token if needed
+        )
+
+    # Correct the padding (zeroing) for positions that have rolled beyond the valid sequence length
+    for i in range(horizon):
+        # Calculate the index from which zeroing should start based on the shift
+        zero_start = T - i - shift
+        if zero_start < T:  # Only apply zeroing if we're within valid range
+            input_ids_windowed[:, zero_start:, i] = 0
+
+    return input_ids_windowed
+
+
+class AverageMeter:
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count

@@ -1,5 +1,5 @@
 """
-Fine-tune GPT-2 on ELI5 dataset.
+Fine-tune GPT-2 using TJDNet on Shakespeare dataset.
 
 Resources: 
 https://huggingface.co/docs/transformers/tasks/language_modeling
@@ -20,6 +20,7 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 """
 
+from typing import Literal
 import string
 import math
 import argparse
@@ -36,7 +37,8 @@ from transformers import DataCollatorForLanguageModeling, get_scheduler
 
 from character_tokenizer import CharacterTokenizer
 from TJDNet import MPSDistBase
-from TJDNet.loss import get_entropy_loss_stable
+from TJDNet.loss import get_entropy_loss_stable, get_entropy_loss_stable_debug
+from TJDNet.utils import window_input_ids, AverageMeter
 
 
 from utils import get_experiment_name
@@ -63,9 +65,15 @@ def parse_args():
         help="Batch size for training and evaluation.",
     )
     parser.add_argument(
-        "--block_size",
+        "--input_seq_len",
         type=int,
         default=256,
+        help="Block size for model input sequences.",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=2,
         help="Block size for model input sequences.",
     )
     parser.add_argument(
@@ -89,7 +97,7 @@ def parse_args():
     parser.add_argument(
         "--rank",
         type=int,
-        default=2,
+        default=4,
         help="Rank of the tensor train decomposition.",
     )
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
@@ -100,12 +108,19 @@ def parse_args():
         help="Type of model to use (gpt2 or tgpt2).",
         choices=["gpt2", "tgpt2"],
     )
+    parser.add_argument(
+        "--positivity_func",
+        type=str,
+        default="exp",
+        choices=["sq", "abs", "exp"],
+        help="Positivity function to use for MPSDist.",
+    )
 
     # Evaluation only arguments
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=8,
+        default=128,
         help="Maximum number of tokens to generate during evaluation.",
     )
     return parser.parse_args()
@@ -116,18 +131,21 @@ class TGPT2(torch.nn.Module):
         self,
         config: GPT2Config,
         rank: int = 2,
-        norm_method: str = "abs",
         eps: float = 1e-9,
+        horizon: int = 8,
+        tokenizer=None,
+        positivity_func: str = "sq",
     ):
         super().__init__()
         self.model = GPT2LMHeadModel(config)
         self.rank = rank
-        self.norm_method = norm_method
+        self.positivity_func = positivity_func
         self.vocab_size = config.vocab_size
         self.eps = eps
         self.custom_unembedding = torch.nn.Linear(
             config.n_embd, config.vocab_size, bias=False
         )
+        self.tokenizer = tokenizer
         self.tensor_train_size = rank + (rank * config.vocab_size * rank) + rank
         self.seq2latents = torch.nn.Sequential(
             # Average pool the seq_len dimension
@@ -136,54 +154,127 @@ class TGPT2(torch.nn.Module):
         )
         self.latent2tt = torch.nn.Linear(config.n_embd, self.tensor_train_size)
         self.loss_fn = torch.nn.CrossEntropyLoss()
+        self.horizon = horizon
+
+        self.forward_avg_meter = AverageMeter()
+        self.loss_avg_meter = AverageMeter()
 
     @property
     def device(self):
         return next(self.parameters()).device
 
-    def generate(self, input_ids, *args, max_new_tokens=8, **kwargs):
-        learned_ttdist, transformer_outputs = self.get_tt_dist(input_ids)
-        sample = learned_ttdist.sample(max_len=max_new_tokens)
-        return sample
+    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
+        """_summary_
 
+        Args:
+            input_ids (torch.Tensor): Input prompt tensor of shape (B, T).
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, max_new_tokens).
+        """
+
+        batch_size, seq_len = input_ids.size()
+        n_passes = max_new_tokens // self.horizon
+        output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
+        input_tens = input_ids
+
+        for _ in range(n_passes):
+            transformer_outputs = self.model.transformer(
+                input_ids=input_tens,
+            )
+            hidden_states = transformer_outputs.last_hidden_state
+
+            alpha, beta, core = self.get_tt_params(
+                hidden_states[:, -1:, :]
+            )  # (B, 1, R, D, R)
+            _, seq_len_adj, rank, vocab_size, _ = core.size()
+
+            # Forward pass:
+            learned_mpsdist = MPSDistBase(
+                alpha.reshape(batch_size * seq_len_adj, -1),
+                beta.reshape(batch_size * seq_len_adj, -1),
+                core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
+                positivity_func=self.positivity_func,
+            )
+
+            sample = learned_mpsdist.sample(max_len=self.horizon)  # (B, H)
+            output_tens = torch.cat([output_tens, sample], dim=1)
+            input_tens = torch.cat([input_tens, sample], dim=1)
+        return output_tens
+
+    # todo: use delta_core
     def get_tt_dist(self, input_ids: torch.Tensor, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
         )
-        # todo: use delta_core
+
         hidden_states = transformer_outputs.last_hidden_state
-        alpha, beta, core = self.get_tt_params(hidden_states)
+        alpha, beta, core = self.get_tt_params(
+            hidden_states[:, : -self.horizon, :]
+        )  # (B, T-H, R), (B, T-H, R), (B, T-H, R, D, R)
+        batch_size, seq_len_adj, rank, vocab_size, _ = core.size()
 
         # Forward pass:
-        learned_ttdist = MPSDistBase(
-            alpha,
-            beta,
-            core,
+        learned_mpsdist = MPSDistBase(
+            alpha.reshape(batch_size * seq_len_adj, -1),
+            beta.reshape(batch_size * seq_len_adj, -1),
+            core.reshape(batch_size * seq_len_adj, rank, vocab_size, rank),
+            positivity_func=self.positivity_func,
         )
-        return learned_ttdist, transformer_outputs
+
+        # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
+        #   each position should look H steps ahead
+        input_ids_windowed = window_input_ids(input_ids, horizon=self.horizon)
+
+        # 2. Make targets using windowed input_ids
+        targets = input_ids_windowed[:, : -self.horizon]  # (B, T-H, H)
+        targets = targets.reshape(-1, self.horizon)  # (B * (T-H), H)
+
+        return learned_mpsdist, transformer_outputs, targets
 
     def get_tt_params(self, hidden_states: torch.Tensor):
         # Map with linear layer
         batch_size, seq_len, hidden_size = hidden_states.size()
-        tt_latent = self.seq2latents(hidden_states)[:, 0, :]
-        tt_params = self.latent2tt(tt_latent)
+        tt_latent = self.seq2latents(
+            hidden_states
+        )  # (batch_size, seq_len, hidden_size)
+        tt_params = self.latent2tt(
+            tt_latent
+        )  # (batch_size, seq_len, tensor_train_size)
         alpha, core, beta = torch.split(
             tt_params,
             [self.rank, self.rank * self.vocab_size * self.rank, self.rank],
             dim=-1,
         )
-        alpha = alpha.reshape(batch_size, self.rank)
-        beta = beta.reshape(batch_size, self.rank)
-        core = core.reshape(batch_size, self.rank, self.vocab_size, self.rank)
+        alpha = alpha.reshape(batch_size, seq_len, self.rank)
+        beta = beta.reshape(batch_size, seq_len, self.rank)
+        core = core.reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
         return alpha, beta, core
 
     def forward(self, input_ids, labels, *args, **kwargs):
-        learned_ttdist, transformer_outputs = self.get_tt_dist(input_ids, **kwargs)
-        loss = get_entropy_loss_stable(
-            learned_ttdist, samples=input_ids, eps=self.eps, vocab_size=self.vocab_size
+
+        learned_mpsdist, transformer_outputs, targets = self.get_tt_dist(
+            input_ids, **kwargs
         )
+        loss = get_entropy_loss_stable(
+            learned_mpsdist,
+            targets=targets,
+            eps=self.eps,
+        )
+
+        # DEBUG: entropy loss works so no issues with `alpha`, `beta`, `core` and sampling
+        # probs_tilde = learned_mpsdist.materialize(
+        #     n_core_repititions=self.horizon, normalize=False
+        # )
+        # loss = get_entropy_loss_stable_debug(
+        #     probs_tilde,
+        #     targets.flatten(),
+        # )
         transformer_outputs.loss = loss
+
+        torch.cuda.synchronize()
         return transformer_outputs
 
 
@@ -196,31 +287,31 @@ def tokenize(examples, tokenizer):
     return tokenizer(examples["text"], add_special_tokens=False)
 
 
-def group_texts(examples, block_size):
+def group_texts(examples, input_seq_len):
     # Concatenate all texts.
     concatenated_examples = {k: sum(examples[k], []) for k in examples.keys()}
     total_length = len(concatenated_examples[list(examples.keys())[0]])  # type: ignore
     # We drop the small remainder, we could add padding if the model supported it instead of this drop, you can
     # customize this part to your needs.
-    if total_length >= block_size:
-        total_length = (total_length // block_size) * block_size
-    # Split by chunks of block_size.
+    if total_length >= input_seq_len:
+        total_length = (total_length // input_seq_len) * input_seq_len
+    # Split by chunks of input_seq_len.
     result = {
-        k: [t[i : i + block_size] for i in range(0, total_length, block_size)]
+        k: [t[i : i + input_seq_len] for i in range(0, total_length, input_seq_len)]
         for k, t in concatenated_examples.items()
     }
     result["labels"] = result["input_ids"].copy()
     return result
 
 
-def load_shakespeare_data(tokenizer, block_size, test_size=0.2):
+def load_shakespeare_data(tokenizer, input_seq_len, test_size=0.2):
     dataset = load_dataset("tiny_shakespeare", split="train")
     # d = d.map(preprocess_shakespeare)
     dataset = dataset.map(
         lambda x: tokenize(x, tokenizer),
         remove_columns=["text"],
     )
-    dataset = dataset.map(lambda x: group_texts(x, block_size), batched=True)
+    dataset = dataset.map(lambda x: group_texts(x, input_seq_len), batched=True)
     dataset = dataset.train_test_split(test_size=test_size)  # type: ignore
     # DEBUG: print first example decoded
     # print(f"First example: \n{tokenizer.decode(dataset['train']['input_ids'][0])}")  # type: ignore
@@ -232,18 +323,19 @@ def get_test_sample(
     tokenizer,
     prompt="\n",
     max_new_tokens=8,
-    top_k=200,
-    temperature=0.8,
+    # top_k=200,
+    # temperature=0.8,
+    num_beams=1,
+    do_sample=False,
 ):
     # Inference
     model.eval()
     inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
     outputs = model.generate(
         inputs,
+        num_beams=num_beams,
+        do_sample=do_sample,
         max_new_tokens=max_new_tokens,
-        do_sample=True,
-        top_k=top_k,
-        temperature=temperature,
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
@@ -291,7 +383,17 @@ def train(
             lr_scheduler.step()
             optimizer.zero_grad()
             # Update progress bar with latest loss
-            progress_bar.set_postfix(loss=f"{loss.item():.3f}")
+            # Check if model has forward_avg_meter and loss_avg_meter
+            model_fwd_time = 0
+            model_loss_time = 0
+            if hasattr(model, "forward_avg_meter") and hasattr(model, "loss_avg_meter"):
+                model_fwd_time = model.forward_avg_meter.avg
+                model_loss_time = model.loss_avg_meter.avg
+            progress_bar.set_postfix(
+                loss=f"{loss.item():.3f}",
+                time_fwd_ms=f"{model_fwd_time:.3f}",
+                time_loss_ms=f"{model_loss_time:.3f}",
+            )
             if i % 100 == 0:
                 print(
                     f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
@@ -325,7 +427,7 @@ if __name__ == "__main__":
     warmup_steps = args.warmup_steps
     num_epochs = args.num_epochs
     batch_size = args.batch_size
-    block_size = args.block_size
+    input_seq_len = args.input_seq_len
 
     # Model
     n_embd = args.n_embd
@@ -338,7 +440,7 @@ if __name__ == "__main__":
         " ",
         "\t",
     ]
-    tokenizer = CharacterTokenizer(characters, block_size)
+    tokenizer = CharacterTokenizer(characters, input_seq_len)
 
     # Sanity check tokenizer
     # print(f"Tokenizer test: {tokenizer.encode('Hello, my dog is cute.!')}")
@@ -350,7 +452,7 @@ if __name__ == "__main__":
     ), f"[FAIL] Tokenizer test failed: {decoded}"
     print(f"[PASS] Tokenizer test passed.")
 
-    lm_dataset = load_shakespeare_data(tokenizer, block_size)
+    lm_dataset = load_shakespeare_data(tokenizer, input_seq_len)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     # Data loaders
@@ -371,16 +473,21 @@ if __name__ == "__main__":
         pad_token_id=tokenizer.pad_token_id,
     )
     model = (
-        TGPT2(config, rank=args.rank)
+        TGPT2(
+            config,
+            rank=args.rank,
+            horizon=args.horizon,
+            positivity_func=args.positivity_func,
+            tokenizer=tokenizer,
+        )
         if args.model == "tgpt2"
         else GPT2LMHeadModel(config)
     )
 
     wandb.init(
-        project="TJDNet (Shakespeare)",
+        project="tjdnet-shakepeare",
         config=vars(args),
         name=get_experiment_name(vars(args)),
-        mode="disabled",
     )
 
     train(
