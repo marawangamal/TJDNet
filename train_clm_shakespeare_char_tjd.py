@@ -350,6 +350,7 @@ def train(
     warmup_steps=100,
     n_eval_samples=3,
     max_new_tokens=8,
+    eval_before_training=True,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -363,7 +364,10 @@ def train(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
-    for epoch in range(num_epochs):
+    if eval_before_training:
+        evaluate(model, eval_dataloader, epoch=0)
+
+    for epoch in range(1, num_epochs + 1):
         for i in range(n_eval_samples):
             print(
                 f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
@@ -371,7 +375,7 @@ def train(
         model.train()
         progress_bar = tqdm(
             train_dataloader,
-            desc=f"Epoch {epoch+1}",
+            desc=f"Epoch {epoch}",
             bar_format="{l_bar}{bar}| [Duration: {elapsed}][{postfix}]",
         )
         for i, batch in enumerate(progress_bar):
@@ -398,22 +402,26 @@ def train(
                 print(
                     f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
                 )
+        evaluate(model, eval_dataloader, epoch)
 
-        model.eval()
-        losses = []
-        for batch in eval_dataloader:
-            batch = {k: v.to(device) for k, v in batch.items()}
-            with torch.no_grad():
-                outputs = model(**batch)
 
-            loss = outputs.loss
-            losses.append(loss.item())
+def evaluate(
+    model: torch.nn.Module, eval_dataloader: torch.utils.data.DataLoader, epoch: int
+):
+    model.eval()
+    losses = []
+    device = next(model.parameters()).device
+    for batch in eval_dataloader:
+        batch = {k: v.to(device) for k, v in batch.items()}
+        with torch.no_grad():
+            outputs = model(**batch)
 
-        eval_loss = sum(losses) / len(losses)
-        print(
-            f"[Epoch {epoch + 1}] PPL: {math.exp(eval_loss):.2f} | Loss: {eval_loss:.2f}"
-        )
-        wandb.log({"eval_loss": eval_loss, "epoch": epoch + 1})
+        loss = outputs.loss
+        losses.append(loss.item())
+
+    eval_loss = sum(losses) / len(losses)
+    print(f"[Epoch {epoch + 1}] PPL: {math.exp(eval_loss):.2f} | Loss: {eval_loss:.2f}")
+    wandb.log({"eval_loss": eval_loss, "epoch": epoch})
 
 
 if __name__ == "__main__":
