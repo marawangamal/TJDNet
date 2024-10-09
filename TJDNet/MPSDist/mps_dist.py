@@ -14,7 +14,7 @@ class MPSDistBase:
         alpha: torch.Tensor,
         beta: torch.Tensor,
         core: torch.Tensor,
-        positivity_func: Literal["born", "abs", "exp"] = "abs",
+        positivity_func: Literal["sq", "abs", "exp"] = "abs",
     ):
         """Initialize the MPS distribution.
 
@@ -93,7 +93,7 @@ class MPSDistBase:
         return alpha_batched, beta_batched, core_batched
 
     def get_params(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        func = {"born": lambda x: x**2, "abs": lambda x: torch.abs(x), "exp": torch.exp}
+        func = {"sq": lambda x: x**2, "abs": lambda x: torch.abs(x), "exp": torch.exp}
         alpha = func[self.positivity_func](self.alpha)
         beta = func[self.positivity_func](self.beta)
         core = func[self.positivity_func](self.core)

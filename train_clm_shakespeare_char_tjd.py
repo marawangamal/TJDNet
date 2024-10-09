@@ -112,7 +112,7 @@ def parse_args():
         "--positivity_func",
         type=str,
         default="exp",
-        choices=["born", "abs", "exp"],
+        choices=["sq", "abs", "exp"],
         help="Positivity function to use for MPSDist.",
     )
 
@@ -134,7 +134,7 @@ class TGPT2(torch.nn.Module):
         eps: float = 1e-9,
         horizon: int = 8,
         tokenizer=None,
-        positivity_func: str = "born",
+        positivity_func: str = "sq",
     ):
         super().__init__()
         self.model = GPT2LMHeadModel(config)
@@ -485,10 +485,9 @@ if __name__ == "__main__":
     )
 
     wandb.init(
-        project="TJDNet (Shakespeare)",
+        project="tjdnet-shakepeare",
         config=vars(args),
         name=get_experiment_name(vars(args)),
-        mode="disabled",
     )
 
     train(
