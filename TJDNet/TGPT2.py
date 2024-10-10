@@ -1,4 +1,3 @@
-import os.path as osp
 import torch
 from transformers import (
     GPT2Config,
@@ -8,9 +7,6 @@ from transformers import (
 from .MPSDist import MPSDistBase
 from .loss import get_entropy_loss_stable, get_entropy_loss_stable_debug
 from .utils import window_input_ids, AverageMeter
-
-
-from utils import get_experiment_name
 
 
 class TGPT2(torch.nn.Module):

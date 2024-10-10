@@ -21,9 +21,11 @@ from TJDNet import TGPT2
 
 # Function to load the model's state dict
 def load_model(state_dict_path):
-    model = TGPT2()  # Replace with your actual model class
     state_dict = torch.load(state_dict_path)
-    model.load_state_dict(state_dict)
+    model_state_dict = state_dict["state_dict"]
+    model_config = state_dict["model_config"]
+    model = TGPT2(**model_config)
+    model.load_state_dict(model_state_dict)
     return model
 
 
@@ -41,7 +43,7 @@ if __name__ == "__main__":
         description="Load a model and plot its transition matrix singular values."
     )
     parser.add_argument(
-        "model_path", type=str, help="Path to the model's state dict (.pth file)"
+        "--model_path", type=str, help="Path to the model's state dict (.pth file)"
     )
 
     args = parser.parse_args()
@@ -62,4 +64,5 @@ if __name__ == "__main__":
     plt.xlabel("Index")
     plt.ylabel("Singular Value")
     plt.grid(True)
-    plt.show()
+    # plt.show()
+    plt.savefig("singular_values.png")
