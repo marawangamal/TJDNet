@@ -343,6 +343,9 @@ if __name__ == "__main__":
         "rank": args.rank,
         "horizon": args.horizon,
         "positivity_func": args.positivity_func,
+        "eos_token_id": tokenizer.eos_token_id,
+        "bos_token_id": tokenizer.bos_token_id,
+        "pad_token_id": tokenizer.pad_token_id,
     }
 
     # model = (

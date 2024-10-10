@@ -26,6 +26,9 @@ class TGPT2(torch.nn.Module):
         eps: float = 1e-9,
         horizon: int = 8,
         positivity_func: str = "sq",
+        eos_token_id: int = 50256,
+        bos_token_id: int = 50256,
+        pad_token_id: int = 50256,
     ):
         super().__init__()
         self.model_name = model
@@ -36,6 +39,9 @@ class TGPT2(torch.nn.Module):
                 n_layer=n_layer,
                 n_head=n_head,
                 dropout=dropout,
+                eos_token_id=eos_token_id,
+                bos_token_id=bos_token_id,
+                pad_token_id=pad_token_id,
             )
         )
         self.rank = rank
@@ -174,6 +180,7 @@ class TGPT2(torch.nn.Module):
 
         if self.model_name == "gpt2":
             return self.model(
+                *args,
                 input_ids=input_ids,
                 labels=labels,
                 **kwargs,
