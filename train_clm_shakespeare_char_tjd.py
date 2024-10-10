@@ -260,7 +260,8 @@ def train(
         best_eval_loss = min(eval_loss, best_eval_loss)
 
         # Save model checkpoint
-        if eval_loss < best_eval_loss:
+        if eval_loss <= best_eval_loss:
+            print(f"Saving model checkpoint to {save_dir}")
             torch.save(
                 {
                     "state_dict": model.state_dict(),
