@@ -12,11 +12,13 @@ Functionality:
 3. Plots the singular value spectrum of the computed matrix.
 """
 
+import string
 import torch
 import matplotlib.pyplot as plt
 import argparse
 
 from TJDNet import TGPT2
+from TJDNet import CharacterTokenizer
 
 
 # Function to load the model's state dict
@@ -30,10 +32,22 @@ def load_model(state_dict_path):
 
 
 # Function to compute the transition matrix (replace with actual logic)
-def get_transition_mat(model):
+def get_transition_mat(model, tokenizer):
     # Return a dummy transition matrix (10x10) for demonstration purposes
     # Replace this with actual transition matrix computation based on the model
-    return torch.randn(10, 10).detach().numpy()
+    x = torch.tensor(tokenizer.encode([" "])).reshape(1, 1)  # (B, T)
+    dummy_label = torch.tensor(tokenizer.encode(["a"])).reshape(1, 1)  # (B, T)
+    dummy_labels = torch.tensor(tokenizer.encode(["a", "b"])).reshape(1, 2)  # (B, T)
+    p_mat = torch.zeros(model.vocab_size, model.vocab_size)
+    with torch.no_grad():  # Disable gradients since we are not training
+        py1_x = model(x, labels=dummy_label).logits.softmax(dim=-1)
+        for i1, py1_x_i in enumerate(py1_x[0, 0]):
+            py2_x = model(
+                torch.stack([x, torch.tensor([[i1]])], dim=1)[:, :, 0],
+                labels=dummy_labels,
+            ).logits.softmax(dim=-1)
+            p_mat[i1] = py2_x[0, 1] * py1_x_i
+        return p_mat
 
 
 # Main script
@@ -46,13 +60,20 @@ if __name__ == "__main__":
         "--model_path", type=str, help="Path to the model's state dict (.pth file)"
     )
 
+    characters = list(string.ascii_letters + string.digits + string.punctuation) + [
+        "\n",
+        " ",
+        "\t",
+    ]
+    tokenizer = CharacterTokenizer(characters, 256)
+
     args = parser.parse_args()
 
     # Load the model from the provided state dict path
     model = load_model(args.model_path)
 
     # Compute the transition matrix
-    transition_matrix = get_transition_mat(model)
+    transition_matrix = get_transition_mat(model, tokenizer)
 
     # Compute singular values
     U, S, Vh = torch.linalg.svd(torch.tensor(transition_matrix))

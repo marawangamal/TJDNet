@@ -29,14 +29,10 @@ import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from datasets import load_dataset
-from transformers import (
-    GPT2Config,
-    GPT2LMHeadModel,
-)
 import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
-from character_tokenizer import CharacterTokenizer
+from TJDNet import CharacterTokenizer
 from TJDNet import TGPT2
 
 
