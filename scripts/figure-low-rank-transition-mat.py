@@ -33,14 +33,12 @@ def load_model(state_dict_path):
 
 # Function to compute the transition matrix (replace with actual logic)
 def get_transition_mat(model, tokenizer):
-    # Return a dummy transition matrix (10x10) for demonstration purposes
-    # Replace this with actual transition matrix computation based on the model
     x = torch.tensor(tokenizer.encode([" "])).reshape(1, 1)  # (B, T)
     dummy_label = torch.tensor(tokenizer.encode(["a"])).reshape(1, 1)  # (B, T)
     dummy_labels = torch.tensor(tokenizer.encode(["a", "b"])).reshape(1, 2)  # (B, T)
     p_mat = torch.zeros(model.vocab_size, model.vocab_size)
     with torch.no_grad():  # Disable gradients since we are not training
-        py1_x = model(x, labels=dummy_label).logits.softmax(dim=-1)
+        py1_x = model(x, labels=dummy_label).logits.softmax(dim=-1)  # p(y1 | x)
         for i1, py1_x_i in enumerate(py1_x[0, 0]):
             py2_x = model(
                 torch.stack([x, torch.tensor([[i1]])], dim=1)[:, :, 0],
