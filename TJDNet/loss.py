@@ -128,5 +128,5 @@ def get_entropy_loss_stable_mjd(
     # Compute unnormalized probabilities
     p_tilde = batch_multi_dim_index(mjdist, targets)  # (B,)
     norm_const = torch.sum(mjdist.reshape(batch_size, -1), dim=1) + eps  # (B,)
-    loss = -(torch.log(p_tilde + eps) + torch.log(norm_const + eps)).mean()
+    loss = -torch.log(p_tilde) + torch.log(norm_const).mean()
     return loss
