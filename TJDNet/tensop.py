@@ -31,3 +31,30 @@ def get_flat_index(indices, shape):
         int: Flat index.
     """
     return torch.tensor(np.ravel_multi_index(indices.cpu().numpy(), shape))
+
+
+def sample_from_tens(tens, num_samples=1):
+    """Sample from tensor representing a distribution.
+
+    Args:
+        tens (torch.Tensor): Joint distribution tensor.
+        num_samples (int): Number of samples to draw.
+
+    Returns:
+        torch.Tensor: Sampled indices.
+    """
+    # Ensure the distribution is properly normalized
+    tens = tens / tens.sum()
+
+    # Flatten the distribution
+    flat_dist = tens.view(-1)
+
+    # Sample from the flattened distribution
+    samples = torch.multinomial(flat_dist, num_samples, replacement=True)
+
+    # If the original distribution was multi-dimensional, reshape the samples
+    if len(tens.shape) > 1:
+        samples = np.unravel_index(samples, tens.shape)
+        samples = torch.stack(samples, dim=-1)
+
+    return samples

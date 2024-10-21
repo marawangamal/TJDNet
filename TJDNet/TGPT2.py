@@ -8,6 +8,7 @@ from transformers import (
 from .MPSDist import MPSDistBase
 from .loss import get_entropy_loss_stable, get_entropy_loss_stable_mjd
 from .utils import window_input_ids, AverageMeter
+from .tensop import sample_from_tens
 
 
 class GPT2(torch.nn.Module):
@@ -223,6 +224,7 @@ class MGPT2(torch.nn.Module):
         bos_token_id: int = 50256,
         pad_token_id: int = 50256,
         horizon: int = 2,
+        positivity_func: str = "exp",
         **kwargs,
     ):
         super().__init__()
@@ -241,6 +243,11 @@ class MGPT2(torch.nn.Module):
         self.latent2mjd = torch.nn.Linear(n_embd, vocab_size**horizon)
         self.horizon = horizon
         self.vocab_size = vocab_size
+        self.positivity_func = {
+            "sq": lambda x: x**2,
+            "abs": lambda x: torch.abs(x),
+            "exp": torch.exp,
+        }[positivity_func]
 
     def _get_mjd_dist(self, input_ids: torch.Tensor, **kwargs):
         transformer_outputs = self.model.transformer(
@@ -283,8 +290,10 @@ class MGPT2(torch.nn.Module):
                 input_ids=input_tens,
             )
             hidden_states = transformer_outputs.last_hidden_state
-            mjdist = self.latent2mjd(hidden_states[:, -1:, :])  # (B, 1, V**H)
-            sample = sample_from_joint_distribution(mjdist, num_samples=self.horizon)
+            mjdist = self.positivity_func(
+                self.latent2mjd(hidden_states[:, -1:, :])
+            )  # (B, 1, V**H)
+            sample = sample_from_tens(mjdist, num_samples=self.horizon)
             output_tens = torch.cat([output_tens, sample], dim=1)
             input_tens = torch.cat([input_tens, sample], dim=1)
         return output_tens
@@ -295,7 +304,10 @@ class MGPT2(torch.nn.Module):
             **kwargs,
         )
         hidden_states = transformer_outputs.last_hidden_state
-        mjdist_flat = self.latent2mjd(hidden_states)  # (B, T, V**H)
+        mjdist_flat = self.positivity_func(
+            self.latent2mjd(hidden_states)
+        )  # (B, T, V**H)
+
         mjdist = mjdist_flat[:, : -self.horizon, :].reshape(
             -1, *([self.vocab_size] * self.horizon)
         )
@@ -308,34 +320,6 @@ class MGPT2(torch.nn.Module):
         )
         transformer_outputs.loss = loss
         return transformer_outputs
-
-
-def sample_from_joint_distribution(joint_dist, num_samples=1):
-    """
-    Sample from a joint distribution.
-
-    Args:
-    joint_dist (torch.Tensor): Joint distribution tensor.
-    num_samples (int): Number of samples to draw.
-
-    Returns:
-    torch.Tensor: Sampled indices.
-    """
-    # Ensure the distribution is properly normalized
-    joint_dist = joint_dist / joint_dist.sum()
-
-    # Flatten the distribution
-    flat_dist = joint_dist.view(-1)
-
-    # Sample from the flattened distribution
-    samples = torch.multinomial(flat_dist, num_samples, replacement=True)
-
-    # If the original distribution was multi-dimensional, reshape the samples
-    if len(joint_dist.shape) > 1:
-        samples = np.unravel_index(samples, joint_dist.shape)
-        samples = torch.stack(samples, dim=-1)
-
-    return samples
 
 
 # class TGPT2(torch.nn.Module):
