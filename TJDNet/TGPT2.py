@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from transformers import (
     GPT2Config,
@@ -5,7 +6,7 @@ from transformers import (
 )
 
 from .MPSDist import MPSDistBase
-from .loss import get_entropy_loss_stable, get_entropy_loss_stable_debug
+from .loss import get_entropy_loss_stable, get_entropy_loss_stable_mjd
 from .utils import window_input_ids, AverageMeter
 
 
@@ -107,7 +108,7 @@ class TJDGPT2(torch.nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    # todo: use delta_core
+    # TODO: use delta_core
     def _get_tt_dist(self, input_ids: torch.Tensor, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
@@ -211,7 +212,130 @@ class TJDGPT2(torch.nn.Module):
 
 
 class MGPT2(torch.nn.Module):
-    pass
+    def __init__(
+        self,
+        vocab_size: int = 50257,
+        n_embd: int = 768,
+        n_layer: int = 12,
+        n_head: int = 12,
+        dropout: float = 0.1,
+        eos_token_id: int = 50256,
+        bos_token_id: int = 50256,
+        pad_token_id: int = 50256,
+        horizon: int = 2,
+        **kwargs,
+    ):
+        super().__init__()
+        self.model = GPT2LMHeadModel(
+            GPT2Config(
+                vocab_size=vocab_size,
+                n_embd=n_embd,
+                n_layer=n_layer,
+                n_head=n_head,
+                dropout=dropout,
+                eos_token_id=eos_token_id,
+                bos_token_id=bos_token_id,
+                pad_token_id=pad_token_id,
+            )
+        )
+        self.latent2mjd = torch.nn.Linear(n_embd, vocab_size**horizon)
+        self.horizon = horizon
+        self.vocab_size = vocab_size
+
+    def _get_mjd_dist(self, input_ids: torch.Tensor, **kwargs):
+        transformer_outputs = self.model.transformer(
+            input_ids=input_ids,
+            **kwargs,
+        )
+        hidden_states = transformer_outputs.last_hidden_state
+        mjd_params = self.latent2mjd(hidden_states)  # (B, T, V**H)
+        return mjd_params
+
+    @staticmethod
+    def _get_windowed_input_ids(input_ids: torch.Tensor, horizon: int):
+        # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
+        #   each position should look H steps ahead
+        input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
+
+        # 2. Make targets using windowed input_ids
+        targets = input_ids_windowed[:, :-horizon]  # (B, T-H, H)
+        targets = targets.reshape(-1, horizon)  # (B * (T-H), H)
+        return targets
+
+    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
+        """Generate new tokens given an input prompt.
+
+        Args:
+            input_ids (torch.Tensor): Input prompt tensor of shape (B, T).
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, max_new_tokens).
+        """
+
+        batch_size, seq_len = input_ids.size()
+        n_passes = max_new_tokens // self.horizon
+        output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
+        input_tens = input_ids
+
+        for _ in range(n_passes):
+            transformer_outputs = self.model.transformer(
+                input_ids=input_tens,
+            )
+            hidden_states = transformer_outputs.last_hidden_state
+            mjdist = self.latent2mjd(hidden_states[:, -1:, :])  # (B, 1, V**H)
+            sample = sample_from_joint_distribution(mjdist, num_samples=self.horizon)
+            output_tens = torch.cat([output_tens, sample], dim=1)
+            input_tens = torch.cat([input_tens, sample], dim=1)
+        return output_tens
+
+    def forward(self, input_ids, labels, *args, **kwargs):
+        transformer_outputs = self.model.transformer(
+            input_ids=input_ids,
+            **kwargs,
+        )
+        hidden_states = transformer_outputs.last_hidden_state
+        mjdist_flat = self.latent2mjd(hidden_states)  # (B, T, V**H)
+        mjdist = mjdist_flat[:, : -self.horizon, :].reshape(
+            -1, *([self.vocab_size] * self.horizon)
+        )
+        targets = self._get_windowed_input_ids(
+            input_ids, horizon=self.horizon
+        )  # (B * T-H, H)
+        loss = get_entropy_loss_stable_mjd(
+            mjdist,
+            targets=targets,
+        )
+        transformer_outputs.loss = loss
+        return transformer_outputs
+
+
+def sample_from_joint_distribution(joint_dist, num_samples=1):
+    """
+    Sample from a joint distribution.
+
+    Args:
+    joint_dist (torch.Tensor): Joint distribution tensor.
+    num_samples (int): Number of samples to draw.
+
+    Returns:
+    torch.Tensor: Sampled indices.
+    """
+    # Ensure the distribution is properly normalized
+    joint_dist = joint_dist / joint_dist.sum()
+
+    # Flatten the distribution
+    flat_dist = joint_dist.view(-1)
+
+    # Sample from the flattened distribution
+    samples = torch.multinomial(flat_dist, num_samples, replacement=True)
+
+    # If the original distribution was multi-dimensional, reshape the samples
+    if len(joint_dist.shape) > 1:
+        samples = np.unravel_index(samples, joint_dist.shape)
+        samples = torch.stack(samples, dim=-1)
+
+    return samples
 
 
 # class TGPT2(torch.nn.Module):

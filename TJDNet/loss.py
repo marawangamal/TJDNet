@@ -104,28 +104,37 @@ def get_entropy_loss_stable(
     return loss
 
 
-def get_entropy_loss_stable_debug(
-    probs_tilde: torch.Tensor,
+def get_entropy_loss_stable_mjd(
+    mjdist: torch.Tensor,
     targets: torch.Tensor,
+    eps: float = 1e-6,
     *args,
     **kwargs,
 ):
-    """Compute entropy loss using unnormalized probabilities.
+    """Compute entropy loss using using a joint distribution.
 
     Args:
-        probs_tilde (torch.Tensor): Unnormalized probabilities. Shape: (batch_size, n_classes).
+        mjdist (torch.Tensor): Joint distribution. Shape: (batch_size, vocab_size ** seq_len).
         targets (torch.Tensor): Samples over which to compute the entropy loss. Shape: (batch_size, seq_len).
+        eps (float, optional): Small value to prevent log(0). Defaults to 1e-6.
 
     Returns:
         torch.Tensor: Entropy loss.
     """
-    # (1) No exponentiation (this fails)
-    log_z = torch.log(probs_tilde.sum(dim=-1))
-    probs_tilde_select = torch.gather(probs_tilde, 1, targets.reshape(-1, 1)).squeeze()
-    loss = (-torch.log(probs_tilde_select) + log_z).mean()
 
-    # (2) LogSumExp (this works)
-    # log_z = torch.logsumexp(probs_tilde, dim=-1)
-    # probs_tilde_select = torch.gather(probs_tilde, 1, targets.reshape(-1, 1)).squeeze()
-    # loss = (-probs_tilde_select + log_z).mean()
+    # Compute unnormalized probabilities
+    # (B, D1, D2, ..., DN) -> (B,)
+    probs_unnorm = torch.gather(
+        mjdist, dim=1, index=targets.view(targets.size(0), -1)
+    )  # Shape: (batch_size,)
+
+    probs_unnorm_sum = (
+        torch.sum(probs_unnorm, dim=1, keepdim=True) + eps
+    )  # Shape: (batch_size, 1)
+
+    log_probs_unnorm = torch.log(probs_unnorm + eps)
+    log_probs_unnorm_sum = log_probs_unnorm.sum(dim=1)
+
+    loss = -(log_probs_unnorm_sum + torch.log(probs_unnorm_sum)).mean()
+
     return loss
