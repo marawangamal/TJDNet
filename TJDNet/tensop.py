@@ -54,7 +54,7 @@ def sample_from_tens(tens, num_samples=1):
 
     # If the original distribution was multi-dimensional, reshape the samples
     if len(tens.shape) > 1:
-        samples = np.unravel_index(samples, tens.shape)
+        samples = torch.unravel_index(samples, tens.shape[1:])
         samples = torch.stack(samples, dim=-1)
 
     return samples

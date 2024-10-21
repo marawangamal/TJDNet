@@ -249,14 +249,9 @@ class MGPT2(torch.nn.Module):
             "exp": torch.exp,
         }[positivity_func]
 
-    def _get_mjd_dist(self, input_ids: torch.Tensor, **kwargs):
-        transformer_outputs = self.model.transformer(
-            input_ids=input_ids,
-            **kwargs,
-        )
-        hidden_states = transformer_outputs.last_hidden_state
-        mjd_params = self.latent2mjd(hidden_states)  # (B, T, V**H)
-        return mjd_params
+    @property
+    def device(self):
+        return next(self.parameters()).device
 
     @staticmethod
     def _get_windowed_input_ids(input_ids: torch.Tensor, horizon: int):
@@ -269,6 +264,20 @@ class MGPT2(torch.nn.Module):
         targets = targets.reshape(-1, horizon)  # (B * (T-H), H)
         return targets
 
+    def _get_preds(self, input_ids: torch.Tensor, **kwargs):
+        transformer_outputs = self.model.transformer(
+            input_ids=input_ids,
+            **kwargs,
+        )
+        hidden_states = transformer_outputs.last_hidden_state
+        mjdist_flat = self.positivity_func(
+            self.latent2mjd(hidden_states)
+        )  # (B, T, V**H)
+        mjdist = mjdist_flat[:, : -self.horizon, :].reshape(
+            -1, *([self.vocab_size] * self.horizon)
+        )
+        return mjdist, transformer_outputs
+
     def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
         """Generate new tokens given an input prompt.
 
@@ -280,7 +289,7 @@ class MGPT2(torch.nn.Module):
             torch.Tensor: Generated tokens of shape (B, max_new_tokens).
         """
 
-        batch_size, seq_len = input_ids.size()
+        batch_size, _ = input_ids.size()
         n_passes = max_new_tokens // self.horizon
         output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
         input_tens = input_ids
@@ -290,27 +299,17 @@ class MGPT2(torch.nn.Module):
                 input_ids=input_tens,
             )
             hidden_states = transformer_outputs.last_hidden_state
-            mjdist = self.positivity_func(
+            mjdist_flat = self.positivity_func(
                 self.latent2mjd(hidden_states[:, -1:, :])
             )  # (B, 1, V**H)
-            sample = sample_from_tens(mjdist, num_samples=self.horizon)
+            mjdist = mjdist_flat.reshape(-1, *([self.vocab_size] * self.horizon))
+            sample = sample_from_tens(mjdist, 1)
             output_tens = torch.cat([output_tens, sample], dim=1)
             input_tens = torch.cat([input_tens, sample], dim=1)
         return output_tens
 
     def forward(self, input_ids, labels, *args, **kwargs):
-        transformer_outputs = self.model.transformer(
-            input_ids=input_ids,
-            **kwargs,
-        )
-        hidden_states = transformer_outputs.last_hidden_state
-        mjdist_flat = self.positivity_func(
-            self.latent2mjd(hidden_states)
-        )  # (B, T, V**H)
-
-        mjdist = mjdist_flat[:, : -self.horizon, :].reshape(
-            -1, *([self.vocab_size] * self.horizon)
-        )
+        mjdist, transformer_outputs = self._get_preds(input_ids, **kwargs)
         targets = self._get_windowed_input_ids(
             input_ids, horizon=self.horizon
         )  # (B * T-H, H)
