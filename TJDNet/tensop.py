@@ -30,7 +30,9 @@ def get_flat_index(indices, shape):
     Returns:
         int: Flat index.
     """
-    return torch.tensor(np.ravel_multi_index(indices.cpu().numpy(), shape))
+    return torch.tensor(np.ravel_multi_index(indices.cpu().numpy(), shape)).to(
+        indices.device
+    )
 
 
 def sample_from_tens(tens, num_samples=1):
