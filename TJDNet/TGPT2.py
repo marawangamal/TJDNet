@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from transformers import (
     GPT2Config,
@@ -5,29 +6,25 @@ from transformers import (
 )
 
 from .MPSDist import MPSDistBase
-from .loss import get_entropy_loss_stable, get_entropy_loss_stable_debug
+from .loss import get_entropy_loss_stable, get_entropy_loss_stable_mjd
 from .utils import window_input_ids, AverageMeter
+from .tensop import sample_from_tens
 
 
-class TGPT2(torch.nn.Module):
+class GPT2(torch.nn.Module):
     def __init__(
         self,
-        model: str = "gpt2",
         vocab_size: int = 50257,
         n_embd: int = 768,
         n_layer: int = 12,
         n_head: int = 12,
         dropout: float = 0.1,
-        rank: int = 2,
-        eps: float = 1e-9,
-        horizon: int = 8,
-        positivity_func: str = "sq",
         eos_token_id: int = 50256,
         bos_token_id: int = 50256,
         pad_token_id: int = 50256,
+        **kwargs,
     ):
         super().__init__()
-        self.model_name = model
         self.model = GPT2LMHeadModel(
             GPT2Config(
                 vocab_size=vocab_size,
@@ -40,8 +37,58 @@ class TGPT2(torch.nn.Module):
                 pad_token_id=pad_token_id,
             )
         )
-        self.rank = rank
+
+    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
+        return self.model.generate(
+            input_ids=input_ids,
+            max_new_tokens=max_new_tokens,
+            **kwargs,
+        )
+
+    def forward(self, input_ids, labels, *args, **kwargs):
+        return self.model(
+            *args,
+            input_ids=input_ids,
+            labels=labels,
+            **kwargs,
+        )
+
+
+class TJDGPT2(torch.nn.Module):
+    def __init__(
+        self,
+        vocab_size: int = 50257,
+        n_embd: int = 768,
+        n_layer: int = 12,
+        n_head: int = 12,
+        dropout: float = 0.1,
+        rank: int = 2,
+        eps: float = 1e-9,
+        horizon: int = 8,
+        positivity_func: str = "sq",
+        eos_token_id: int = 50256,
+        bos_token_id: int = 50256,
+        pad_token_id: int = 50256,
+        **kwargs,
+    ):
+        super().__init__()
+        self.model = GPT2LMHeadModel(
+            GPT2Config(
+                vocab_size=vocab_size,
+                n_embd=n_embd,
+                n_layer=n_layer,
+                n_head=n_head,
+                dropout=dropout,
+                eos_token_id=eos_token_id,
+                bos_token_id=bos_token_id,
+                pad_token_id=pad_token_id,
+            )
+        )
+
         self.positivity_func = positivity_func
+
+        self.rank = rank
+
         self.vocab_size = vocab_size
         self.eps = eps
         self.custom_unembedding = torch.nn.Linear(n_embd, vocab_size, bias=False)
@@ -58,24 +105,11 @@ class TGPT2(torch.nn.Module):
         self.forward_avg_meter = AverageMeter()
         self.loss_avg_meter = AverageMeter()
 
-        self.model_config = {
-            "model": model,
-            "vocab_size": vocab_size,
-            "n_embd": n_embd,
-            "n_layer": n_layer,
-            "n_head": n_head,
-            "dropout": dropout,
-            "rank": rank,
-            "eps": eps,
-            "horizon": horizon,
-            "positivity_func": positivity_func,
-        }
-
     @property
     def device(self):
         return next(self.parameters()).device
 
-    # todo: use delta_core
+    # TODO: use delta_core
     def _get_tt_dist(self, input_ids: torch.Tensor, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
@@ -136,13 +170,6 @@ class TGPT2(torch.nn.Module):
             torch.Tensor: Generated tokens of shape (B, max_new_tokens).
         """
 
-        if self.model_name == "gpt2":
-            return self.model.generate(
-                input_ids=input_ids,
-                max_new_tokens=max_new_tokens,
-                **kwargs,
-            )
-
         batch_size, seq_len = input_ids.size()
         n_passes = max_new_tokens // self.horizon
         output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
@@ -173,15 +200,6 @@ class TGPT2(torch.nn.Module):
         return output_tens
 
     def forward(self, input_ids, labels, *args, **kwargs):
-
-        if self.model_name == "gpt2":
-            return self.model(
-                *args,
-                input_ids=input_ids,
-                labels=labels,
-                **kwargs,
-            )
-
         learned_mpsdist, transformer_outputs, targets = self._get_tt_dist(
             input_ids, **kwargs
         )
@@ -190,16 +208,176 @@ class TGPT2(torch.nn.Module):
             targets=targets,
             eps=self.eps,
         )
-
-        # DEBUG: entropy loss works so no issues with `alpha`, `beta`, `core` and sampling
-        # probs_tilde = learned_mpsdist.materialize(
-        #     n_core_repititions=self.horizon, normalize=False
-        # )
-        # loss = get_entropy_loss_stable_debug(
-        #     probs_tilde,
-        #     targets.flatten(),
-        # )
         transformer_outputs.loss = loss
-
-        torch.cuda.synchronize()
         return transformer_outputs
+
+
+class MGPT2(torch.nn.Module):
+    def __init__(
+        self,
+        vocab_size: int = 50257,
+        n_embd: int = 768,
+        n_layer: int = 12,
+        n_head: int = 12,
+        dropout: float = 0.1,
+        eos_token_id: int = 50256,
+        bos_token_id: int = 50256,
+        pad_token_id: int = 50256,
+        horizon: int = 2,
+        positivity_func: str = "exp",
+        **kwargs,
+    ):
+        super().__init__()
+        self.model = GPT2LMHeadModel(
+            GPT2Config(
+                vocab_size=vocab_size,
+                n_embd=n_embd,
+                n_layer=n_layer,
+                n_head=n_head,
+                dropout=dropout,
+                eos_token_id=eos_token_id,
+                bos_token_id=bos_token_id,
+                pad_token_id=pad_token_id,
+            )
+        )
+        self.latent2mjd = torch.nn.Linear(n_embd, vocab_size**horizon)
+        self.horizon = horizon
+        self.vocab_size = vocab_size
+        self.positivity_func = {
+            "sq": lambda x: x**2,
+            "abs": lambda x: torch.abs(x),
+            "exp": torch.exp,
+        }[positivity_func]
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    @staticmethod
+    def _get_windowed_input_ids(input_ids: torch.Tensor, horizon: int):
+        # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
+        #   each position should look H steps ahead
+        input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
+
+        # 2. Make targets using windowed input_ids
+        targets = input_ids_windowed[:, :-horizon]  # (B, T-H, H)
+        targets = targets.reshape(-1, horizon)  # (B * (T-H), H)
+        return targets
+
+    def _get_preds(self, input_ids: torch.Tensor, **kwargs):
+        transformer_outputs = self.model.transformer(
+            input_ids=input_ids,
+            **kwargs,
+        )
+        hidden_states = transformer_outputs.last_hidden_state
+        mjdist_flat = self.positivity_func(
+            self.latent2mjd(hidden_states)
+        )  # (B, T, V**H)
+        mjdist = mjdist_flat[:, : -self.horizon, :].reshape(
+            -1, *([self.vocab_size] * self.horizon)
+        )
+        return mjdist, transformer_outputs
+
+    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
+        """Generate new tokens given an input prompt.
+
+        Args:
+            input_ids (torch.Tensor): Input prompt tensor of shape (B, T).
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, max_new_tokens).
+        """
+
+        batch_size, _ = input_ids.size()
+        n_passes = max_new_tokens // self.horizon
+        output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
+        input_tens = input_ids
+
+        for _ in range(n_passes):
+            transformer_outputs = self.model.transformer(
+                input_ids=input_tens,
+            )
+            hidden_states = transformer_outputs.last_hidden_state
+            mjdist_flat = self.positivity_func(
+                self.latent2mjd(hidden_states[:, -1:, :])
+            )  # (B, 1, V**H)
+            mjdist = mjdist_flat.reshape(-1, *([self.vocab_size] * self.horizon))
+            sample = sample_from_tens(mjdist, 1)
+            output_tens = torch.cat([output_tens, sample], dim=1)
+            input_tens = torch.cat([input_tens, sample], dim=1)
+        return output_tens
+
+    def forward(self, input_ids, labels, *args, **kwargs):
+        mjdist, transformer_outputs = self._get_preds(input_ids, **kwargs)
+        targets = self._get_windowed_input_ids(
+            input_ids, horizon=self.horizon
+        )  # (B * T-H, H)
+        loss = get_entropy_loss_stable_mjd(
+            mjdist,
+            targets=targets,
+        )
+        transformer_outputs.loss = loss
+        return transformer_outputs
+
+
+class TGPT2(torch.nn.Module):
+    def __init__(
+        self,
+        model: str = "gpt2",
+        vocab_size: int = 50257,
+        n_embd: int = 768,
+        n_layer: int = 12,
+        n_head: int = 12,
+        dropout: float = 0.1,
+        rank: int = 2,
+        eps: float = 1e-9,
+        horizon: int = 8,
+        positivity_func: str = "sq",
+        eos_token_id: int = 50256,
+        bos_token_id: int = 50256,
+        pad_token_id: int = 50256,
+        is_full_rank: bool = False,
+    ):
+        super().__init__()
+        self.model_name = model
+        self.model_config = {
+            "model": model,
+            "vocab_size": vocab_size,
+            "n_embd": n_embd,
+            "n_layer": n_layer,
+            "n_head": n_head,
+            "dropout": dropout,
+            "rank": rank,
+            "eps": eps,
+            "horizon": horizon,
+            "positivity_func": positivity_func,
+            "eos_token_id": eos_token_id,
+            "bos_token_id": bos_token_id,
+            "pad_token_id": pad_token_id,
+            "is_full_rank": is_full_rank,
+        }
+        self.model = {
+            "gpt2": GPT2,
+            "tgpt2": TJDGPT2,  # GPT-2 w/ Tensorized Joint Distribution
+            "mgpt2": MGPT2,  # GPT-2 w/ Materialized Joint Distribution
+        }[self.model_name](**self.model_config)
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def forward(self, input_ids, labels, *args, **kwargs):
+        return self.model(
+            *args,
+            input_ids=input_ids,
+            labels=labels,
+            **kwargs,
+        )
+
+    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
+        return self.model.generate(
+            input_ids=input_ids,
+            max_new_tokens=max_new_tokens,
+            **kwargs,
+        )

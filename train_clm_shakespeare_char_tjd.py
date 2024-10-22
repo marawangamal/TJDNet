@@ -101,7 +101,7 @@ def parse_args():
         type=str,
         default="gpt2",
         help="Type of model to use (gpt2 or tgpt2).",
-        choices=["gpt2", "tgpt2"],
+        choices=["gpt2", "tgpt2", "mgpt2"],
     )
     parser.add_argument(
         "--positivity_func",

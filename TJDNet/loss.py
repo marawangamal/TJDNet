@@ -1,4 +1,5 @@
 from TJDNet import MPSDist, MPSDistBase
+from .tensop import batch_multi_dim_index
 
 
 import torch
@@ -104,28 +105,28 @@ def get_entropy_loss_stable(
     return loss
 
 
-def get_entropy_loss_stable_debug(
-    probs_tilde: torch.Tensor,
+def get_entropy_loss_stable_mjd(
+    mjdist: torch.Tensor,
     targets: torch.Tensor,
+    eps: float = 1e-9,
     *args,
     **kwargs,
 ):
-    """Compute entropy loss using unnormalized probabilities.
+    """Compute entropy loss using using a joint distribution.
 
     Args:
-        probs_tilde (torch.Tensor): Unnormalized probabilities. Shape: (batch_size, n_classes).
-        targets (torch.Tensor): Samples over which to compute the entropy loss. Shape: (batch_size, seq_len).
+        mjdist (torch.Tensor): Joint distribution. Shape: (B, d1, d2, ..., dN).
+        targets (torch.Tensor): Samples over which to compute the entropy loss. Shape: (B, N).
+        eps (float, optional): Small value to prevent log(0). Defaults to 1e-6.
 
     Returns:
         torch.Tensor: Entropy loss.
     """
-    # (1) No exponentiation (this fails)
-    log_z = torch.log(probs_tilde.sum(dim=-1))
-    probs_tilde_select = torch.gather(probs_tilde, 1, targets.reshape(-1, 1)).squeeze()
-    loss = (-torch.log(probs_tilde_select) + log_z).mean()
 
-    # (2) LogSumExp (this works)
-    # log_z = torch.logsumexp(probs_tilde, dim=-1)
-    # probs_tilde_select = torch.gather(probs_tilde, 1, targets.reshape(-1, 1)).squeeze()
-    # loss = (-probs_tilde_select + log_z).mean()
+    batch_size = mjdist.size(0)
+
+    # Compute unnormalized probabilities
+    p_tilde = batch_multi_dim_index(mjdist, targets)  # (B,)
+    norm_const = torch.sum(mjdist.reshape(batch_size, -1), dim=1) + eps  # (B,)
+    loss = (-torch.log(p_tilde) + torch.log(norm_const)).mean()
     return loss
