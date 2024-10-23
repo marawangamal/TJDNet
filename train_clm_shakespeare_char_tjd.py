@@ -278,7 +278,7 @@ def evaluate(
     for batch in eval_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
         with torch.no_grad():
-            outputs = model(**batch)
+            outputs = model(horizon=1, **batch)
 
         loss = outputs.loss
         losses.append(loss.item())

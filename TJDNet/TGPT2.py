@@ -110,7 +110,7 @@ class TJDGPT2(torch.nn.Module):
         return next(self.parameters()).device
 
     # TODO: use delta_core
-    def _get_tt_dist(self, input_ids: torch.Tensor, **kwargs):
+    def _get_tt_dist(self, input_ids: torch.Tensor, horizon, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
@@ -118,7 +118,7 @@ class TJDGPT2(torch.nn.Module):
 
         hidden_states = transformer_outputs.last_hidden_state
         alpha, beta, core = self._get_tt_params(
-            hidden_states[:, : -self.horizon, :]
+            hidden_states[:, :-horizon, :]
         )  # (B, T-H, R), (B, T-H, R), (B, T-H, R, D, R)
         batch_size, seq_len_adj, rank, vocab_size, _ = core.size()
 
@@ -132,11 +132,11 @@ class TJDGPT2(torch.nn.Module):
 
         # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
         #   each position should look H steps ahead
-        input_ids_windowed = window_input_ids(input_ids, horizon=self.horizon)
+        input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
 
         # 2. Make targets using windowed input_ids
-        targets = input_ids_windowed[:, : -self.horizon]  # (B, T-H, H)
-        targets = targets.reshape(-1, self.horizon)  # (B * (T-H), H)
+        targets = input_ids_windowed[:, :-horizon]  # (B, T-H, H)
+        targets = targets.reshape(-1, horizon)  # (B * (T-H), H)
 
         return learned_mpsdist, transformer_outputs, targets
 
@@ -159,7 +159,9 @@ class TJDGPT2(torch.nn.Module):
         core = core.reshape(batch_size, seq_len, self.rank, self.vocab_size, self.rank)
         return alpha, beta, core
 
-    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
+    def generate(
+        self, input_ids: torch.Tensor, max_new_tokens: int = 8, horizon=None, **kwargs
+    ):
         """Generate new tokens given an input prompt.
 
         Args:
@@ -171,7 +173,8 @@ class TJDGPT2(torch.nn.Module):
         """
 
         batch_size, seq_len = input_ids.size()
-        n_passes = max_new_tokens // self.horizon
+        horizon = horizon if horizon is not None else self.horizon
+        n_passes = max_new_tokens // horizon
         output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
         input_tens = input_ids
 
@@ -194,14 +197,16 @@ class TJDGPT2(torch.nn.Module):
                 positivity_func=self.positivity_func,
             )
 
-            sample = learned_mpsdist.sample(max_len=self.horizon)  # (B, H)
+            sample = learned_mpsdist.sample(max_len=horizon)  # (B, H)
             output_tens = torch.cat([output_tens, sample], dim=1)
             input_tens = torch.cat([input_tens, sample], dim=1)
         return output_tens
 
-    def forward(self, input_ids, labels, *args, **kwargs):
+    def forward(self, input_ids, labels, horizon=None, *args, **kwargs):
         learned_mpsdist, transformer_outputs, targets = self._get_tt_dist(
-            input_ids, **kwargs
+            input_ids,
+            horizon=horizon if horizon is not None else self.horizon,
+            **kwargs,
         )
         loss = get_entropy_loss_stable(
             learned_mpsdist,
@@ -212,6 +217,7 @@ class TJDGPT2(torch.nn.Module):
         return transformer_outputs
 
 
+# TODO: Rename to MJDGPT2
 class MGPT2(torch.nn.Module):
     def __init__(
         self,
