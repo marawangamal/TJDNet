@@ -118,6 +118,12 @@ def parse_args():
         default=128,
         help="Maximum number of tokens to generate during evaluation.",
     )
+    parser.add_argument(
+        "--horizon_eval",
+        type=int,
+        default=2,
+        help="Block size for model input sequences.",
+    )
     return parser.parse_args()
 
 
@@ -196,6 +202,7 @@ def train(
     eval_before_training=True,
     save_dir="models",
     model_config={},
+    horizon_eval=1,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -252,7 +259,7 @@ def train(
                 )
 
         # Evaluate model
-        eval_loss = evaluate(model, eval_dataloader, epoch)
+        eval_loss = evaluate(model, eval_dataloader, epoch, horizon_eval)
         best_eval_loss = min(eval_loss, best_eval_loss)
 
         # Save model checkpoint
@@ -270,7 +277,10 @@ def train(
 
 
 def evaluate(
-    model: torch.nn.Module, eval_dataloader: torch.utils.data.DataLoader, epoch: int
+    model: torch.nn.Module,
+    eval_dataloader: torch.utils.data.DataLoader,
+    epoch: int,
+    horizon: int = 1,
 ):
     model.eval()
     losses = []
@@ -278,7 +288,7 @@ def evaluate(
     for batch in eval_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
         with torch.no_grad():
-            outputs = model(horizon=1, **batch)
+            outputs = model(horizon=horizon, **batch)
 
         loss = outputs.loss
         losses.append(loss.item())

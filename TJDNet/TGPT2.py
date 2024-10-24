@@ -10,6 +10,9 @@ from .loss import get_entropy_loss_stable, get_entropy_loss_stable_mjd
 from .utils import window_input_ids, AverageMeter
 from .tensop import sample_from_tens
 
+# TODO:
+# Refactor to have only `TJDGPT2`, and it accepts as input a parent of the `JDist` class that has, param_count, sample and evalute methods
+
 
 class GPT2(torch.nn.Module):
     def __init__(
@@ -375,6 +378,7 @@ class TGPT2(torch.nn.Module):
 
     def forward(self, input_ids, labels, *args, **kwargs):
         return self.model(
+            # TODO: Remove `*args`
             *args,
             input_ids=input_ids,
             labels=labels,
