@@ -93,6 +93,7 @@ def parse_args():
             "gpt2",
             "tgpt2",
             "mgpt2",
+            "cpgpt2",
         ],  # mgpt2 is materialized joint distribution model (very inefficient but good for sanity checks)
     )
     parser.add_argument(

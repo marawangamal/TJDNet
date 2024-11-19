@@ -7,7 +7,7 @@ from transformers import (
 
 from .MPSDist import MPSDistBase
 from .loss import get_entropy_loss_stable, get_entropy_loss_stable_mjd
-from .utils import window_input_ids, AverageMeter
+from .utils import window_input_ids, AverageMeter, cp_contraction
 from .tensop import sample_from_tens
 
 # TODO:
@@ -329,6 +329,179 @@ class MGPT2(torch.nn.Module):
         return transformer_outputs
 
 
+# TODO: Rename to MJDGPT2
+
+
+def latent_to_cp_mjd(
+    x: torch.Tensor,
+    cp_params_func: torch.nn.Linear,
+    horizon: int,
+    vocab_size: int,
+    rank: int,
+):
+    """_summary_
+
+    Args:
+        x (torch.Tensor): Input tensor of shape (B, T, n_emb)
+        cp_params_func (torch.Tensor): CP Parameter projeciton n_emb => vocab_size*rank*horizon
+        horizon (int): _description_
+        vocab_size (int): _description_
+        rank (int): _description_
+
+    Returns:
+        torch.Tensor: matrix joint distribution of shape (B, T, V**H)
+    """
+    batch_size, seq_len, _ = x.size()
+    cp_params = cp_params_func(x)  # (B, T, R*V*H)
+    result = cp_outer_product(
+        cp_params.reshape(batch_size * seq_len, horizon, vocab_size, rank)
+    )  # (B*T, V**H)
+    return result.reshape(batch_size, seq_len, -1)
+
+
+def cp_outer_product(
+    x: torch.Tensor,
+):
+    """Performs outer product of a tensor with itself.
+
+    Note:
+        B: Batch size
+        R: CP rank
+        H: Number of CP factors
+        V: CP factor dimension
+
+    Args:
+        x (torch.Tensor): Tensor of shape (B, H, V, R)
+
+    Returns:
+        torch.Tensor: Tensor of shape (B, V**H)
+    """
+    B, H, V, R = x.size()
+    result = None
+    for r in range(0, R):
+        if result is None:
+            result = cp_contraction([x[:, h, :, r] for h in range(H)])  # (B, V**H)
+        else:
+            result = (
+                cp_contraction([x[:, h, :, r] for h in range(H)]) + result
+            )  # (B, V**H)
+
+    return result.reshape(B, -1)
+
+
+class CPGPT2(torch.nn.Module):
+    def __init__(
+        self,
+        vocab_size: int = 50257,
+        n_embd: int = 768,
+        n_layer: int = 12,
+        n_head: int = 12,
+        dropout: float = 0.1,
+        eos_token_id: int = 50256,
+        bos_token_id: int = 50256,
+        pad_token_id: int = 50256,
+        horizon: int = 2,
+        rank: int = 2,
+        positivity_func: str = "exp",
+        **kwargs,
+    ):
+        super().__init__()
+        self.model = GPT2LMHeadModel(
+            GPT2Config(
+                vocab_size=vocab_size,
+                n_embd=n_embd,
+                n_layer=n_layer,
+                n_head=n_head,
+                dropout=dropout,
+                eos_token_id=eos_token_id,
+                bos_token_id=bos_token_id,
+                pad_token_id=pad_token_id,
+            )
+        )
+        self.cp_params_func = torch.nn.Linear(n_embd, vocab_size * rank * horizon)
+        self.latent2mjd = lambda x: latent_to_cp_mjd(
+            x, self.cp_params_func, horizon, vocab_size, rank
+        )
+        self.horizon = horizon
+        self.vocab_size = vocab_size
+        self.positivity_func = {
+            "sq": lambda x: x**2,
+            "abs": lambda x: torch.abs(x),
+            "exp": torch.exp,
+        }[positivity_func]
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    @staticmethod
+    def _get_windowed_input_ids(input_ids: torch.Tensor, horizon: int):
+        # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
+        #   each position should look H steps ahead
+        input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
+
+        # 2. Make targets using windowed input_ids
+        targets = input_ids_windowed[:, :-horizon]  # (B, T-H, H)
+        targets = targets.reshape(-1, horizon)  # (B * (T-H), H)
+        return targets
+
+    def _get_preds(self, input_ids: torch.Tensor, **kwargs):
+        transformer_outputs = self.model.transformer(
+            input_ids=input_ids,
+            **kwargs,
+        )
+        hidden_states = transformer_outputs.last_hidden_state
+        mjdist_flat = self.positivity_func(
+            self.latent2mjd(hidden_states)
+        )  # (B, T, V**H)
+        mjdist = mjdist_flat[:, : -self.horizon, :].reshape(
+            -1, *([self.vocab_size] * self.horizon)
+        )
+        return mjdist, transformer_outputs
+
+    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
+        """Generate new tokens given an input prompt.
+
+        Args:
+            input_ids (torch.Tensor): Input prompt tensor of shape (B, T).
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, max_new_tokens).
+        """
+
+        batch_size, _ = input_ids.size()
+        n_passes = max_new_tokens // self.horizon
+        output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
+        input_tens = input_ids
+
+        for _ in range(n_passes):
+            transformer_outputs = self.model.transformer(
+                input_ids=input_tens,
+            )
+            hidden_states = transformer_outputs.last_hidden_state
+            mjdist_flat = self.positivity_func(
+                self.latent2mjd(hidden_states[:, -1:, :])
+            )  # (B, 1, V**H)
+            mjdist = mjdist_flat.reshape(-1, *([self.vocab_size] * self.horizon))
+            sample = sample_from_tens(mjdist, 1)
+            output_tens = torch.cat([output_tens, sample], dim=1)
+            input_tens = torch.cat([input_tens, sample], dim=1)
+        return output_tens
+
+    def forward(self, input_ids, labels=None, horizon=None, **kwargs):
+        mjdist, transformer_outputs = self._get_preds(input_ids, **kwargs)
+        targets = self._get_windowed_input_ids(
+            input_ids, horizon=self.horizon
+        )  # (B * T-H, H)
+        loss = get_entropy_loss_stable_mjd(
+            mjdist,
+            targets=targets,
+        )
+        transformer_outputs.loss = loss
+        return transformer_outputs
+
+
 class TGPT2(torch.nn.Module):
     def __init__(
         self,
@@ -369,6 +542,7 @@ class TGPT2(torch.nn.Module):
             "gpt2": GPT2,
             "tgpt2": TJDGPT2,  # GPT-2 w/ Tensorized Joint Distribution
             "mgpt2": MGPT2,  # GPT-2 w/ Materialized Joint Distribution
+            "cpgpt2": CPGPT2,  # GPT-2 w/ CP Decomposition
         }[self.model_name](**self.model_config)
 
     @property
