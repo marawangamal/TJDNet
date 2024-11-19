@@ -42,6 +42,9 @@ from utils import get_experiment_name
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
     parser.add_argument(
+        "--epochs", type=int, default=10, help="Number of training epochs."
+    )
+    parser.add_argument(
         "--lr", type=float, default=1e-3, help="Learning rate for training."
     )
     parser.add_argument(
@@ -51,24 +54,15 @@ def parse_args():
         help="Number of warmup steps for learning rate scheduler.",
     )
     parser.add_argument(
-        "--num_epochs", type=int, default=10, help="Number of training epochs."
-    )
-    parser.add_argument(
         "--batch_size",
         type=int,
         default=8,
         help="Batch size for training and evaluation.",
     )
     parser.add_argument(
-        "--input_seq_len",
+        "--seq_len",
         type=int,
         default=256,
-        help="Block size for model input sequences.",
-    )
-    parser.add_argument(
-        "--horizon",
-        type=int,
-        default=2,
         help="Block size for model input sequences.",
     )
     parser.add_argument(
@@ -89,19 +83,17 @@ def parse_args():
         default=6,
         help="Number of attention heads in the transformer model.",
     )
-    parser.add_argument(
-        "--rank",
-        type=int,
-        default=4,
-        help="Rank of the tensor train decomposition.",
-    )
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
     parser.add_argument(
         "--model",
         type=str,
         default="gpt2",
         help="Type of model to use (gpt2 or tgpt2).",
-        choices=["gpt2", "tgpt2", "mgpt2"],
+        choices=[
+            "gpt2",
+            "tgpt2",
+            "mgpt2",
+        ],  # mgpt2 is materialized joint distribution model (very inefficient but good for sanity checks)
     )
     parser.add_argument(
         "--positivity_func",
@@ -111,18 +103,30 @@ def parse_args():
         help="Positivity function to use for MPSDist.",
     )
 
+    parser.add_argument(
+        "--rank",
+        type=int,
+        default=4,
+        help="Rank of the tensor train decomposition.",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=2,
+        help="Block size for model input sequences.",
+    )
     # Evaluation only arguments
+    parser.add_argument(
+        "--horizon_eval",
+        type=int,
+        default=1,
+        help="Block size for model input sequences.",
+    )
     parser.add_argument(
         "--max_new_tokens",
         type=int,
         default=128,
         help="Maximum number of tokens to generate during evaluation.",
-    )
-    parser.add_argument(
-        "--horizon_eval",
-        type=int,
-        default=2,
-        help="Block size for model input sequences.",
     )
     return parser.parse_args()
 
@@ -316,7 +320,7 @@ if __name__ == "__main__":
         " ",
         "\t",
     ]
-    tokenizer = CharacterTokenizer(characters, args.input_seq_len)
+    tokenizer = CharacterTokenizer(characters, args.seq_len)
 
     # Sanity check tokenizer
     # print(f"Tokenizer test: {tokenizer.encode('Hello, my dog is cute.!')}")
@@ -328,7 +332,7 @@ if __name__ == "__main__":
     ), f"[FAIL] Tokenizer test failed: {decoded}"
     print(f"[PASS] Tokenizer test passed.")
 
-    lm_dataset = load_shakespeare_data(tokenizer, args.input_seq_len)
+    lm_dataset = load_shakespeare_data(tokenizer, args.seq_len)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     # Data loaders
@@ -355,12 +359,6 @@ if __name__ == "__main__":
         "pad_token_id": tokenizer.pad_token_id,
     }
 
-    # model = (
-    #     TGPT2(**model_config)
-    #     if args.model == "tgpt2"
-    #     else GPT2LMHeadModel(GPT2Config(**model_config))
-    # )
-
     model = TGPT2(**model_config)
 
     wandb.init(
@@ -373,7 +371,7 @@ if __name__ == "__main__":
         model,
         train_dataloader,
         eval_dataloader,
-        num_epochs=args.num_epochs,
+        num_epochs=args.epochs,
         lr=args.lr,
         warmup_steps=args.warmup_steps,
         max_new_tokens=args.max_new_tokens,
