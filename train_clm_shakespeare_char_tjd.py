@@ -264,7 +264,7 @@ def train(
                 )
 
         # Evaluate model
-        eval_loss = evaluate(model, eval_dataloader, epoch, horizon_eval)
+        eval_loss = evaluate(model, eval_dataloader, epoch, horizon=horizon_eval)
         best_eval_loss = min(eval_loss, best_eval_loss)
 
         # Save model checkpoint
