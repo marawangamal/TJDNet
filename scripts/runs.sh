@@ -23,7 +23,7 @@
 
 # Sanity check (these should be roughly the same)
 python train_clm_shakespeare_char_tjd.py --model tgpt2 --horizon 1 --horizon_eval 1 --rank 1  --lr 1e-3
-python train_clm_shakespeare_char_tjd.py --model gpt2 1e-3
+python train_clm_shakespeare_char_tjd.py --model gpt2 --lr 1e-3
 
 # Comparison of baseline, materialized and tjd
 python train_clm_shakespeare_char_tjd.py --model gpt2 1e-3  # baseline

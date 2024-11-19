@@ -48,9 +48,8 @@ class GPT2(torch.nn.Module):
             **kwargs,
         )
 
-    def forward(self, input_ids, labels, *args, **kwargs):
+    def forward(self, input_ids, labels, horizon=None, **kwargs):
         return self.model(
-            *args,
             input_ids=input_ids,
             labels=labels,
             **kwargs,
@@ -113,7 +112,7 @@ class TJDGPT2(torch.nn.Module):
         return next(self.parameters()).device
 
     # TODO: use delta_core
-    def _get_tt_dist(self, input_ids: torch.Tensor, horizon, **kwargs):
+    def _get_tt_dist(self, input_ids: torch.Tensor, horizon: int, **kwargs):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
@@ -205,7 +204,7 @@ class TJDGPT2(torch.nn.Module):
             input_tens = torch.cat([input_tens, sample], dim=1)
         return output_tens
 
-    def forward(self, input_ids, labels, horizon=None, *args, **kwargs):
+    def forward(self, input_ids, labels=None, horizon=None, **kwargs):
         learned_mpsdist, transformer_outputs, targets = self._get_tt_dist(
             input_ids,
             horizon=horizon if horizon is not None else self.horizon,
@@ -317,7 +316,7 @@ class MGPT2(torch.nn.Module):
             input_tens = torch.cat([input_tens, sample], dim=1)
         return output_tens
 
-    def forward(self, input_ids, labels, *args, **kwargs):
+    def forward(self, input_ids, labels=None, horizon=None, **kwargs):
         mjdist, transformer_outputs = self._get_preds(input_ids, **kwargs)
         targets = self._get_windowed_input_ids(
             input_ids, horizon=self.horizon
@@ -376,18 +375,18 @@ class TGPT2(torch.nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def forward(self, input_ids, labels, *args, **kwargs):
-        return self.model(
-            # TODO: Remove `*args`
-            *args,
-            input_ids=input_ids,
-            labels=labels,
-            **kwargs,
-        )
-
     def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
         return self.model.generate(
             input_ids=input_ids,
             max_new_tokens=max_new_tokens,
+            **kwargs,
+        )
+
+    def forward(self, input_ids, labels, horizon=None, **kwargs):
+        return self.model(
+            # TODO: Remove `*args`
+            input_ids=input_ids,
+            labels=labels,
+            horizon=horizon,
             **kwargs,
         )
