@@ -6,42 +6,43 @@ def get_experiment_name(
     abbrevs: Optional[Dict] = None,
 ) -> str:
     """Create an experiment name from the configuration dictionary.
-
     Args:
         configs (Dict): Experiment configuration dictionary.
         abbrevs (Optional[Dict], optional): Working dictionary of abbreviations used in recursive calls. Defaults to None.
-        mode (str, optional): Return mode. Defaults to "dict".
-
     Raises:
         ValueError: Abbreviation not found for key.
-
     Returns:
         str: Experiment name.
     """
-
     if abbrevs is None:
         abbrevs = {}
+
+    def get_abbreviation(key: str) -> str:
+        if "_" in key:
+            parts = key.split("_")
+            return "".join(p[0] for p in parts)
+        return key[0]
 
     for key, value in configs.items():
         if isinstance(value, dict):
             get_experiment_name(value, abbrevs=abbrevs)
         else:
+            abbrev = get_abbreviation(key)
             i = 1
-            while i <= len(key):
-                if key[:i] not in abbrevs:
-                    abbrevs[key[:i]] = (
-                        str(value)
-                        .replace(" ", "")
-                        .replace(",", "_")
-                        .replace("[", "")
-                        .replace("]", "")
+            while abbrev in abbrevs:
+                if i == len(key):
+                    raise ValueError(
+                        f"Could not find a suitable abbreviation for key: {key}"
                     )
-                    break
+                abbrev = key[: i + 1]
                 i += 1
 
-                if i == len(key) + 1:
-                    raise ValueError(
-                        "Could not find a suitable abbreviation for key: {}".format(key)
-                    )
+            abbrevs[abbrev] = (
+                str(value)
+                .replace(" ", "")
+                .replace(",", "_")
+                .replace("[", "")
+                .replace("]", "")
+            )
 
-    return "_".join(["{}{}".format(k, v) for k, v in abbrevs.items()])
+    return "_".join(f"{k}{v}" for k, v in abbrevs.items())

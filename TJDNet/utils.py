@@ -172,6 +172,19 @@ def window_input_ids(input_ids: torch.Tensor, horizon: int, shift: int = 1):
     return input_ids_windowed
 
 
+def cp_contraction(factors: torch.Tensor):
+    """Contract a CP tensor network.
+
+    Args:
+        factors List[torch.Tensor]: List of CP factors. Each factor has shape (B, R, D).
+    """
+    # Initialize the result tensor
+    assert len(factors) == 2, "Only 2 factors are supported for now"
+    n_factors = len(factors)
+    assert all(len(f.shape) == 2 for f in factors), "Factors should be 2D tensors"
+    return torch.bmm(factors[0].unsqueeze(2), factors[1].unsqueeze(1))
+
+
 class AverageMeter:
     """Computes and stores the average and current value"""
 
