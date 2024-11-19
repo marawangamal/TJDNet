@@ -33,47 +33,6 @@ class MPSDistBase:
         self.positivity_func = positivity_func
 
     @staticmethod
-    def _sample_one(
-        alpha: torch.Tensor,
-        beta: torch.Tensor,
-        core: torch.Tensor,
-        max_len: int,
-        batch_size: int = 1,
-    ) -> torch.Tensor:
-        selection_map = (
-            torch.ones(batch_size, max_len, dtype=torch.long, device=alpha.device) * -1
-        )  # (batch_size, max_len)
-        for t in range(max_len):
-            marginalize_mask = torch.cat(
-                [
-                    torch.zeros(
-                        batch_size, t + 1, dtype=torch.long, device=alpha.device
-                    ),
-                    torch.ones(
-                        batch_size,
-                        max_len - t - 1,
-                        dtype=torch.long,
-                        device=alpha.device,
-                    ),
-                ],
-                1,
-            )
-            # margins = 16 - 1 - t
-            # selects = t
-            p_vec_tilde, _ = umps_select_marginalize_batched(
-                alpha=alpha,
-                beta=beta,
-                core=core,
-                selection_map=selection_map,
-                marginalize_mask=marginalize_mask,
-            )  # (batch_size, n_vocab)
-            p_vec = p_vec_tilde / p_vec_tilde.sum(dim=-1, keepdim=True)
-            indices = torch.multinomial(p_vec, 1)  # (batch_size, 1)
-            selection_map[:, t] = indices.squeeze()
-
-        # Get indices from selection_map
-        return selection_map
-
     def _make_batched_params(
         self,
         batch_size: int,

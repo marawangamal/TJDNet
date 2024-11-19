@@ -1,3 +1,4 @@
+from typing import List, Tuple
 import numpy as np
 import torch
 from transformers import (
@@ -7,11 +8,26 @@ from transformers import (
 
 from .MPSDist import MPSDistBase
 from .loss import get_entropy_loss_stable, get_entropy_loss_stable_mjd
-from .utils import window_input_ids, AverageMeter, cp_contraction
+from .utils import (
+    window_input_ids,
+    AverageMeter,
+    cp_contraction,
+    get_windowed_input_ids,
+)
 from .tensop import sample_from_tens
 
 # TODO:
-# Refactor to have only `TJDGPT2`, and it accepts as input a parent of the `JDist` class that has, param_count, sample and evalute methods
+# Refactor to have only `TJDGPT2`, and it accepts as input a decendent of the `JDist` class that has, param_count, sample and evalute methods
+
+
+class JDist(torch.nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def generate(
+        self, input_ids: torch.Tensor, max_new_tokens: int = 8, horizon=None, **kwargs
+    ):
+        raise NotImplementedError
 
 
 class GPT2(torch.nn.Module):
@@ -491,7 +507,7 @@ class CPGPT2(torch.nn.Module):
 
     def forward(self, input_ids, labels=None, horizon=None, **kwargs):
         mjdist, transformer_outputs = self._get_preds(input_ids, **kwargs)
-        targets = self._get_windowed_input_ids(
+        targets = get_windowed_input_ids(
             input_ids, horizon=self.horizon
         )  # (B * T-H, H)
         loss = get_entropy_loss_stable_mjd(
@@ -502,7 +518,74 @@ class CPGPT2(torch.nn.Module):
         return transformer_outputs
 
 
-class TGPT2(torch.nn.Module):
+class CPDist(torch.nn.Module):
+    def __init__(self, n_embd: int, n_vocab, rank: int, horizon: int):
+        self.cp_params_func = torch.nn.Linear(n_embd, n_vocab * rank * horizon)
+
+    def generate(self, input_ids: torch.Tensor, n_tokens: int):
+        # Cannot generate sequences longer than `horizon`
+        pass
+
+    def evaluate_at_points(points: List[torch.tensor], is_normalized=False) -> Tuple[torch.Tensor, List[torch.Tensor]]
+        pass
+
+
+class TJDHead(torch.nn.Module):
+    def __init__(
+        self,
+        n_embd: int,
+        n_vocab,
+        rank: int,
+        horizon: int,
+        head_type: str,
+        eps: float = 1e-6,
+    ):
+        self.eps = eps
+        self.dist = {
+            "cp": CPDist,
+        }[head_type](
+            n_embd=n_embd,
+            n_vocab=n_vocab,
+            rank=rank,
+            horizon=horizon,
+        )
+
+    def generate(
+        self, input_ids: torch.Tensor, horizon: int, max_new_tokens: int = 8, **kwargs
+    ):
+        return self.dist.generate(input_ids, n_tokens=horizon)
+
+    def forward(
+        self, last_hidden_state: torch.Tensor, input_ids: torch.Tensor, horizon: int
+    ):
+        """Forward pass of CP Joint Distribution Head.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+            input_ids (torch.Tensor): Input tensor of shape (B, T)
+            horizon (int): Horizon of the model (must be <= Horizon of the model)
+        """
+        assert (
+            horizon == None or horizon <= self.horizon
+        ), "Horizon must be <= model horizon"
+        horizon = horizon if horizon is not None else self.horizon
+        targets = get_windowed_input_ids(input_ids, horizon=horizon)
+        p_tilde, p_tilde_scale_factors = self.dist.evaluate_at_points(
+            last_hidden_state, targets
+        )
+        norm_const, norm_const_scale_factors = self.dist.get_norm_const(
+            last_hidden_state, targets
+        )
+        loss = (
+            -torch.log(p_tilde + self.eps)
+            + torch.log(norm_const)
+            - sum([torch.log(z) for z in p_tilde_scale_factors])
+            + sum([torch.log(z) for z in norm_const_scale_factors])
+        ).mean()
+        return loss
+
+
+class MTPGPT2(torch.nn.Module):
     def __init__(
         self,
         model: str = "gpt2",
@@ -538,28 +621,52 @@ class TGPT2(torch.nn.Module):
             "pad_token_id": pad_token_id,
             "is_full_rank": is_full_rank,
         }
-        self.model = {
-            "gpt2": GPT2,
-            "tgpt2": TJDGPT2,  # GPT-2 w/ Tensorized Joint Distribution
-            "mgpt2": MGPT2,  # GPT-2 w/ Materialized Joint Distribution
+
+        self.model = GPT2LMHeadModel(
+            GPT2Config(
+                vocab_size=vocab_size,
+                n_embd=n_embd,
+                n_layer=n_layer,
+                n_head=n_head,
+                dropout=dropout,
+                eos_token_id=eos_token_id,
+                bos_token_id=bos_token_id,
+                pad_token_id=pad_token_id,
+            )
+        )
+        self.model_head = {
+            # "gpt2": GPT2,
+            # "tgpt2": TJDGPT2,  # GPT-2 w/ Tensorized Joint Distribution
+            # "mgpt2": MGPT2,  # GPT-2 w/ Materialized Joint Distribution
             "cpgpt2": CPGPT2,  # GPT-2 w/ CP Decomposition
-        }[self.model_name](**self.model_config)
+        }
 
     @property
     def device(self):
         return next(self.parameters()).device
 
-    def generate(self, input_ids: torch.Tensor, max_new_tokens: int = 8, **kwargs):
-        return self.model.generate(
+    def _get_last_hidden_state(self, input_ids: torch.Tensor, **kwargs):
+        transformer_outputs = self.model.transformer(
             input_ids=input_ids,
-            max_new_tokens=max_new_tokens,
+            **kwargs,
+        )
+        return transformer_outputs.last_hidden_state
+
+    def generate(
+        self, input_ids: torch.Tensor, horizon: int, max_new_tokens: int = 8, **kwargs
+    ):
+        last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
+        return self.model_head.generate(
+            input_ids=input_ids,
+            last_hidden_state=last_hidden_state,
+            horizon=horizon,
             **kwargs,
         )
 
     def forward(self, input_ids, labels, horizon=None, **kwargs):
-        return self.model(
-            # TODO: Remove `*args`
-            input_ids=input_ids,
+        last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
+        return self.model_head.forward(
+            last_hidden_state=last_hidden_state,
             labels=labels,
             horizon=horizon,
             **kwargs,

@@ -202,3 +202,14 @@ class AverageMeter:
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+def get_windowed_input_ids(input_ids: torch.Tensor, horizon: int):
+    # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
+    #   each position should look H steps ahead
+    input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
+
+    # 2. Make targets using windowed input_ids
+    targets = input_ids_windowed[:, :-horizon]  # (B, T-H, H)
+    targets = targets.reshape(-1, horizon)  # (B * (T-H), H)
+    return targets

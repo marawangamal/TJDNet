@@ -33,7 +33,7 @@ import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
 from TJDNet import CharacterTokenizer
-from TJDNet import TGPT2
+from TJDNet import MTPGPT2
 
 
 from utils import get_experiment_name
@@ -360,7 +360,7 @@ if __name__ == "__main__":
         "pad_token_id": tokenizer.pad_token_id,
     }
 
-    model = TGPT2(**model_config)
+    model = MTPGPT2(**model_config)
 
     wandb.init(
         project="tjdnet-shakepeare",
