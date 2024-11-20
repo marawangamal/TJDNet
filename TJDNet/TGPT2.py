@@ -72,7 +72,7 @@ class GPT2(torch.nn.Module):
         )
 
 
-class TJDGPT2(torch.nn.Module):
+class TJDGPT2OLD(torch.nn.Module):
     def __init__(
         self,
         vocab_size: int = 50257,
@@ -518,74 +518,120 @@ class CPGPT2(torch.nn.Module):
         return transformer_outputs
 
 
+# class TJDHead(torch.nn.Module):
+#     def __init__(
+#         self,
+#         n_embd: int,
+#         vocab_size: int,
+#         rank: int,
+#         horizon: int,
+#         head_type: str,
+#         eps: float = 1e-6,
+#         **kwargs,
+#     ):
+#         self.eps = eps
+#         self.dist = {
+#             "cp": CPDist,
+#         }[head_type](
+#             n_embd=n_embd,
+#             vocab_size=vocab_size,
+#             rank=rank,
+#             horizon=horizon,
+#         )
+
+#     def generate(
+#         self, last_hidden_state: torch.Tensor, input_ids: torch.Tensor, horizon: int
+#     ):
+#         return self.dist.generate(input_ids, horizon=horizon)
+
+#     def forward(
+#         self, last_hidden_state: torch.Tensor, targets: torch.Tensor, horizon: int
+#     ):
+#         """Forward pass of CP Joint Distribution Head.
+
+#         Args:
+#             last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+#             input_ids (torch.Tensor): Input tensor of shape (B, T)
+#             horizon (int): Horizon of the model (must be <= Horizon of the model)
+#         """
+#         assert (
+#             horizon == None or horizon <= self.horizon
+#         ), "Horizon must be <= model horizon"
+#         horizon = horizon if horizon is not None else self.horizon
+#         p_tilde, p_tilde_scale_factors = self.dist.evaluate_at_points(
+#             last_hidden_state, targets
+#         )
+#         norm_const, norm_const_scale_factors = self.dist.get_norm_const(
+#             last_hidden_state, targets
+#         )
+#         loss = (
+#             -torch.log(p_tilde + self.eps)
+#             + torch.log(norm_const)
+#             - sum([torch.log(z) for z in p_tilde_scale_factors])
+#             + sum([torch.log(z) for z in norm_const_scale_factors])
+#         ).mean()
+#         return loss
+
+
+# ---------------------------------------------------------------------
+# NEW
+# ---------------------------------------------------------------------
+
+
 class CPDist(torch.nn.Module):
-    def __init__(self, n_embd: int, n_vocab, rank: int, horizon: int):
-        self.cp_params_func = torch.nn.Linear(n_embd, n_vocab * rank * horizon)
-
-    def generate(self, input_ids: torch.Tensor, n_tokens: int):
-        # Cannot generate sequences longer than `horizon`
-        pass
-
-    def evaluate_at_points(points: List[torch.tensor], is_normalized=False) -> Tuple[torch.Tensor, List[torch.Tensor]]
-        pass
-
-
-class TJDHead(torch.nn.Module):
-    def __init__(
-        self,
-        n_embd: int,
-        n_vocab,
-        rank: int,
-        horizon: int,
-        head_type: str,
-        eps: float = 1e-6,
-    ):
-        self.eps = eps
-        self.dist = {
-            "cp": CPDist,
-        }[head_type](
-            n_embd=n_embd,
-            n_vocab=n_vocab,
-            rank=rank,
-            horizon=horizon,
-        )
-
-    def generate(
-        self, input_ids: torch.Tensor, horizon: int, max_new_tokens: int = 8, **kwargs
-    ):
-        return self.dist.generate(input_ids, n_tokens=horizon)
-
-    def forward(
-        self, last_hidden_state: torch.Tensor, input_ids: torch.Tensor, horizon: int
-    ):
-        """Forward pass of CP Joint Distribution Head.
+    def __init__(self, n_embd: int, vocab_size, rank: int, horizon: int):
+        """CP Distribution
 
         Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-            input_ids (torch.Tensor): Input tensor of shape (B, T)
-            horizon (int): Horizon of the model (must be <= Horizon of the model)
+            n_embd (int): Embedding dimension
+            n_vocab (_type_): Vocabulary size
+            rank (int): Rank of the CP decomposition
+            horizon (int): Horizon of the model (Number of tokens to predict)
         """
+        super().__init__()
+        assert horizon == 2, "Only horizon=2 is supported for now"
+        self.param_func = torch.nn.Linear(n_embd, vocab_size * rank * horizon)
+        self.horizon = horizon
+
+    def generate(self, last_hidden_state: torch.Tensor, horizon: int):
+        """Generate sequences given an input tensor.
+
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            horizon (int): Horizon of the generation (Must be <= Horizon of the model)
+        """
+        # Cannot generate sequences longer than `horizon`
         assert (
             horizon == None or horizon <= self.horizon
         ), "Horizon must be <= model horizon"
-        horizon = horizon if horizon is not None else self.horizon
-        targets = get_windowed_input_ids(input_ids, horizon=horizon)
-        p_tilde, p_tilde_scale_factors = self.dist.evaluate_at_points(
-            last_hidden_state, targets
-        )
-        norm_const, norm_const_scale_factors = self.dist.get_norm_const(
-            last_hidden_state, targets
-        )
-        loss = (
-            -torch.log(p_tilde + self.eps)
-            + torch.log(norm_const)
-            - sum([torch.log(z) for z in p_tilde_scale_factors])
-            + sum([torch.log(z) for z in norm_const_scale_factors])
-        ).mean()
-        return loss
+        batch_size, _, _ = last_hidden_state.size()
+        return torch.randint(0, self.n_vocab, (batch_size, horizon))
+
+    def evaluate_at_points(
+        self,
+        last_hidden_state: torch.Tensor,
+        points: torch.Tensor,
+        is_normalized=False,
+    ) -> torch.Tensor:
+        """Evaluate the distribution at the given points.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+            points (torch.Tensor): Points to evaluate the distribution. Shape (B, H, D)
+            is_normalized (bool, optional): _description_. Defaults to False.
+
+        Returns:
+            Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points. Shape (B, H)
+        """
+        return torch.abs(torch.rand(points.size(0), points.size(1))), []
+
+    def get_norm_const(
+        self, last_hidden_state: torch.Tensor, targets: torch.Tensor
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        return torch.abs(torch.rand(last_hidden_state.size(0))), []
 
 
-class MTPGPT2(torch.nn.Module):
+class TJDGPT2(torch.nn.Module):
     def __init__(
         self,
         model: str = "gpt2",
@@ -621,7 +667,8 @@ class MTPGPT2(torch.nn.Module):
             "pad_token_id": pad_token_id,
             "is_full_rank": is_full_rank,
         }
-
+        self.horizon = horizon
+        self.eps = eps
         self.model = GPT2LMHeadModel(
             GPT2Config(
                 vocab_size=vocab_size,
@@ -635,17 +682,19 @@ class MTPGPT2(torch.nn.Module):
             )
         )
         self.model_head = {
-            # "gpt2": GPT2,
-            # "tgpt2": TJDGPT2,  # GPT-2 w/ Tensorized Joint Distribution
-            # "mgpt2": MGPT2,  # GPT-2 w/ Materialized Joint Distribution
-            "cpgpt2": CPGPT2,  # GPT-2 w/ CP Decomposition
-        }
+            "cpgpt2": CPDist,
+        }[model](
+            n_embd=n_embd,
+            vocab_size=vocab_size,
+            rank=rank,
+            horizon=horizon,
+        )
 
     @property
     def device(self):
         return next(self.parameters()).device
 
-    def _get_last_hidden_state(self, input_ids: torch.Tensor, **kwargs):
+    def _get_last_hidden_state(self, input_ids: torch.Tensor, **kwargs) -> torch.Tensor:
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             **kwargs,
@@ -655,19 +704,40 @@ class MTPGPT2(torch.nn.Module):
     def generate(
         self, input_ids: torch.Tensor, horizon: int, max_new_tokens: int = 8, **kwargs
     ):
-        last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
-        return self.model_head.generate(
-            input_ids=input_ids,
-            last_hidden_state=last_hidden_state,
-            horizon=horizon,
-            **kwargs,
-        )
+        batch_size, seq_len = input_ids.size()
+        horizon = horizon if horizon is not None else self.horizon
+        n_passes = max_new_tokens // horizon
+        output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
+        input_tens = input_ids
+
+        for _ in range(n_passes):
+            last_hidden_state = self._get_last_hidden_state(input_tens, **kwargs)
+            sample = self.model_head.generate(
+                last_hidden_state=last_hidden_state,
+                horizon=horizon,
+            )  # (B, H)
+            output_tens = torch.cat([output_tens, sample], dim=1)
+            input_tens = torch.cat([input_tens, sample], dim=1)
+        return output_tens
 
     def forward(self, input_ids, labels, horizon=None, **kwargs):
         last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
-        return self.model_head.forward(
-            last_hidden_state=last_hidden_state,
-            labels=labels,
-            horizon=horizon,
-            **kwargs,
+        targets = get_windowed_input_ids(input_ids, horizon=horizon)
+
+        assert (
+            horizon == None or horizon <= self.horizon
+        ), "Horizon must be <= model horizon"
+        horizon = horizon if horizon is not None else self.horizon
+        p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
+            last_hidden_state, targets
         )
+        norm_const, norm_const_scale_factors = self.model_head.get_norm_const(
+            last_hidden_state, targets
+        )
+        loss = (
+            -torch.log(p_tilde + self.eps)
+            + torch.log(norm_const)
+            - sum([torch.log(z) for z in p_tilde_scale_factors])
+            + sum([torch.log(z) for z in norm_const_scale_factors])
+        ).mean()
+        return loss

@@ -1,6 +1,9 @@
 """
 Fine-tune GPT-2 using TJDNet on Shakespeare dataset.
 
+Example usage:
+python train_clm_shakespeare_char_tjd.py --model cpgpt2 
+
 Resources: 
 https://huggingface.co/docs/transformers/tasks/language_modeling
 https://github.com/dariush-bahrami/character-tokenizer/tree/master
@@ -33,7 +36,7 @@ import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
 from TJDNet import CharacterTokenizer
-from TJDNet import MTPGPT2
+from TJDNet import TJDGPT2
 
 
 from utils import get_experiment_name
@@ -87,7 +90,7 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="gpt2",
+        default="cpgpt2",
         help="Type of model to use (gpt2 or tgpt2).",
         choices=[
             "gpt2",
@@ -240,8 +243,7 @@ def train(
         # Training loop
         for i, batch in enumerate(progress_bar):
             batch = {k: v.to(device) for k, v in batch.items()}
-            outputs = model(**batch)
-            loss = outputs.loss
+            loss = model(**batch)
             loss.backward()
             optimizer.step()
             lr_scheduler.step()
@@ -293,9 +295,7 @@ def evaluate(
     for batch in eval_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
         with torch.no_grad():
-            outputs = model(horizon=horizon, **batch)
-
-        loss = outputs.loss
+            loss = model(horizon=horizon, **batch)
         losses.append(loss.item())
 
     eval_loss = sum(losses) / len(losses)
@@ -360,7 +360,7 @@ if __name__ == "__main__":
         "pad_token_id": tokenizer.pad_token_id,
     }
 
-    model = MTPGPT2(**model_config)
+    model = TJDGPT2(**model_config)
 
     wandb.init(
         project="tjdnet-shakepeare",
