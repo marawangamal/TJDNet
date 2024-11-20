@@ -35,10 +35,9 @@ from datasets import load_dataset
 import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 
-from TJDNet import CharacterTokenizer
-from TJDNet import TJDGPT2
 
-
+from models.tjdgpt2.tjdgpt2 import TJDGPT2
+from models.tjdgpt2.tokenizer import Tokenizer
 from utils import get_experiment_name
 
 
@@ -208,7 +207,7 @@ def train(
     n_eval_samples=3,
     max_new_tokens=8,
     eval_before_training=True,
-    save_dir="models",
+    save_dir="checkpoints",
     model_config={},
     horizon_eval=1,
 ):
@@ -311,7 +310,7 @@ if __name__ == "__main__":
     # Configuration
     exp_name = get_experiment_name(vars(args))
     # Make ckpt dir
-    ckpt_dir = osp.join("models", exp_name)
+    ckpt_dir = osp.join("checkpoints", exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # Training
@@ -321,7 +320,7 @@ if __name__ == "__main__":
         " ",
         "\t",
     ]
-    tokenizer = CharacterTokenizer(characters, args.seq_len)
+    tokenizer = Tokenizer(characters, args.seq_len)
 
     # Sanity check tokenizer
     # print(f"Tokenizer test: {tokenizer.encode('Hello, my dog is cute.!')}")

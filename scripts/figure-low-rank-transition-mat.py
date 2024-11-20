@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import argparse
 
 from TJDNet import TJDGPT2
-from TJDNet import CharacterTokenizer
+from TJDNet import Tokenizer
 
 
 # Function to load the model's state dict
@@ -63,7 +63,7 @@ if __name__ == "__main__":
         " ",
         "\t",
     ]
-    tokenizer = CharacterTokenizer(characters, 256)
+    tokenizer = Tokenizer(characters, 256)
 
     args = parser.parse_args()
 
