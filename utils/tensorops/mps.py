@@ -1,5 +1,31 @@
 import torch
 
+from utils.tensop import batch_multi_dim_index
+
+
+def select_from_umps_tensor(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    indices: torch.Tensor,
+):
+    """Selects tensor elements from a uMPS.
+
+    Args:
+        alpha (torch.Tensor): Alpha tensor of shape (B,R)
+        beta (torch.Tensor): Beta tensor of shape (B,R)
+        core (torch.Tensor): Core tensor of shape (B,R,D,R)
+        indices (torch.Tensor): Indices to select from the tensor of shape (B,T)
+    """
+    result = alpha
+    for t in range(indices.shape[1]):
+        core_select = torch.stack(
+            [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
+        )
+        result = torch.einsum("bi, bij -> bdj", result, core_select)
+    result = torch.einsum("bi, bi -> b", result, beta)
+    return result
+
 
 def umps_select_marginalize_batched(
     alpha: torch.Tensor,

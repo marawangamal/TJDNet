@@ -89,13 +89,14 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="cpgpt2",
+        default="mps",
         help="Type of model to use (gpt2 or tgpt2).",
         choices=[
             "gpt2",
             "tgpt2",
             "mgpt2",
             "cpgpt2",
+            "mps",
             "full",
         ],  # mgpt2 is materialized joint distribution model (very inefficient but good for sanity checks)
     )

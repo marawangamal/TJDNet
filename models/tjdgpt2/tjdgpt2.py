@@ -6,6 +6,7 @@ from transformers import (
 
 from distributions.cp import CPDist
 from distributions.full import FullDist
+from distributions.mps import MPSDist
 from utils.tensop import get_windowed_input_ids
 
 
@@ -59,7 +60,12 @@ class TJDGPT2(torch.nn.Module):
                 pad_token_id=pad_token_id,
             )
         )
-        self.model_head = {"full": FullDist, "cpgpt2": CPDist}[model](
+        self.model_head = {
+            "full": FullDist,
+            "cp": CPDist,
+            "mps": MPSDist,
+            "cpgpt2": CPDist,  # legacy
+        }[model](
             n_embd=n_embd,
             vocab_size=vocab_size,
             rank=rank,

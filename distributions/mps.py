@@ -17,7 +17,7 @@ class MPSDist(BaseDistribution):
         horizon: int,
         positivity_func: str = "exp",
     ):
-
+        super().__init__()
         self.rank = rank
         self.vocab_size = vocab_size
         self.horizon = horizon
@@ -52,9 +52,9 @@ class MPSDist(BaseDistribution):
             last_hidden_state[:, -1:, :]
         )  # (B, 1, V*R*H) we only need the Tth hidden state
         p_tilde = umps_materialize_batched(
-            alpha=alpha,
-            beta=beta,
-            core=core,
+            alpha=alpha.reshape(-1, self.rank),
+            beta=beta.reshape(-1, self.rank),
+            core=core.reshape(-1, self.rank, self.vocab_size, self.rank),
             n_core_repititions=self.horizon,
         )  # (B, V, V, ..., V)  `horizon` times
         return sample_from_tens(p_tilde[0], 1)  # (B, H)
@@ -73,7 +73,7 @@ class MPSDist(BaseDistribution):
             is_normalized (bool, optional): Whether the points are normalized. Defaults to False.
 
         Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B, H) and scale_tensors (empty list)
+            Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B*H) and scale_tensors (empty list)
         """
         batch_size, seq_len, _ = last_hidden_state.shape
         alpha, core, beta = self._get_pos_params(last_hidden_state)
@@ -86,7 +86,7 @@ class MPSDist(BaseDistribution):
             ),
             operation_map=points.reshape(batch_size * seq_len, -1),
         )  # (batch_size, n_vocab)
-        return p_tilde.reshape(batch_size, seq_len), scale_factors
+        return p_tilde, scale_factors
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor
@@ -99,4 +99,17 @@ class MPSDist(BaseDistribution):
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
-        raise NotImplementedError
+        alpha, core, beta = self._get_pos_params(last_hidden_state)
+        batch_size, seq_len, _ = last_hidden_state.shape
+        z, scale_factors = umps_select_marginalize_batched(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len, self.rank, self.vocab_size, self.rank
+            ),
+            operation_map=torch.ones(
+                (batch_size * seq_len, self.horizon), device=alpha.device
+            )
+            * -1,
+        )
+        return z, scale_factors
