@@ -1,7 +1,5 @@
 import torch
 
-from utils.tensop import batch_multi_dim_index
-
 
 def select_from_umps_tensor(
     alpha: torch.Tensor,
@@ -22,7 +20,7 @@ def select_from_umps_tensor(
         core_select = torch.stack(
             [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
         )
-        result = torch.einsum("bi, bij -> bdj", result, core_select)
+        result = torch.einsum("bi, bij -> bj", result, core_select)
     result = torch.einsum("bi, bi -> b", result, beta)
     return result
 

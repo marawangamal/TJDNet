@@ -1,8 +1,11 @@
 from typing import List, Tuple
 import torch
+import torch.autograd.profiler as profiler
+
 from distributions.base import BaseDistribution
 from utils.tensop import sample_from_tens
 from utils.tensorops.mps import (
+    select_from_umps_tensor,
     umps_materialize_batched,
     umps_select_marginalize_batched,
 )
@@ -33,6 +36,7 @@ class MPSDist(BaseDistribution):
         params = self.positivity_func(
             self.param_func(last_hidden_state)
         )  # (B, T, R*H*V)
+
         alpha, core, beta = torch.split(
             params,
             [self.rank, self.rank * self.vocab_size * self.rank, self.rank],
@@ -78,15 +82,16 @@ class MPSDist(BaseDistribution):
         batch_size, seq_len, _ = last_hidden_state.shape
         alpha, core, beta = self._get_pos_params(last_hidden_state)
         # (B, T, R*H*V) => (B, T)
-        p_tilde, scale_factors = umps_select_marginalize_batched(
-            alpha=alpha.reshape(batch_size * seq_len, self.rank),
-            beta=beta.reshape(batch_size * seq_len, self.rank),
-            core=core.reshape(
-                batch_size * seq_len, self.rank, self.vocab_size, self.rank
-            ),
-            operation_map=points.reshape(batch_size * seq_len, -1),
-        )  # (batch_size, n_vocab)
-        return p_tilde, scale_factors
+        with profiler.record_function("select_from_mps_tensor"):
+            p_tilde = select_from_umps_tensor(
+                alpha=alpha.reshape(batch_size * seq_len, self.rank),
+                beta=beta.reshape(batch_size * seq_len, self.rank),
+                core=core.reshape(
+                    batch_size * seq_len, self.rank, self.vocab_size, self.rank
+                ),
+                indices=points.reshape(batch_size * seq_len, -1),
+            )  # (batch_size, n_vocab)
+            return p_tilde, []
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor

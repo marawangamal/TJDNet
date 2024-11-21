@@ -1,5 +1,6 @@
 from typing import List, Tuple
 import torch
+import torch.autograd.profiler as profiler
 
 from distributions.base import BaseDistribution
 from utils.tensop import sample_from_tens
@@ -88,13 +89,14 @@ class CPDist(BaseDistribution):
         batch_size, seq_len, _ = last_hidden_state.size()
 
         # (B, T, R*H*V) => (B, T)
-        p_tilde = select_from_cp_tensor(
-            params.reshape(
-                batch_size * seq_len, self.rank, self.horizon, self.vocab_size
-            ),
-            points.reshape(batch_size * seq_len, self.horizon),
-        )
-        return p_tilde, []  # (B*T)
+        with profiler.record_function("select_from_cp_tensor"):
+            p_tilde = select_from_cp_tensor(
+                params.reshape(
+                    batch_size * seq_len, self.rank, self.horizon, self.vocab_size
+                ),
+                points.reshape(batch_size * seq_len, self.horizon),
+            )
+            return p_tilde, []  # (B*T)
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor
