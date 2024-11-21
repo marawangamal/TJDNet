@@ -90,15 +90,11 @@ def parse_args():
         "--model",
         type=str,
         default="mps",
-        help="Type of model to use (gpt2 or tgpt2).",
+        help="Type of factorization to use for the model.",
         choices=[
-            "gpt2",
-            "tgpt2",
-            "mgpt2",
-            "cpgpt2",
+            "cp",
             "mps",
-            "full",
-        ],  # mgpt2 is materialized joint distribution model (very inefficient but good for sanity checks)
+        ],
     )
     parser.add_argument(
         "--positivity_func",

@@ -7,7 +7,7 @@ from transformers import (
 from distributions.cp import CPDist
 from distributions.full import FullDist
 from distributions.mps import MPSDist
-from utils.tensop import get_windowed_input_ids
+from utils.tensorops.common import get_windowed_input_ids
 
 
 class TJDGPT2(torch.nn.Module):

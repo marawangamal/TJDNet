@@ -1,6 +1,6 @@
 import unittest
 import torch
-from utils.tensop import batch_multi_dim_index, get_flat_index
+from utils.tensorops.common import batch_multi_dim_index, get_flat_index
 
 
 class TestTTDist(unittest.TestCase):

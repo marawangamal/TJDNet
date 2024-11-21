@@ -3,7 +3,7 @@ import torch
 import torch.autograd.profiler as profiler
 
 from distributions.base import BaseDistribution
-from utils.tensop import sample_from_tens
+from utils.tensorops.common import sample_from_tens
 from utils.tensorops.cp import (
     materialize_cp_tensor,
     select_from_cp_tensor,
