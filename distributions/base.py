@@ -11,7 +11,7 @@ class BaseDistribution(ABC, torch.nn.Module):
         super().__init__()
 
     @abstractmethod
-    def get_norm_const(
+    def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """

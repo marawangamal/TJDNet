@@ -5,6 +5,7 @@ from transformers import (
 )
 
 from distributions.cp import CPDist
+from distributions.full import FullDist
 from utils.tensop import get_windowed_input_ids
 
 
@@ -59,6 +60,7 @@ class TJDGPT2(torch.nn.Module):
             )
         )
         self.model_head = {
+            "full": FullDist,
             "cpgpt2": CPDist,
         }[model](
             n_embd=n_embd,
@@ -97,7 +99,6 @@ class TJDGPT2(torch.nn.Module):
             last_hidden_state = self._get_last_hidden_state(input_tens, **kwargs)
             sample = self.model_head.generate(
                 last_hidden_state=last_hidden_state,
-                horizon=horizon,
             )  # (B, H)
             output_tens = torch.cat([output_tens, sample], dim=1)
             input_tens = torch.cat([input_tens, sample], dim=1)
@@ -105,19 +106,15 @@ class TJDGPT2(torch.nn.Module):
 
     def forward(self, input_ids, labels, horizon=None, **kwargs):
         last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
-        horizon = horizon if horizon is not None else self.horizon
-        targets = get_windowed_input_ids(input_ids, horizon=horizon)
-
-        assert (
-            horizon == None or horizon <= self.horizon
-        ), "Horizon must be <= model horizon"
-        horizon = horizon if horizon is not None else self.horizon
+        targets = get_windowed_input_ids(
+            input_ids, horizon=self.horizon
+        )  # (B * T-H, H)
         p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
             last_hidden_state, targets
-        )
-        norm_const, norm_const_scale_factors = self.model_head.get_norm_const(
-            last_hidden_state, horizon=horizon
-        )
+        )  # (B * T-H)
+        norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(
+            last_hidden_state
+        )  # (B * T-H)
         loss = (
             -torch.log(p_tilde + self.eps)
             + torch.log(norm_const)

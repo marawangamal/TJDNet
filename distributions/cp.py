@@ -1,10 +1,16 @@
 from typing import List, Tuple
 import torch
-from TJDNet.TGPT2 import cp_outer_product
-from utils.tensop import batch_multi_dim_index, sample_from_tens
+
+from distributions.base import BaseDistribution
+from utils.tensop import batch_multi_dim_index, cp_outer_product, sample_from_tens
 
 
-class CPDist(torch.nn.Module):
+# class CPNetwork:
+#     def __init__():
+#         pass
+
+
+class CPDist(BaseDistribution):
     def __init__(
         self,
         n_embd: int,
@@ -27,18 +33,13 @@ class CPDist(torch.nn.Module):
         self.horizon = horizon
         self.vocab_size = vocab_size
         self.rank = rank
-        self.horizon = horizon
         self.positivity_func = {
             "sq": lambda x: x**2,
             "abs": lambda x: torch.abs(x),
             "exp": torch.exp,
         }[positivity_func]
 
-    def _get_materialized_dist(self, last_hidden_state: torch.Tensor, horizon: int):
-        assert (
-            horizon == None or horizon <= self.horizon
-        ), "Horizon must be <= model horizon"
-        horizon = horizon if horizon is not None else self.horizon
+    def _get_last_conditional_dist(self, last_hidden_state: torch.Tensor):
         params = self.positivity_func(
             self.param_func(last_hidden_state[:, -1:, :])
         )  # (B, 1, V*R*H) we only need the Tth hidden state
@@ -46,11 +47,33 @@ class CPDist(torch.nn.Module):
             params.reshape(-1, self.horizon, self.vocab_size, self.rank)
         )  # (B, V**H)
         p_tilde = p_tilde.reshape(
-            -1, *([self.vocab_size] * horizon)
+            -1, *([self.vocab_size] * self.horizon)
         )  # (B, V, V, ..., V)
         return p_tilde
 
-    def generate(self, last_hidden_state: torch.Tensor, horizon: int):
+    def _get_conditional_dists(self, last_hidden_state: torch.Tensor) -> torch.Tensor:
+        """Get the distribution for the next `horizon` tokens.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+            horizon (int): Number of tokens to predict. Must be <= model horizon
+
+        Returns:
+           torch.Tensor: Distribution of the next `horizon` tokens. Shape (B, V, V, ..., V)
+        """
+        batch_size, seq_len, _ = last_hidden_state.size()
+        params = self.positivity_func(
+            self.param_func(last_hidden_state)
+        )  # (B, T, V*R*H) we need all the hidden states
+        p_tilde = cp_outer_product(
+            params.reshape(-1, self.horizon, self.vocab_size, self.rank)
+        )  # (BT, V**H)
+        p_tilde = p_tilde.reshape(
+            batch_size, seq_len, *([self.vocab_size] * self.horizon)
+        )
+        return p_tilde  # (B, T, V, V, ..., V)
+
+    def generate(self, last_hidden_state: torch.Tensor):
         """Generate sequences given an input tensor.
 
         Args:
@@ -58,8 +81,8 @@ class CPDist(torch.nn.Module):
             horizon (int): Horizon of the generation (Must be <= Horizon of the model)
         """
         # Cannot generate sequences longer than `horizon`
-        p_tilde = self._get_materialized_dist(
-            last_hidden_state, horizon
+        p_tilde = self._get_last_conditional_dist(
+            last_hidden_state
         )  # (B, V, V, ..., V)
         return sample_from_tens(p_tilde, 1)  # (B, H)
 
@@ -73,23 +96,30 @@ class CPDist(torch.nn.Module):
 
         Args:
             last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-            points (torch.Tensor): Points to evaluate the distribution. Shape (B, H, D)
-            is_normalized (bool, optional): _description_. Defaults to False.
+            points (torch.Tensor): Points to evaluate the distribution. Shape (B, H)
+            is_normalized (bool, optional): Whether the points are normalized. Defaults to False.
 
         Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points. Shape (B, H)
+            Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B, H) and scale_tensors (empty list)
         """
-        # return torch.abs(torch.rand(points.size(0), points.size(1))), []
-        horizon = points.size(1)
-        p_tilde = self._get_materialized_dist(
-            last_hidden_state, horizon
-        )  # (B, V, V, ..., V)
-        return batch_multi_dim_index(p_tilde, points), []  # (B,)
+        p_tilde = self._get_conditional_dists(last_hidden_state)[
+            :, : -self.horizon, ...
+        ]  # (B, T-H, V, V, ..., V)
+        p_tilde_reshaped = p_tilde.reshape(
+            -1, *([self.vocab_size] * self.horizon)
+        )  # (B*(T-H), V, V, ..., V)
+        return batch_multi_dim_index(p_tilde_reshaped, points), []  # (B*(T-H))
 
-    def get_norm_const(
-        self, last_hidden_state: torch.Tensor, horizon: torch.Tensor
+    def get_norm_consts(
+        self, last_hidden_state: torch.Tensor
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        p_tilde = self._get_materialized_dist(
-            last_hidden_state, horizon
-        )  # (B, V, V, ..., V)
-        return p_tilde.reshape(p_tilde.size(0), -1).sum(dim=-1), []  # (B,)
+        batch_size, seq_len, _ = last_hidden_state.size()
+        p_tilde = self._get_conditional_dists(last_hidden_state)[
+            :, : -self.horizon, ...
+        ]  # (B, T-H, V, V, ..., V)
+        return (
+            p_tilde.reshape(batch_size * (seq_len - self.horizon), -1).sum(
+                dim=-1
+            ),  # (B*(T-H))
+            [],
+        )
