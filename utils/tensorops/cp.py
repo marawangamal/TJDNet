@@ -42,3 +42,36 @@ def sum_cp_tensor(tensor: torch.Tensor) -> torch.Tensor:
     if result is None:
         raise ValueError("Empty tensor")
     return result.sum(dim=1)  # (B, R) -> (B)
+
+
+def sample_from_cp_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    """Samples from the CP tensor.
+
+    Args:
+        tensor (torch.Tensor): CP represention of shape (B, R, T, D)
+
+    Returns:
+        torch.LongTensor: Sampled tensor of shape (B, T)
+    """
+    raise NotImplementedError("Sampling from CP tensor is not implemented yet.")
+    batch_size, _, seq_len, _ = tensor.size()
+    result = None
+    idx = torch.empty((batch_size, seq_len), dtype=torch.long)
+    for t in range(seq_len):
+        if result is None:
+            right_side = sum_cp_tensor(tensor[:, :, t + 1 :, :])  # (B,)
+            left_side = tensor[:, :, t, :]  # (B, R, D)
+            probs = left_side * right_side.unsqueeze(2)
+            max_vals, max_indices = torch.max(tensor[:, :, t, :], dim=-1)  # (B, R)
+            result = max_vals
+            idx[:, t] = max_indices
+        else:
+            max_vals, max_indices = torch.max(
+                tensor[:, :, t, :] * result.unsqueeze(2), dim=-1
+            )
+            result = max_vals
+            idx[:, t] = max_indices
+
+    if result is None:
+        raise ValueError("Empty tensor")
+    return idx

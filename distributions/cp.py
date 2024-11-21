@@ -3,7 +3,11 @@ import torch
 
 from distributions.base import BaseDistribution
 from utils.tensop import batch_multi_dim_index, cp_outer_product, sample_from_tens
-from utils.tensorops.cp import select_from_cp_tensor, sum_cp_tensor
+from utils.tensorops.cp import (
+    sample_from_cp_tensor,
+    select_from_cp_tensor,
+    sum_cp_tensor,
+)
 
 
 class CPDistMaterialized(BaseDistribution):
@@ -209,6 +213,15 @@ class CPDist(BaseDistribution):
             last_hidden_state
         )  # (B, V, V, ..., V)
         return sample_from_tens(p_tilde, 1)  # (B, H)
+        # params = self.positivity_func(
+        #     self.param_func(last_hidden_state)
+        # )  # (B, T, R*H*V)
+        # batch_size, seq_len, _ = last_hidden_state.size()
+        # return sample_from_cp_tensor(
+        #     params.reshape(
+        #         batch_size * seq_len, self.rank, self.horizon, self.vocab_size
+        #     ),
+        # )  # (B, H)
 
     def evaluate_at_points(
         self,
