@@ -3,7 +3,7 @@ import torch
 
 from distributions.base import BaseDistribution
 from utils.tensop import batch_multi_dim_index, cp_outer_product, sample_from_tens
-from utils.tensorops.cp import select_from_cp_tensor
+from utils.tensorops.cp import select_from_cp_tensor, sum_cp_tensor
 
 
 class CPDistMaterialized(BaseDistribution):
@@ -252,10 +252,18 @@ class CPDist(BaseDistribution):
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
+        # Get indexed distribution
+        params = self.positivity_func(
+            self.param_func(last_hidden_state)
+        )  # (B, T, R*H*V)
         batch_size, seq_len, _ = last_hidden_state.size()
-        p_tilde = self._get_conditional_dists(last_hidden_state)  # (B, T, V, V, ..., V)
+        norm_consts = sum_cp_tensor(
+            tensor=params.reshape(
+                batch_size * seq_len, self.rank, self.horizon, self.vocab_size
+            ),
+        )
         return (
-            p_tilde.reshape(batch_size * seq_len, -1).sum(dim=-1),  # (B*T)
+            norm_consts,  # (B*T)
             [],
         )
 
