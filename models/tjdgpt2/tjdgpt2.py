@@ -4,7 +4,7 @@ from transformers import (
     GPT2LMHeadModel,
 )
 
-from distributions.cp import CPDist, CPDistMaterialized
+from distributions.cp import CPDist
 from distributions.full import FullDist
 from utils.tensop import get_windowed_input_ids
 

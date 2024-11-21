@@ -1,16 +1,14 @@
 from typing import List, Tuple
 import torch
-
 from distributions.base import BaseDistribution
 from utils.tensop import sample_from_tens
-from utils.tensorops.cp import (
-    materialize_cp_tensor,
-    select_from_cp_tensor,
-    sum_cp_tensor,
+from utils.tensorops.mps import (
+    umps_materialize_batched,
+    umps_select_marginalize_batched,
 )
 
 
-class CPDist(BaseDistribution):
+class MPSDist(BaseDistribution):
     def __init__(
         self,
         n_embd: int,
@@ -19,28 +17,28 @@ class CPDist(BaseDistribution):
         horizon: int,
         positivity_func: str = "exp",
     ):
-        """CP Distribution
 
-        Args:
-            n_embd (int): Embedding dimension
-            vocab_size (int): Vocabulary size
-            rank (int): Rank of the CP decomposition
-            horizon (int): Horizon of the model (Number of tokens to predict)
-        """
-        super().__init__()
-        assert horizon == 2, "Only horizon=2 is supported for now"
-        self.param_func = torch.nn.Linear(n_embd, rank * horizon * vocab_size)
-        self.horizon = horizon
-        self.vocab_size = vocab_size
         self.rank = rank
+        self.vocab_size = vocab_size
+        self.horizon = horizon
         self.positivity_func: torch.nn.Module = {
             "sq": lambda x: x**2,
             "abs": lambda x: torch.abs(x),
             "exp": torch.exp,
         }[positivity_func]
+        self.tensor_train_size = rank + (rank * vocab_size * rank) + rank
+        self.param_func = torch.nn.Linear(n_embd, self.tensor_train_size)
 
     def _get_pos_params(self, last_hidden_state: torch.Tensor):
-        return self.positivity_func(self.param_func(last_hidden_state))
+        params = self.positivity_func(
+            self.param_func(last_hidden_state)
+        )  # (B, T, R*H*V)
+        alpha, core, beta = torch.split(
+            params,
+            [self.rank, self.rank * self.vocab_size * self.rank, self.rank],
+            dim=-1,
+        )  # (B, T, R), (B, T, R*V*R), (B, T, R)
+        return alpha, core, beta
 
     def generate(self, last_hidden_state: torch.Tensor):
         """Generate sequences given an input tensor.
@@ -50,21 +48,15 @@ class CPDist(BaseDistribution):
             horizon (int): Horizon of the generation (Must be <= Horizon of the model)
         """
         # Cannot generate sequences longer than `horizon`
-        params = self._get_pos_params(
+        alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
         )  # (B, 1, V*R*H) we only need the Tth hidden state
-        p_tilde = materialize_cp_tensor(
-            params.reshape(
-                -1,
-                self.rank,
-                self.horizon,
-                self.vocab_size,
-            ).permute(0, 2, 3, 1)
-            # params.reshape(-1, self.horizon, self.vocab_size, self.rank)
-        )  # (B, V**H)
-        p_tilde = p_tilde.reshape(
-            -1, *([self.vocab_size] * self.horizon)
-        )  # (B, V, V, ..., V)
+        p_tilde = umps_materialize_batched(
+            alpha=alpha,
+            beta=beta,
+            core=core,
+            n_core_repititions=self.horizon,
+        )  # (B, V, V, ..., V)  `horizon` times
         return sample_from_tens(p_tilde[0], 1)  # (B, H)
 
     def evaluate_at_points(
@@ -83,18 +75,18 @@ class CPDist(BaseDistribution):
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B, H) and scale_tensors (empty list)
         """
-        # Get indexed distribution
-        params = self._get_pos_params(last_hidden_state)  # (B, T, R*H*V)
-        batch_size, seq_len, _ = last_hidden_state.size()
-
+        batch_size, seq_len, _ = last_hidden_state.shape
+        alpha, core, beta = self._get_pos_params(last_hidden_state)
         # (B, T, R*H*V) => (B, T)
-        p_tilde = select_from_cp_tensor(
-            params.reshape(
-                batch_size * seq_len, self.rank, self.horizon, self.vocab_size
+        p_tilde, scale_factors = umps_select_marginalize_batched(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len, self.rank, self.vocab_size, self.rank
             ),
-            points.reshape(batch_size * seq_len, self.horizon),
-        )
-        return p_tilde, []  # (B*T)
+            operation_map=points.reshape(batch_size * seq_len, -1),
+        )  # (batch_size, n_vocab)
+        return p_tilde.reshape(batch_size, seq_len), scale_factors
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor
@@ -107,17 +99,4 @@ class CPDist(BaseDistribution):
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
-        # Get indexed distribution
-        params = self.positivity_func(
-            self.param_func(last_hidden_state)
-        )  # (B, T, R*H*V)
-        batch_size, seq_len, _ = last_hidden_state.size()
-        norm_consts = sum_cp_tensor(
-            tensor=params.reshape(
-                batch_size * seq_len, self.rank, self.horizon, self.vocab_size
-            ),
-        )
-        return (
-            norm_consts,  # (B*T)
-            [],
-        )
+        raise NotImplementedError

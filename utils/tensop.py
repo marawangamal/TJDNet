@@ -60,53 +60,10 @@ def sample_from_tens(tens, num_samples=1):
 
     # If the original distribution was multi-dimensional, reshape the samples
     if len(tens.shape) > 1:
-        samples = torch.unravel_index(samples, tens.shape[1:])
+        samples = torch.unravel_index(samples, tens.shape)
         samples = torch.stack(samples, dim=-1)
 
     return samples
-
-
-def cp_outer_product(
-    x: torch.Tensor,
-):
-    """Performs outer product of a tensor with itself.
-
-    Note:
-        B: Batch size
-        R: CP rank
-        H: Number of CP factors
-        V: CP factor dimension
-
-    Args:
-        x (torch.Tensor): Tensor of shape (B, H, V, R)
-
-    Returns:
-        torch.Tensor: Tensor of shape (B, V**H)
-    """
-    B, H, V, R = x.size()
-    result = None
-    for r in range(0, R):
-        if result is None:
-            result = cp_contraction([x[:, h, :, r] for h in range(H)])  # (B, V**H)
-        else:
-            result = (
-                cp_contraction([x[:, h, :, r] for h in range(H)]) + result
-            )  # (B, V**H)
-
-    return result.reshape(B, -1)
-
-
-def cp_contraction(factors: torch.Tensor):
-    """Contract a CP tensor network.
-
-    Args:
-        factors List[torch.Tensor]: List of CP factors. Each factor has shape (B, R, D).
-    """
-    # Initialize the result tensor
-    assert len(factors) == 2, "Only 2 factors are supported for now"
-    n_factors = len(factors)
-    assert all(len(f.shape) == 2 for f in factors), "Factors should be 2D tensors"
-    return torch.bmm(factors[0].unsqueeze(2), factors[1].unsqueeze(1))
 
 
 def get_windowed_input_ids(input_ids: torch.Tensor, horizon: int):

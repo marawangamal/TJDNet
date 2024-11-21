@@ -1,3 +1,4 @@
+from typing import List
 import torch
 
 
@@ -75,3 +76,47 @@ def sample_from_cp_tensor(tensor: torch.Tensor) -> torch.Tensor:
     if result is None:
         raise ValueError("Empty tensor")
     return idx
+
+
+def cp_contract_factors(factors: List[torch.Tensor]) -> torch.Tensor:
+    """Contract a CP tensor network.
+
+    Args:
+        factors List[torch.Tensor]: List of CP factors. Each factor has shape (B, R, D).
+    """
+    # Initialize the result tensor
+    assert len(factors) == 2, "Only 2 factors are supported for now"
+    n_factors = len(factors)
+    assert all(len(f.shape) == 2 for f in factors), "Factors should be 2D tensors"
+    return torch.bmm(factors[0].unsqueeze(2), factors[1].unsqueeze(1))
+
+
+def materialize_cp_tensor(
+    x: torch.Tensor,
+):
+    """Performs outer product of a tensor with itself.
+
+    Note:
+        B: Batch size
+        R: CP rank
+        H: Number of CP factors
+        V: CP factor dimension
+
+    Args:
+        x (torch.Tensor): Tensor of shape (B, H, V, R)
+
+    Returns:
+        torch.Tensor: Tensor of shape (B, V**H)
+    """
+    B, H, V, R = x.size()
+    result = None
+    for r in range(0, R):
+        if result is None:
+            result = cp_contract_factors([x[:, h, :, r] for h in range(H)])  # (B, V**H)
+        else:
+            result = (
+                cp_contract_factors([x[:, h, :, r] for h in range(H)]) + result
+            )  # (B, V**H)
+    if result is None:
+        raise ValueError("Empty tensor")
+    return result.reshape(B, -1)
