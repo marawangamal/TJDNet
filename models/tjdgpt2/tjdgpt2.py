@@ -59,7 +59,7 @@ class TJDGPT2(torch.nn.Module):
                 pad_token_id=pad_token_id,
             )
         )
-        self.model_head = {"full": FullDist, "cpgpt2": CPDistMaterialized}[model](
+        self.model_head = {"full": FullDist, "cpgpt2": CPDist}[model](
             n_embd=n_embd,
             vocab_size=vocab_size,
             rank=rank,

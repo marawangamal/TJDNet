@@ -145,7 +145,7 @@ class CPDist(BaseDistribution):
         """
         super().__init__()
         assert horizon == 2, "Only horizon=2 is supported for now"
-        self.param_func = torch.nn.Linear(n_embd, vocab_size * rank * horizon)
+        self.param_func = torch.nn.Linear(n_embd, rank * horizon * vocab_size)
         self.horizon = horizon
         self.vocab_size = vocab_size
         self.rank = rank
@@ -160,7 +160,13 @@ class CPDist(BaseDistribution):
             self.param_func(last_hidden_state[:, -1:, :])
         )  # (B, 1, V*R*H) we only need the Tth hidden state
         p_tilde = cp_outer_product(
-            params.reshape(-1, self.horizon, self.vocab_size, self.rank)
+            params.reshape(
+                -1,
+                self.rank,
+                self.horizon,
+                self.vocab_size,
+            ).permute(0, 2, 3, 1)
+            # params.reshape(-1, self.horizon, self.vocab_size, self.rank)
         )  # (B, V**H)
         p_tilde = p_tilde.reshape(
             -1, *([self.vocab_size] * self.horizon)
@@ -182,7 +188,9 @@ class CPDist(BaseDistribution):
             self.param_func(last_hidden_state)
         )  # (B, T, V*R*H) we need all the hidden states
         p_tilde = cp_outer_product(
-            params.reshape(-1, self.horizon, self.vocab_size, self.rank)
+            params.reshape(-1, self.rank, self.horizon, self.vocab_size).permute(
+                0, 2, 3, 1
+            )
         )  # (BT, V**H)
         p_tilde = p_tilde.reshape(
             batch_size, seq_len, *([self.vocab_size] * self.horizon)
