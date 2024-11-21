@@ -4,7 +4,7 @@ from transformers import (
     GPT2LMHeadModel,
 )
 
-from distributions.cp import CPDist
+from distributions.cp import CPDist, CPDistMaterialized
 from distributions.full import FullDist
 from utils.tensop import get_windowed_input_ids
 
@@ -59,10 +59,7 @@ class TJDGPT2(torch.nn.Module):
                 pad_token_id=pad_token_id,
             )
         )
-        self.model_head = {
-            "full": FullDist,
-            "cpgpt2": CPDist,
-        }[model](
+        self.model_head = {"full": FullDist, "cpgpt2": CPDistMaterialized}[model](
             n_embd=n_embd,
             vocab_size=vocab_size,
             rank=rank,
@@ -110,11 +107,16 @@ class TJDGPT2(torch.nn.Module):
             input_ids, horizon=self.horizon
         )  # (B * T-H, H)
         p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
-            last_hidden_state, targets
+            last_hidden_state[:, : -self.horizon], targets
         )  # (B * T-H)
+
         norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(
-            last_hidden_state
+            last_hidden_state[:, : -self.horizon]
         )  # (B * T-H)
+
+        if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
+            assert (p_tilde < norm_const).all(), "p_tilde < norm_const"
+
         loss = (
             -torch.log(p_tilde + self.eps)
             + torch.log(norm_const)
