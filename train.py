@@ -95,6 +95,7 @@ def parse_args():
             "cp",
             "mps",
             "full",
+            "base",
         ],
     )
     parser.add_argument(

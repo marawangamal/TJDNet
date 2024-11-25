@@ -4,6 +4,7 @@ from transformers import (
     GPT2LMHeadModel,
 )
 
+from distributions.base import BaseDist
 from distributions.cp import CPDist
 from distributions.full import FullDist
 from distributions.mps import MPSDist
@@ -64,6 +65,7 @@ class TJDGPT2(torch.nn.Module):
             "full": FullDist,
             "cp": CPDist,
             "mps": MPSDist,
+            "base": BaseDist,
         }[model](
             n_embd=n_embd,
             vocab_size=vocab_size,
@@ -91,6 +93,7 @@ class TJDGPT2(torch.nn.Module):
         do_sample=False,
         **kwargs,
     ):
+        # BUG: Should only accept a batch of size 1
         batch_size, seq_len = input_ids.size()
         horizon = horizon if horizon is not None else self.horizon
         n_passes = max_new_tokens // horizon
