@@ -1,5 +1,8 @@
 from typing import List
 import torch
+import tensorly as tl
+
+tl.set_backend("pytorch")
 
 
 def select_from_cp_tensor(tensor: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
@@ -78,6 +81,7 @@ def sample_from_cp_tensor(tensor: torch.Tensor) -> torch.Tensor:
     return idx
 
 
+# TODO: Use tensorly or einsum
 def cp_contract_factors(factors: List[torch.Tensor]) -> torch.Tensor:
     """Contract a CP tensor network.
 
@@ -122,3 +126,32 @@ def materialize_cp_tensor(
 
     result = result.reshape(-1, *([V] * H))  # (B, V, V, ..., V)
     return result
+
+
+def materialize_cp_tensorV2(
+    x: torch.Tensor,
+):
+    """Performs outer product of a tensor with itself.
+
+    Note:
+        B: Batch size
+        H: Number of CP factors
+        V: CP factor dimension
+        R: CP rank
+
+    Args:
+        x (torch.Tensor): Tensor of shape (B, H, V, R)
+
+    Returns:
+        torch.Tensor: Tensor of shape (B, V**H)
+    """
+
+    B, H, V, R = x.size()
+    contractions = []
+    weights = torch.ones(R, device=x.device)
+    for b in range(B):
+        res = tl.cp_to_tensor(
+            (weights, [x[b, h] for h in range(H)])
+        )  # List of tensors of shape (V, R)
+        contractions.append(res)
+    return torch.stack(contractions, dim=0)  # (B, V, V, ..., V)  H times

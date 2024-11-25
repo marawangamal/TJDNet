@@ -7,6 +7,7 @@ from distributions._base import BaseDistribution
 from utils.tensorops.common import sample_from_tensor_dist
 from utils.tensorops.cp import (
     materialize_cp_tensor,
+    materialize_cp_tensorV2,
     select_from_cp_tensor,
     sum_cp_tensor,
 )
@@ -71,7 +72,8 @@ class CPDist(BaseDistribution):
             last_hidden_state[:, -1:, :],
             horizon,
         )  # (B, 1, R, H, V) we only need the Tth hidden state
-        p_tilde = materialize_cp_tensor(
+        # TODO: Don't need this permuation with v2
+        p_tilde = materialize_cp_tensorV2(
             # (B, 1, R, H, V) => (B, H, V, R)
             params.reshape(
                 -1,
