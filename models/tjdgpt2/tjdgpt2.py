@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 from transformers import (
     GPT2Config,
@@ -87,16 +88,14 @@ class TJDGPT2(torch.nn.Module):
     def generate(
         self,
         input_ids: torch.Tensor,
-        horizon: int = 1,
         max_new_tokens: int = 8,
         num_beams=1,
         do_sample=False,
         **kwargs,
     ):
         # BUG: Should only accept a batch of size 1
-        batch_size, seq_len = input_ids.size()
-        horizon = horizon if horizon is not None else self.horizon
-        n_passes = max_new_tokens // horizon
+        batch_size, _ = input_ids.size()
+        n_passes = max_new_tokens // self.horizon
         output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
         input_tens = input_ids
 
@@ -109,17 +108,37 @@ class TJDGPT2(torch.nn.Module):
             input_tens = torch.cat([input_tens, sample], dim=1)
         return output_tens
 
-    def forward(self, input_ids, labels, horizon=None, **kwargs):
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        labels: torch.Tensor,
+        horizon: Optional[int] = None,
+        **kwargs,
+    ):
+        """Forward pass of the model.
+
+        Args:
+            input_ids (torch.Tensor): Tensor of shape (B, T)
+            labels (torch.Tensor): Tensor of shape (B, T)
+            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+
+        Note:
+            The horizon applied in the forward pass is the minimum of the model level horizon and the horizon passed as an argument.
+
+        Returns:
+            torch.Tensor: Loss value.
+        """
+
+        horizon = self.horizon if horizon is None else min(self.horizon, horizon)
+
         last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
-        targets = get_windowed_input_ids(
-            input_ids, horizon=self.horizon
-        )  # (B * T-H, H)
+        targets = get_windowed_input_ids(input_ids, horizon=horizon)  # (B * T-H, H)
         p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
-            last_hidden_state[:, : -self.horizon], targets
+            last_hidden_state[:, :-horizon], targets, horizon=horizon
         )  # (B * T-H)
 
         norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(
-            last_hidden_state[:, : -self.horizon]
+            last_hidden_state[:, :-horizon], horizon=horizon
         )  # (B * T-H)
 
         if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:

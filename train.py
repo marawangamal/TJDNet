@@ -377,6 +377,7 @@ if __name__ == "__main__":
         max_new_tokens=args.max_new_tokens,
         save_dir=ckpt_dir,
         model_config=model_config,
+        horizon_eval=args.horizon_eval,
     )
 
     # Generate a test sample

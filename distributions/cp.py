@@ -1,4 +1,5 @@
 from typing import List, Tuple
+from git import Optional
 import torch
 import torch.autograd.profiler as profiler
 
@@ -40,29 +41,45 @@ class CPDist(BaseDistribution):
             "exp": torch.exp,
         }[positivity_func]
 
-    def _get_pos_params(self, last_hidden_state: torch.Tensor):
-        return self.positivity_func(self.param_func(last_hidden_state))
+    def _get_pos_params(
+        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None
+    ):
+        batch_size, seq_len, _ = last_hidden_state.size()
+        params = self.positivity_func(self.param_func(last_hidden_state))
+        params_reshaped = params.reshape(
+            batch_size, seq_len, self.rank, self.horizon, self.vocab_size
+        )
+        if horizon is not None:
+            return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
+        return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
+
+    def _get_horizon(self, horizon: Optional[int]):
+        horizon = self.horizon if horizon is None else horizon
+        if horizon > self.horizon:
+            raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
+        return horizon
 
     def generate(self, last_hidden_state: torch.Tensor):
+        # TODO: use runtime horizon here too
         """Generate sequences given an input tensor.
 
         Args:
             input_ids (torch.Tensor): Previous tokens of shape (B, T)
-            horizon (int): Horizon of the generation (Must be <= Horizon of the model)
         """
         # Cannot generate sequences longer than `horizon`
         params = self._get_pos_params(
             last_hidden_state[:, -1:, :]
-        )  # (B, 1, V*R*H) we only need the Tth hidden state
+        )  # (B, 1, R, H, V) we only need the Tth hidden state
         p_tilde = materialize_cp_tensor(
+            # (B, 1, R, H, V) => (B, H, V, R)
             params.reshape(
                 -1,
                 self.rank,
                 self.horizon,
                 self.vocab_size,
             ).permute(0, 2, 3, 1)
-            # params.reshape(-1, self.horizon, self.vocab_size, self.rank)
         )  # (B, V**H)
+        # TODO: move into `materialize_cp_tensor`
         p_tilde = p_tilde.reshape(
             -1, *([self.vocab_size] * self.horizon)
         )  # (B, V, V, ..., V)
@@ -72,34 +89,36 @@ class CPDist(BaseDistribution):
         self,
         last_hidden_state: torch.Tensor,
         points: torch.Tensor,
-        is_normalized=False,
+        horizon: Optional[int] = None,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points.
 
         Args:
             last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
             points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
-            is_normalized (bool, optional): Whether the points are normalized. Defaults to False.
+            horizon (int, optional): Number of steps to consider. Defaults to model horizon.
 
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B, H) and scale_tensors (empty list)
         """
         # Get indexed distribution
-        params = self._get_pos_params(last_hidden_state)  # (B, T, R*H*V)
         batch_size, seq_len, _ = last_hidden_state.size()
+        horizon = self._get_horizon(horizon)
+        params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
 
-        # (B, T, R*H*V) => (B, T)
+        # (B, T, R, H, V) => (B, T)
         with profiler.record_function("select_from_cp_tensor"):
             p_tilde = select_from_cp_tensor(
                 params.reshape(
-                    batch_size * seq_len, self.rank, self.horizon, self.vocab_size
+                    batch_size * seq_len, self.rank, horizon, self.vocab_size
                 ),
-                points.reshape(batch_size * seq_len, self.horizon),
+                points.reshape(batch_size * seq_len, horizon),
             )
+            # TODO: should return (B, T) instead of (B*T)
             return p_tilde, []  # (B*T)
 
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor
+        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Get the normalization constants for the BT distributions.
 
@@ -109,16 +128,16 @@ class CPDist(BaseDistribution):
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
-        # Get indexed distribution
-        params = self.positivity_func(
-            self.param_func(last_hidden_state)
-        )  # (B, T, R*H*V)
         batch_size, seq_len, _ = last_hidden_state.size()
+        horizon = self._get_horizon(horizon)
+        # Get indexed distribution
+        params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
         norm_consts = sum_cp_tensor(
             tensor=params.reshape(
-                batch_size * seq_len, self.rank, self.horizon, self.vocab_size
+                batch_size * seq_len, self.rank, horizon, self.vocab_size
             ),
         )
+        # TODO: should return (B, T) instead of (B*T)
         return (
             norm_consts,  # (B*T)
             [],

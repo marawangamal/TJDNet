@@ -98,9 +98,9 @@ def materialize_cp_tensor(
 
     Note:
         B: Batch size
-        R: CP rank
         H: Number of CP factors
         V: CP factor dimension
+        R: CP rank
 
     Args:
         x (torch.Tensor): Tensor of shape (B, H, V, R)
