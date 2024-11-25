@@ -135,11 +135,11 @@ class TJDGPT2(torch.nn.Module):
         targets = get_windowed_input_ids(input_ids, horizon=horizon)  # (B * T-H, H)
         p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
             last_hidden_state[:, :-horizon], targets, horizon=horizon
-        )  # (B * T-H)
+        )  # (B, T-H)
 
         norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(
             last_hidden_state[:, :-horizon], horizon=horizon
-        )  # (B * T-H)
+        )  # (B, T-H)
 
         if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
             assert (p_tilde < norm_const).all(), "p_tilde < norm_const"

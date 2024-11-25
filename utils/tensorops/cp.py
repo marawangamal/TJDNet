@@ -119,4 +119,6 @@ def materialize_cp_tensor(
             )  # (B, V**H)
     if result is None:
         raise ValueError("Empty tensor")
-    return result.reshape(B, -1)
+
+    result = result.reshape(-1, *([V] * H))  # (B, V, V, ..., V)
+    return result

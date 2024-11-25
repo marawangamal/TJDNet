@@ -39,6 +39,7 @@ def get_flat_index(indices, shape):
     )
 
 
+# TODO: rename to `sample_from_tensor_dist`
 def sample_from_tens(tens, num_samples=1):
     """Sample from tensor representing a distribution.
 

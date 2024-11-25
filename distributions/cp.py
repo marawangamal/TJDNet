@@ -59,30 +59,27 @@ class CPDist(BaseDistribution):
             raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
         return horizon
 
-    def generate(self, last_hidden_state: torch.Tensor):
-        # TODO: use runtime horizon here too
+    def generate(self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None):
         """Generate sequences given an input tensor.
 
         Args:
             input_ids (torch.Tensor): Previous tokens of shape (B, T)
         """
         # Cannot generate sequences longer than `horizon`
+        horizon = self._get_horizon(horizon)
         params = self._get_pos_params(
-            last_hidden_state[:, -1:, :]
+            last_hidden_state[:, -1:, :],
+            horizon,
         )  # (B, 1, R, H, V) we only need the Tth hidden state
         p_tilde = materialize_cp_tensor(
             # (B, 1, R, H, V) => (B, H, V, R)
             params.reshape(
                 -1,
                 self.rank,
-                self.horizon,
+                horizon,
                 self.vocab_size,
             ).permute(0, 2, 3, 1)
-        )  # (B, V**H)
-        # TODO: move into `materialize_cp_tensor`
-        p_tilde = p_tilde.reshape(
-            -1, *([self.vocab_size] * self.horizon)
-        )  # (B, V, V, ..., V)
+        )  # (B, V, V, ..., V) `horizon` times
         return sample_from_tens(p_tilde[0], 1)  # (B, H)
 
     def evaluate_at_points(
@@ -114,8 +111,7 @@ class CPDist(BaseDistribution):
                 ),
                 points.reshape(batch_size * seq_len, horizon),
             )
-            # TODO: should return (B, T) instead of (B*T)
-            return p_tilde, []  # (B*T)
+            return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None
@@ -137,8 +133,7 @@ class CPDist(BaseDistribution):
                 batch_size * seq_len, self.rank, horizon, self.vocab_size
             ),
         )
-        # TODO: should return (B, T) instead of (B*T)
         return (
-            norm_consts,  # (B*T)
+            norm_consts.reshape(batch_size, seq_len),  # (B, T)
             [],
         )
