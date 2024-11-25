@@ -6,7 +6,6 @@ import torch.autograd.profiler as profiler
 from distributions._base import BaseDistribution
 from utils.tensorops.common import sample_from_tensor_dist
 from utils.tensorops.cp import (
-    materialize_cp_tensor,
     materialize_cp_tensorV2,
     select_from_cp_tensor,
     sum_cp_tensor,
@@ -31,7 +30,6 @@ class CPDist(BaseDistribution):
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
         super().__init__()
-        assert horizon == 2, "Only horizon=2 is supported for now"
         self.param_func = torch.nn.Linear(n_embd, rank * horizon * vocab_size)
         self.horizon = horizon
         self.vocab_size = vocab_size
@@ -67,7 +65,9 @@ class CPDist(BaseDistribution):
             input_ids (torch.Tensor): Previous tokens of shape (B, T)
         """
         # Cannot generate sequences longer than `horizon`
+        assert last_hidden_state.size(0) == 1, "Only batch size 1 is supported"
         horizon = self._get_horizon(horizon)
+        # print(f"Generating {horizon} tokens")
         params = self._get_pos_params(
             last_hidden_state[:, -1:, :],
             horizon,
@@ -82,7 +82,9 @@ class CPDist(BaseDistribution):
                 self.vocab_size,
             ).permute(0, 2, 3, 1)
         )  # (B, V, V, ..., V) `horizon` times
-        return sample_from_tensor_dist(p_tilde[0], 1)  # (B, H)
+        return torch.stack(
+            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
+        )  # (B, H)
 
     def evaluate_at_points(
         self,

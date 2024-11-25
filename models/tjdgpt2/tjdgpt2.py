@@ -85,24 +85,32 @@ class TJDGPT2(torch.nn.Module):
         )
         return transformer_outputs.last_hidden_state
 
+    def _get_horizon(self, horizon: Optional[int]):
+        horizon = self.horizon if horizon is None else horizon
+        if horizon > self.horizon:
+            raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
+        return horizon
+
     def generate(
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,
         num_beams=1,
         do_sample=False,
+        horizon: Optional[int] = None,
         **kwargs,
     ):
         # BUG: Should only accept a batch of size 1
+        horizon = self._get_horizon(horizon)
         batch_size, _ = input_ids.size()
-        n_passes = max_new_tokens // self.horizon
+        n_passes = max_new_tokens // horizon
         output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
         input_tens = input_ids
 
         for _ in range(n_passes):
             last_hidden_state = self._get_last_hidden_state(input_tens, **kwargs)
             sample = self.model_head.generate(
-                last_hidden_state=last_hidden_state,
+                last_hidden_state=last_hidden_state, horizon=horizon
             )  # (B, H)
             output_tens = torch.cat([output_tens, sample], dim=1)
             input_tens = torch.cat([input_tens, sample], dim=1)

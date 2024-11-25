@@ -183,6 +183,7 @@ def get_test_sample(
     # temperature=0.8,
     num_beams=1,
     do_sample=False,
+    horizon_eval=1,
 ):
     # Inference
     model.eval()
@@ -192,6 +193,7 @@ def get_test_sample(
         num_beams=num_beams,
         do_sample=do_sample,
         max_new_tokens=max_new_tokens,
+        horizon=horizon_eval,
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
@@ -230,7 +232,7 @@ def train(
     for epoch in range(1, num_epochs + 1):
         for i in range(n_eval_samples):
             print(
-                f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
+                f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens, horizon_eval=horizon_eval)}\n-------------------\n"
             )
         model.train()
         progress_bar = tqdm(
