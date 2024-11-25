@@ -2,7 +2,7 @@ from typing import List, Tuple
 import torch
 import torch.autograd.profiler as profiler
 
-from distributions.base import BaseDistribution
+from distributions._base import BaseDistribution
 from utils.tensorops.common import sample_from_tens
 from utils.tensorops.mps import (
     select_from_umps_tensor,

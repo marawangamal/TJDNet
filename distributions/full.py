@@ -1,7 +1,7 @@
 from typing import List, Tuple
 import torch
 
-from distributions.base import BaseDistribution
+from distributions._base import BaseDistribution
 from utils.tensorops.common import batch_multi_dim_index, sample_from_tens
 
 
