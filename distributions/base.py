@@ -39,7 +39,7 @@ class BaseDist(BaseDistribution):
     def _get_pos_params(self, last_hidden_state: torch.Tensor):
         return self.positivity_func(self.param_func(last_hidden_state))
 
-    def generate(self, last_hidden_state: torch.Tensor):
+    def generate(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         """Generate sequences given an input tensor.
 
         Args:
@@ -58,7 +58,7 @@ class BaseDist(BaseDistribution):
         self,
         last_hidden_state: torch.Tensor,
         points: torch.Tensor,
-        is_normalized=False,
+        **kwargs,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points.
 
@@ -85,7 +85,7 @@ class BaseDist(BaseDistribution):
             return p_tilde_select.reshape(-1), []  # (B*T)
 
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor
+        self, last_hidden_state: torch.Tensor, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Get the normalization constants for the BT distributions.
 
