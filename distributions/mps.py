@@ -3,7 +3,7 @@ import torch
 import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
-from utils.tensorops.common import sample_from_tens
+from utils.tensorops.common import sample_from_tensor_dist
 from utils.tensorops.mps import (
     select_from_umps_tensor,
     umps_materialize_batched,
@@ -61,7 +61,7 @@ class MPSDist(BaseDistribution):
             core=core.reshape(-1, self.rank, self.vocab_size, self.rank),
             n_core_repititions=self.horizon,
         )  # (B, V, V, ..., V)  `horizon` times
-        return sample_from_tens(p_tilde[0], 1)  # (B, H)
+        return sample_from_tensor_dist(p_tilde[0], 1)  # (B, H)
 
     def evaluate_at_points(
         self,

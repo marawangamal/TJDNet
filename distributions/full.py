@@ -2,7 +2,7 @@ from typing import List, Tuple
 import torch
 
 from distributions._base import BaseDistribution
-from utils.tensorops.common import batch_multi_dim_index, sample_from_tens
+from utils.tensorops.common import batch_multi_dim_index, sample_from_tensor_dist
 
 
 class FullDist(BaseDistribution):
@@ -53,7 +53,7 @@ class FullDist(BaseDistribution):
         # Cannot generate sequences longer than `horizon`
         p_tilde = self._get_materialized_dist(last_hidden_state)  # (B, V, V, ..., V)
         # BUG: Setting to p_tilde instead of p_tilde[0] causes poor sampling
-        return sample_from_tens(p_tilde[0], 1)  # (B, H)
+        return sample_from_tensor_dist(p_tilde[0], 1)  # (B, H)
 
     def evaluate_at_points(
         self,

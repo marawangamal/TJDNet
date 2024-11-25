@@ -3,7 +3,7 @@ import torch
 import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
-from utils.tensorops.common import sample_from_tens
+from utils.tensorops.common import sample_from_tensor_dist
 
 
 class BaseDist(BaseDistribution):
@@ -51,7 +51,7 @@ class BaseDist(BaseDistribution):
         )  # (B, 1, V) we only need the Tth hidden state
         p_tilde = p_tilde.reshape(-1, self.vocab_size)  # (B, V)
         return torch.stack(
-            [sample_from_tens(p_tilde_b, 1) for p_tilde_b in p_tilde]
+            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
         )  # (B, H)
 
     def evaluate_at_points(
