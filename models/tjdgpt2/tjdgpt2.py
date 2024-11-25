@@ -64,7 +64,6 @@ class TJDGPT2(torch.nn.Module):
             "full": FullDist,
             "cp": CPDist,
             "mps": MPSDist,
-            "cpgpt2": CPDist,  # legacy
         }[model](
             n_embd=n_embd,
             vocab_size=vocab_size,

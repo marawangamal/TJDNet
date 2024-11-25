@@ -35,30 +35,25 @@ class FullDist(BaseDistribution):
             "exp": torch.exp,
         }[positivity_func]
 
-    def _get_materialized_dist(self, last_hidden_state: torch.Tensor, horizon: int):
-        assert (
-            horizon == None or horizon <= self.horizon
-        ), "Horizon must be <= model horizon"
+    def _get_materialized_dist(self, last_hidden_state: torch.Tensor):
         params = self.positivity_func(
             self.param_func(last_hidden_state[:, -1:, :])
         )  # (B, 1, V**H) we only need the Tth hidden state
         p_tilde = params.reshape(
-            -1, *([self.vocab_size] * horizon)
+            -1, *([self.vocab_size] * self.horizon)
         )  # (B, V, V, ..., V)
         return p_tilde
 
-    def generate(self, last_hidden_state: torch.Tensor, horizon: int):
+    def generate(self, last_hidden_state: torch.Tensor):
         """Generate sequences given an input tensor.
 
         Args:
             input_ids (torch.Tensor): Previous tokens of shape (B, T)
-            horizon (int): Horizon of the generation (Must be <= Horizon of the model)
         """
         # Cannot generate sequences longer than `horizon`
-        p_tilde = self._get_materialized_dist(
-            last_hidden_state, horizon
-        )  # (B, V, V, ..., V)
-        return sample_from_tens(p_tilde, 1)  # (B, H)
+        p_tilde = self._get_materialized_dist(last_hidden_state)  # (B, V, V, ..., V)
+        # BUG: Setting to p_tilde instead of p_tilde[0] causes poor sampling
+        return sample_from_tens(p_tilde[0], 1)  # (B, H)
 
     def evaluate_at_points(
         self,
@@ -77,16 +72,12 @@ class FullDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points. Shape (B, H)
         """
         # return torch.abs(torch.rand(points.size(0), points.size(1))), []
-        horizon = points.size(1)
-        p_tilde = self._get_materialized_dist(
-            last_hidden_state, horizon
-        )  # (B, V, V, ..., V)
+        p_tilde = self._get_materialized_dist(last_hidden_state)  # (B, V, V, ..., V)
         return batch_multi_dim_index(p_tilde, points), []  # (B,)
 
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, horizon: torch.Tensor
+        self,
+        last_hidden_state: torch.Tensor,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        p_tilde = self._get_materialized_dist(
-            last_hidden_state, horizon
-        )  # (B, V, V, ..., V)
+        p_tilde = self._get_materialized_dist(last_hidden_state)  # (B, V, V, ..., V)
         return p_tilde.reshape(p_tilde.size(0), -1).sum(dim=-1), []  # (B,)

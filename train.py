@@ -94,6 +94,7 @@ def parse_args():
         choices=[
             "cp",
             "mps",
+            "full",
         ],
     )
     parser.add_argument(
@@ -360,7 +361,7 @@ if __name__ == "__main__":
     model = TJDGPT2(**model_config)
 
     wandb.init(
-        project="tjdnet-shakepeare",
+        project="tjdnet-shakepeare-v2",
         config=vars(args),
         name=exp_name,
     )
