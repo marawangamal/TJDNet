@@ -5,21 +5,23 @@ import tensorly as tl
 tl.set_backend("pytorch")
 
 
-def select_from_cp_tensor(tensor: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
-    """Selects the indices from the CP tensor.
+def select_from_cp_tensor(
+    cp_params: torch.Tensor, indices: torch.Tensor
+) -> torch.Tensor:
+    """Selects an element from a CP tensor representation (batched).
 
     Args:
-        tensor (torch.Tensor): CP represention of shape (B, R, T, D)
-        indices (List[int]): Indices to select from the tensor of shape (B, T)
+        cp_params (torch.Tensor): CP represention. Shape (B, R, T, D).
+        indices (List[int]): Indices to select from the tensor. Shape (B, T).
 
     Returns:
-        torch.Tensor: Selected tensor of shape (B)
+        torch.Tensor: Selected elements of shape (B,)
     """
-    batch_size, rank, seq_len, n_embd = tensor.size()
+    batch_size, rank, seq_len, n_embd = cp_params.size()
     idx = indices.unsqueeze(1)  # (B, 1, T)
     idx = idx.repeat(1, rank, 1)  # (B, R, T)
     result = torch.gather(
-        tensor.reshape(-1, n_embd), dim=1, index=idx.reshape(-1, 1)
+        cp_params.reshape(-1, n_embd), dim=1, index=idx.reshape(-1, 1)
     )  # (B * R * T, 1)
     # Now need to reshape back to (B, R, T)
     result = result.reshape(batch_size, rank, seq_len)

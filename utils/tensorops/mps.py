@@ -7,13 +7,16 @@ def select_from_umps_tensor(
     core: torch.Tensor,
     indices: torch.Tensor,
 ):
-    """Selects tensor elements from a uMPS.
+    """Selects element from a uMPS tensor representation (batched).
 
     Args:
         alpha (torch.Tensor): Alpha tensor of shape (B, R)
         beta (torch.Tensor): Beta tensor of shape (B R)
         core (torch.Tensor): Core tensor of shape (B, R, D, R)
         indices (torch.Tensor): Indices to select from the tensor of shape (B, H). `H` is horizon
+
+    Returns:
+        torch.Tensor: Selected elements of shape (B,)
     """
     batch_size = indices.size(0)
     result = alpha
