@@ -17,8 +17,8 @@ import torch
 import matplotlib.pyplot as plt
 import argparse
 
-from TJDNet import TGPT2
-from TJDNet import CharacterTokenizer
+from TJDNet import TJDGPT2
+from TJDNet import Tokenizer
 
 
 # Function to load the model's state dict
@@ -26,7 +26,7 @@ def load_model(state_dict_path):
     state_dict = torch.load(state_dict_path)
     model_state_dict = state_dict["state_dict"]
     model_config = state_dict["model_config"]
-    model = TGPT2(**model_config)
+    model = TJDGPT2(**model_config)
     model.load_state_dict(model_state_dict)
     return model
 
@@ -63,7 +63,7 @@ if __name__ == "__main__":
         " ",
         "\t",
     ]
-    tokenizer = CharacterTokenizer(characters, 256)
+    tokenizer = Tokenizer(characters, 256)
 
     args = parser.parse_args()
 
