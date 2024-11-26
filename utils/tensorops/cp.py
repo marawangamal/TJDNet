@@ -25,7 +25,7 @@ def select_from_cp_tensor(
     )  # (B * R * T, 1)
     # Now need to reshape back to (B, R, T)
     result = result.reshape(batch_size, rank, seq_len)
-    return result.prod(dim=2).sum(dim=1)
+    return result.prod(dim=2).sum(dim=1)  # (B,)
 
 
 def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
@@ -54,17 +54,18 @@ def materialize_cp_tensorV2(
 ):
     """Performs outer product of a tensor with itself.
 
+    Args:
+        x (torch.Tensor): Tensor of shape (B, H, V, R)
+
+    Returns:
+        torch.Tensor: Tensor of shape (B, V**H)
+
     Note:
         B: Batch size
         H: Number of CP factors
         V: CP factor dimension
         R: CP rank
 
-    Args:
-        x (torch.Tensor): Tensor of shape (B, H, V, R)
-
-    Returns:
-        torch.Tensor: Tensor of shape (B, V**H)
     """
 
     B, H, V, R = x.size()

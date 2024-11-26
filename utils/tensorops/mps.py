@@ -1,6 +1,7 @@
 import torch
 
 
+# TODO: Try with gather
 def select_from_umps_tensor(
     alpha: torch.Tensor,
     beta: torch.Tensor,
@@ -24,6 +25,8 @@ def select_from_umps_tensor(
         core_select = torch.stack(
             [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
         )  # (B, R, R)
+        # TODO: try this -> core_select.contiguous()
+        # TODO: try torch.bmm
         result_raw = torch.einsum("bi, bij -> bj", result, core_select)
         scale_factor = torch.linalg.norm(result_raw, dim=-1)  # (B,)
         scale_factors.append(scale_factor)
