@@ -15,14 +15,21 @@ def select_from_umps_tensor(
         core (torch.Tensor): Core tensor of shape (B,R,D,R)
         indices (torch.Tensor): Indices to select from the tensor of shape (B,T)
     """
+    batch_size = indices.size(0)
     result = alpha
+    scale_factors = []
     for t in range(indices.shape[1]):
         core_select = torch.stack(
             [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
-        )
+        )  # (B, R, R)
+        scale_factor = torch.linalg.norm(
+            core_select.reshape(batch_size, -1), dim=-1
+        )  # (B,)
+        core_select = core_select / scale_factor
+        scale_factors.append(scale_factor)
         result = torch.einsum("bi, bij -> bj", result, core_select)
     result = torch.einsum("bi, bi -> b", result, beta)
-    return result
+    return result, scale_factors
 
 
 def umps_select_marginalize_batched(

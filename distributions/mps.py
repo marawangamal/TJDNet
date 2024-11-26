@@ -61,7 +61,9 @@ class MPSDist(BaseDistribution):
             core=core.reshape(-1, self.rank, self.vocab_size, self.rank),
             n_core_repititions=self.horizon,
         )  # (B, V, V, ..., V)  `horizon` times
-        return sample_from_tensor_dist(p_tilde[0], 1)  # (B, H)
+        return torch.stack(
+            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
+        )  # (B, H)
 
     def evaluate_at_points(
         self,
@@ -83,7 +85,7 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(last_hidden_state)
         # (B, T, R*H*V) => (B, T)
         with profiler.record_function("select_from_mps_tensor"):
-            p_tilde = select_from_umps_tensor(
+            p_tilde, scale_factors = select_from_umps_tensor(
                 alpha=alpha.reshape(batch_size * seq_len, self.rank),
                 beta=beta.reshape(batch_size * seq_len, self.rank),
                 core=core.reshape(
@@ -91,7 +93,7 @@ class MPSDist(BaseDistribution):
                 ),
                 indices=points.reshape(batch_size * seq_len, -1),
             )  # (batch_size, n_vocab)
-            return p_tilde, []
+            return p_tilde, scale_factors
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor
