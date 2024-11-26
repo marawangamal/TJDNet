@@ -1,14 +1,21 @@
 import torch
 from abc import ABC, abstractmethod
-from typing import Tuple, List
+from typing import Optional, Tuple, List
 
 
 class BaseDistribution(ABC, torch.nn.Module):
-    def __init__(self):
+    def __init__(self, horizon: int):
         """
         Abstract base class for distributions compatible with TJDGPT2.
         """
         super().__init__()
+        self.horizon = horizon
+
+    def _get_horizon(self, horizon: Optional[int]):
+        horizon = self.horizon if horizon is None else horizon
+        if horizon > self.horizon:
+            raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
+        return horizon
 
     @abstractmethod
     def get_norm_consts(
@@ -31,7 +38,6 @@ class BaseDistribution(ABC, torch.nn.Module):
         self,
         last_hidden_state: torch.Tensor,
         points: torch.Tensor,
-        is_normalized: bool = False,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """
         Evaluate the distribution at the given points.
@@ -39,7 +45,6 @@ class BaseDistribution(ABC, torch.nn.Module):
         Args:
             last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
             points (torch.Tensor): Points to evaluate, of shape (B, H, D).
-            is_normalized (bool, optional): Whether the output should be normalized.
 
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation results and additional scale factors.

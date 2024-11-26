@@ -29,7 +29,7 @@ class CPDist(BaseDistribution):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__()
+        super().__init__(horizon)
         self.param_func = torch.nn.Linear(n_embd, rank * horizon * vocab_size)
         self.horizon = horizon
         self.vocab_size = vocab_size
@@ -51,12 +51,6 @@ class CPDist(BaseDistribution):
         if horizon is not None:
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
-
-    def _get_horizon(self, horizon: Optional[int]):
-        horizon = self.horizon if horizon is None else horizon
-        if horizon > self.horizon:
-            raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
-        return horizon
 
     def generate(self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None):
         """Generate sequences given an input tensor.
@@ -90,7 +84,6 @@ class CPDist(BaseDistribution):
         self,
         last_hidden_state: torch.Tensor,
         points: torch.Tensor,
-        horizon: Optional[int] = None,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points.
 
@@ -104,9 +97,8 @@ class CPDist(BaseDistribution):
         """
         # Get indexed distribution
         batch_size, seq_len, _ = last_hidden_state.size()
-        horizon = self._get_horizon(horizon)
+        horizon = points.size(-1)
         params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-
         # (B, T, R, H, V) => (B, T)
         with profiler.record_function("select_from_cp_tensor"):
             p_tilde = select_from_cp_tensor(
@@ -132,12 +124,13 @@ class CPDist(BaseDistribution):
         horizon = self._get_horizon(horizon)
         # Get indexed distribution
         params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        norm_consts = sum_cp_tensor(
-            tensor=params.reshape(
-                batch_size * seq_len, self.rank, horizon, self.vocab_size
-            ),
-        )
-        return (
-            norm_consts.reshape(batch_size, seq_len),  # (B, T)
-            [],
-        )
+        with profiler.record_function("normalize_cp_tensor"):
+            norm_consts = sum_cp_tensor(
+                tensor=params.reshape(
+                    batch_size * seq_len, self.rank, horizon, self.vocab_size
+                ),
+            )
+            return (
+                norm_consts.reshape(batch_size, seq_len),  # (B, T)
+                [],
+            )

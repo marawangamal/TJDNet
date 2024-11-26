@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import torch
 import torch.autograd.profiler as profiler
 
@@ -20,7 +20,7 @@ class MPSDist(BaseDistribution):
         horizon: int,
         positivity_func: str = "exp",
     ):
-        super().__init__()
+        super().__init__(horizon)
         self.rank = rank
         self.vocab_size = vocab_size
         self.horizon = horizon
@@ -44,7 +44,7 @@ class MPSDist(BaseDistribution):
         )  # (B, T, R), (B, T, R*V*R), (B, T, R)
         return alpha, core, beta
 
-    def generate(self, last_hidden_state: torch.Tensor):
+    def generate(self, last_hidden_state: torch.Tensor, horizon: int):
         """Generate sequences given an input tensor.
 
         Args:
@@ -59,7 +59,7 @@ class MPSDist(BaseDistribution):
             alpha=alpha.reshape(-1, self.rank),
             beta=beta.reshape(-1, self.rank),
             core=core.reshape(-1, self.rank, self.vocab_size, self.rank),
-            n_core_repititions=self.horizon,
+            n_core_repititions=horizon,
         )  # (B, V, V, ..., V)  `horizon` times
         return torch.stack(
             [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
@@ -69,14 +69,13 @@ class MPSDist(BaseDistribution):
         self,
         last_hidden_state: torch.Tensor,
         points: torch.Tensor,
-        is_normalized=False,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points.
 
         Args:
             last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
             points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
-            is_normalized (bool, optional): Whether the points are normalized. Defaults to False.
+            horizon (int, optional): Number of steps to consider. Defaults to model horizon.
 
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B*H) and scale_tensors (empty list)
@@ -96,7 +95,7 @@ class MPSDist(BaseDistribution):
             return p_tilde, scale_factors
 
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor
+        self, last_hidden_state: torch.Tensor, horizon: int
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Get the normalization constants for the BT distributions.
 
@@ -106,17 +105,19 @@ class MPSDist(BaseDistribution):
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
+        horizon = self._get_horizon(horizon)
         alpha, core, beta = self._get_pos_params(last_hidden_state)
         batch_size, seq_len, _ = last_hidden_state.shape
-        z, scale_factors = umps_select_marginalize_batched(
-            alpha=alpha.reshape(batch_size * seq_len, self.rank),
-            beta=beta.reshape(batch_size * seq_len, self.rank),
-            core=core.reshape(
-                batch_size * seq_len, self.rank, self.vocab_size, self.rank
-            ),
-            operation_map=torch.ones(
-                (batch_size * seq_len, self.horizon), device=alpha.device
+        with profiler.record_function("normalize_mps_tensor"):
+            z, scale_factors = umps_select_marginalize_batched(
+                alpha=alpha.reshape(batch_size * seq_len, self.rank),
+                beta=beta.reshape(batch_size * seq_len, self.rank),
+                core=core.reshape(
+                    batch_size * seq_len, self.rank, self.vocab_size, self.rank
+                ),
+                operation_map=torch.ones(
+                    (batch_size * seq_len, horizon), device=alpha.device
+                )
+                * -1,
             )
-            * -1,
-        )
-        return z, scale_factors
+            return z, scale_factors

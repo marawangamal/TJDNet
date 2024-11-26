@@ -137,12 +137,16 @@ class TJDGPT2(torch.nn.Module):
             torch.Tensor: Loss value.
         """
 
+        batch_size, _ = input_ids.size()
         horizon = self.horizon if horizon is None else min(self.horizon, horizon)
 
         last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
-        targets = get_windowed_input_ids(input_ids, horizon=horizon)  # (B * T-H, H)
+        targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
+            batch_size, -1, horizon
+        )  # (B, T-H, H)
+
         p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
-            last_hidden_state[:, :-horizon], targets, horizon=horizon
+            last_hidden_state[:, :-horizon], targets
         )  # (B, T-H)
 
         norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(

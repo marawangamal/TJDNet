@@ -10,10 +10,10 @@ def select_from_umps_tensor(
     """Selects tensor elements from a uMPS.
 
     Args:
-        alpha (torch.Tensor): Alpha tensor of shape (B,R)
-        beta (torch.Tensor): Beta tensor of shape (B,R)
-        core (torch.Tensor): Core tensor of shape (B,R,D,R)
-        indices (torch.Tensor): Indices to select from the tensor of shape (B,T)
+        alpha (torch.Tensor): Alpha tensor of shape (B, R)
+        beta (torch.Tensor): Beta tensor of shape (B R)
+        core (torch.Tensor): Core tensor of shape (B, R, D, R)
+        indices (torch.Tensor): Indices to select from the tensor of shape (B, H). `H` is horizon
     """
     batch_size = indices.size(0)
     result = alpha
@@ -25,7 +25,7 @@ def select_from_umps_tensor(
         scale_factor = torch.linalg.norm(
             core_select.reshape(batch_size, -1), dim=-1
         )  # (B,)
-        core_select = core_select / scale_factor
+        core_select = core_select / scale_factor.reshape(-1, 1, 1)
         scale_factors.append(scale_factor)
         result = torch.einsum("bi, bij -> bj", result, core_select)
     result = torch.einsum("bi, bi -> b", result, beta)
