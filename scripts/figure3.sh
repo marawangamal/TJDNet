@@ -1,2 +1,0 @@
-python train_ttdist_synthetic.py --n_iters 30000 --vocab_size 32 --true_rank 8  --rank 16 --loss_type entropy --output_size 2 --lr 1e-4
-python train_ttdist_synthetic.py --n_iters 30000 --vocab_size 64 --true_rank 64 --rank 1  --loss_type entropy --output_size 2 --lr 1e-4
