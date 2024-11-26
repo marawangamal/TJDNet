@@ -32,7 +32,7 @@ def select_from_umps_tensor(
     return result, scale_factors
 
 
-def umps_select_marginalize_batched(
+def sum_umps_tensor(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,
@@ -103,7 +103,7 @@ def umps_select_marginalize_batched(
     return res, scale_factors
 
 
-def umps_materialize_batched(
+def materialize_umps_tensor(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,

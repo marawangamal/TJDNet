@@ -6,8 +6,8 @@ from distributions._base import BaseDistribution
 from utils.tensorops.common import sample_from_tensor_dist
 from utils.tensorops.mps import (
     select_from_umps_tensor,
-    umps_materialize_batched,
-    umps_select_marginalize_batched,
+    materialize_umps_tensor,
+    sum_umps_tensor,
 )
 
 
@@ -55,7 +55,7 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
         )  # (B, 1, V*R*H) we only need the Tth hidden state
-        p_tilde = umps_materialize_batched(
+        p_tilde = materialize_umps_tensor(
             alpha=alpha.reshape(-1, self.rank),
             beta=beta.reshape(-1, self.rank),
             core=core.reshape(-1, self.rank, self.vocab_size, self.rank),
@@ -109,7 +109,7 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(last_hidden_state)
         batch_size, seq_len, _ = last_hidden_state.shape
         with profiler.record_function("normalize_mps_tensor"):
-            z, scale_factors = umps_select_marginalize_batched(
+            z, scale_factors = sum_umps_tensor(
                 alpha=alpha.reshape(batch_size * seq_len, self.rank),
                 beta=beta.reshape(batch_size * seq_len, self.rank),
                 core=core.reshape(
