@@ -3,8 +3,8 @@ import torch
 import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
-from utils.tensorops.common import sample_from_tensor_dist
-from utils.tensorops.mps import (
+from tensorops.common import sample_from_tensor_dist
+from tensorops.mps import (
     select_from_umps_tensor,
     materialize_umps_tensor,
     sum_umps_tensor,

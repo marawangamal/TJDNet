@@ -19,7 +19,7 @@ class BaseDistribution(ABC, torch.nn.Module):
 
     @abstractmethod
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, horizon: int
+        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """
         Compute the normalization constant for the distribution.
@@ -35,9 +35,7 @@ class BaseDistribution(ABC, torch.nn.Module):
 
     @abstractmethod
     def evaluate_at_points(
-        self,
-        last_hidden_state: torch.Tensor,
-        points: torch.Tensor,
+        self, last_hidden_state: torch.Tensor, points: torch.Tensor, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """
         Evaluate the distribution at the given points.
@@ -52,7 +50,9 @@ class BaseDistribution(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
-    def generate(self, last_hidden_state: torch.Tensor, horizon: int) -> torch.Tensor:
+    def generate(
+        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
+    ) -> torch.Tensor:
         """
         Generate sequences based on the distribution.
 

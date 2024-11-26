@@ -2,7 +2,7 @@ from typing import List, Tuple
 import torch
 
 from distributions._base import BaseDistribution
-from utils.tensorops.common import batch_multi_dim_index, sample_from_tensor_dist
+from tensorops.common import batch_multi_dim_index, sample_from_tensor_dist
 
 
 class FullDist(BaseDistribution):

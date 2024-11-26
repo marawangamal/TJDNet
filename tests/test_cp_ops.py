@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from utils.tensorops.cp import select_from_cp_tensor, sum_cp_tensor
+from tensorops.cp import select_from_cp_tensor, sum_cp_tensor
 
 
 class TestCPTensor(unittest.TestCase):

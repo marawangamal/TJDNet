@@ -3,7 +3,7 @@ import torch
 import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
-from utils.tensorops.common import sample_from_tensor_dist
+from tensorops.common import sample_from_tensor_dist
 
 
 class BaseDist(BaseDistribution):
@@ -24,7 +24,7 @@ class BaseDist(BaseDistribution):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__()
+        super().__init__(horizon=1)
         assert horizon == 1, "Only horizon=1 is supported for now"
         self.param_func = torch.nn.Linear(n_embd, vocab_size)
         self.vocab_size = vocab_size
@@ -39,7 +39,9 @@ class BaseDist(BaseDistribution):
     def _get_pos_params(self, last_hidden_state: torch.Tensor):
         return self.positivity_func(self.param_func(last_hidden_state))
 
-    def generate(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
+    def generate(
+        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
+    ) -> torch.Tensor:
         """Generate sequences given an input tensor.
 
         Args:
@@ -85,7 +87,7 @@ class BaseDist(BaseDistribution):
             return p_tilde_select.reshape(-1), []  # (B*T)
 
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, **kwargs
+        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Get the normalization constants for the BT distributions.
 
