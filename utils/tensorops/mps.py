@@ -18,19 +18,46 @@ def select_from_umps_tensor(
     Returns:
         torch.Tensor: Selected elements of shape (B,)
     """
-    batch_size = indices.size(0)
     result = alpha
     scale_factors = []
     for t in range(indices.shape[1]):
         core_select = torch.stack(
             [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
         )  # (B, R, R)
-        scale_factor = torch.linalg.norm(
-            core_select.reshape(batch_size, -1), dim=-1
-        )  # (B,)
-        core_select = core_select / scale_factor.reshape(-1, 1, 1)
+        result_raw = torch.einsum("bi, bij -> bj", result, core_select)
+        scale_factor = torch.linalg.norm(result_raw, dim=-1)  # (B,)
         scale_factors.append(scale_factor)
-        result = torch.einsum("bi, bij -> bj", result, core_select)
+        result = result_raw / scale_factor.unsqueeze(1)
+    result = torch.einsum("bi, bi -> b", result, beta)
+    return result, scale_factors
+
+
+def sum_umps_tensorV2(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    n_core_repititions: int,
+):
+    """Sum all elements of a uMPS tensor representation (batched).
+
+    Args:
+        alpha (torch.Tensor): Alpha tensor of shape (B, R)
+        beta (torch.Tensor): Beta tensor of shape (B R)
+        core (torch.Tensor): Core tensor of shape (B, R, D, R)
+        indices (torch.Tensor): Indices to select from the tensor of shape (B, H). `H` is horizon
+
+    Returns:
+        torch.Tensor: Selected elements of shape (B,)
+    """
+    batch_size = alpha.size(0)
+    core_margin = core.sum(dim=2)  # (B, R, R)
+    result = alpha
+    scale_factors = []
+    for t in range(n_core_repititions):
+        result_raw = torch.einsum("bi, bij -> bj", result, core_margin)
+        scale_factor = torch.linalg.norm(result_raw, dim=-1)
+        scale_factors.append(scale_factor)
+        result = result_raw / scale_factor.unsqueeze(1)
     result = torch.einsum("bi, bi -> b", result, beta)
     return result, scale_factors
 

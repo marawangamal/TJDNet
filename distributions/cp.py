@@ -126,7 +126,7 @@ class CPDist(BaseDistribution):
         params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
         with profiler.record_function("normalize_cp_tensor"):
             norm_consts = sum_cp_tensor(
-                tensor=params.reshape(
+                cp_params=params.reshape(
                     batch_size * seq_len, self.rank, horizon, self.vocab_size
                 ),
             )
