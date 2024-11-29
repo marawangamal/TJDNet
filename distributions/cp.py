@@ -52,7 +52,9 @@ class CPDist(BaseDistribution):
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
 
-    def generate(self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None):
+    def generate(
+        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
+    ) -> torch.Tensor:
         """Generate sequences given an input tensor.
 
         Args:
@@ -84,6 +86,7 @@ class CPDist(BaseDistribution):
         self,
         last_hidden_state: torch.Tensor,
         points: torch.Tensor,
+        **kwargs,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points.
 
@@ -110,7 +113,7 @@ class CPDist(BaseDistribution):
             return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
 
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None
+        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Get the normalization constants for the BT distributions.
 
