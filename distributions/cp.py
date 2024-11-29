@@ -6,7 +6,7 @@ import torch.autograd.profiler as profiler
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.cp import (
-    materialize_cp_tensorV2,
+    materialize_cp_tensor,
     select_from_cp_tensor,
     sum_cp_tensor,
 )
@@ -68,15 +68,14 @@ class CPDist(BaseDistribution):
             last_hidden_state[:, -1:, :],
             horizon,
         )  # (B, 1, R, H, V) we only need the Tth hidden state
-        # TODO: Don't need this permuation with v2
-        p_tilde = materialize_cp_tensorV2(
+        p_tilde = materialize_cp_tensor(
             # (B, 1, R, H, V) => (B, H, V, R)
             params.reshape(
                 -1,
                 self.rank,
                 horizon,
                 self.vocab_size,
-            ).permute(0, 2, 3, 1)
+            )
         )  # (B, V, V, ..., V) `horizon` times
         return torch.stack(
             [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]

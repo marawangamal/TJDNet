@@ -49,13 +49,13 @@ def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     return result.sum(dim=1)  # (B, R) -> (B)
 
 
-def materialize_cp_tensorV2(
+def materialize_cp_tensor(
     x: torch.Tensor,
 ):
     """Performs outer product of a tensor with itself.
 
     Args:
-        x (torch.Tensor): Tensor of shape (B, H, V, R)
+        x (torch.Tensor): Tensor of shape (B, R, H, V)
 
     Returns:
         torch.Tensor: Tensor of shape (B, V**H)
@@ -68,12 +68,13 @@ def materialize_cp_tensorV2(
 
     """
 
-    B, H, V, R = x.size()
+    # (B, 1, R, H, V)
+    B, R, H, V = x.size()
     contractions = []
     weights = torch.ones(R, device=x.device)
     for b in range(B):
         res = tl.cp_to_tensor(
-            (weights, [x[b, h] for h in range(H)])
+            (weights, [x[b, :, h].T for h in range(H)])
         )  # List of tensors of shape (V, R)
         contractions.append(res)
     return torch.stack(contractions, dim=0)  # (B, V, V, ..., V)  H times
