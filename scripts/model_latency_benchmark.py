@@ -4,8 +4,8 @@ Compares inference time between tensor model and baseline.
 Works on both CPU and CUDA devices.
 
 Usage:
-    python model_latency_benchmark.py --model cp  # For CP model
-    python model_latency_benchmark.py --model mps  # For MPS model
+    python scripts/model_latency_benchmark.py --model cp  # For CP model
+    python scripts/model_latency_benchmark.py --model mps  # For MPS model
 """
 
 import os
