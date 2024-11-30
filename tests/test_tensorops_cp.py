@@ -33,7 +33,9 @@ class TestCPTensor(unittest.TestCase):
         # - marginalize last position
         ops = torch.tensor([0, -1, -1, -2])
 
-        result = select_margin_cp_tensor(cp_params, ops)  # (rank, n_free, vocab_size)
+        result, _ = select_margin_cp_tensor(
+            cp_params, ops
+        )  # (rank, n_free, vocab_size)
 
         # Expected shape should be (rank, n_free, vocab_size)
         # where n_free is number of -1 operations (2 in this case)

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple, Union
 import torch
 import tensorly as tl
 
@@ -112,7 +112,9 @@ def get_breakpoints(ops: torch.Tensor):
     return h_free.long(), h_mrgn.long()
 
 
-def select_margin_cp_tensor(cp_params: torch.Tensor, ops: torch.Tensor):
+def select_margin_cp_tensor(
+    cp_params: torch.Tensor, ops: torch.Tensor, apply_scale_factors=False
+) -> Tuple[torch.Tensor, Union[None, torch.Tensor]]:
     """Performs selection and marginalization operations on a CP tensor representation.
 
     Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
@@ -132,8 +134,9 @@ def select_margin_cp_tensor(cp_params: torch.Tensor, ops: torch.Tensor):
             [0,V): select index v in mode
 
     Returns:
-        torch.Tensor: Result tensor of shape (F) where F is the number
-            of free indices (-1 operations) in ops.
+        Tuple[torch.Tensor, torch.Tensor]:
+            - Result tensor of shape (R, F, D) where F is the numbe of free indices (-1 operations) in ops
+            - Scale factors of shape (R,T)
     """
 
     # Validation:
@@ -148,11 +151,17 @@ def select_margin_cp_tensor(cp_params: torch.Tensor, ops: torch.Tensor):
     bp_free, bp_margin = int(bp_free.item()), int(bp_margin.item())
     assert bp_free < bp_margin, "Invalid ops tensor (select/marginalize order)"
 
+    cp_params_scaled = cp_params
+    scale_factors = None
+    if apply_scale_factors:
+        scale_factors = torch.linalg.norm(cp_params, dim=-1)  # (R, T)
+        cp_params_scaled = cp_params / scale_factors.unsqueeze(-1)
+
     # Split CP tensor into selectable, margin, and free factors
-    rank, seq_len, vocab_size = cp_params.size()
-    cp_params_select = cp_params[:, :bp_free, :]  # (R, bp_select, D)
-    cp_params_margin = cp_params[:, bp_margin:, :]  # (R, n_mrgn, D)
-    cp_params_free = cp_params[:, bp_free:bp_margin, :]  # (R, n_free, D)
+    rank, seq_len, vocab_size = cp_params_scaled.size()
+    cp_params_select = cp_params_scaled[:, :bp_free, :]  # (R, bp_select, D)
+    cp_params_margin = cp_params_scaled[:, bp_margin:, :]  # (R, n_mrgn, D)
+    cp_params_free = cp_params_scaled[:, bp_free:bp_margin, :]  # (R, n_free, D)
 
     # Reduce selectable factors
     result = torch.gather(
@@ -167,4 +176,4 @@ def select_margin_cp_tensor(cp_params: torch.Tensor, ops: torch.Tensor):
 
     # Multiply free factors
     result = result.reshape(rank, 1, 1) * cp_params_free  # (R, n_free, D)
-    return result
+    return result, scale_factors
