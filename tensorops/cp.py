@@ -78,3 +78,93 @@ def materialize_cp_tensor(
         )  # List of tensors of shape (V, R)
         contractions.append(res)
     return torch.stack(contractions, dim=0)  # (B, V, V, ..., V)  H times
+
+
+def get_breakpoints(ops: torch.Tensor):
+    """Get breakpoints for select, free, and marginalize operations.
+
+    Args:
+        ops (torch.Tensor): Operation codes of shape (B, T) specifying:
+            -2: marginalize mode (sum reduction)
+            -1: keep mode as free index
+            [0,V): select index v in mode
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Breakpoints for select/free (h_slct) and free/marginalize (h_mrgn) operations
+
+    """
+    # For first non-select (first -1 or -2)
+    non_select_mask = (ops < 0).int()  # Convert bool to int, shape: (B, T)
+    has_non_select = non_select_mask.any(dim=1)
+    h_free = non_select_mask.argmax(dim=1)  # shape: (B,)
+    # For batches with all selects, set h_slct to T
+    h_free = torch.where(
+        has_non_select, h_free, torch.tensor(ops.size(1), device=ops.device)
+    )
+
+    # For first margin (first -2)
+    is_margin_mask = (ops == -2).int()  # Convert bool to int
+    has_margin = is_margin_mask.any(dim=1)
+    h_mrgn = is_margin_mask.argmax(dim=1)
+    h_mrgn = torch.where(
+        has_margin, h_mrgn, torch.tensor(ops.size(1), device=ops.device)
+    )
+    return h_free.long(), h_mrgn.long()
+
+
+def select_margin_cp_tensor(cp_params: torch.Tensor, ops: torch.Tensor):
+    """Performs selection and marginalization operations on a CP tensor representation.
+
+    Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
+    applies a sequence of operations on each mode:
+        - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ
+        - Marginalization: For op = -2, sums all elements in aᵢⱼ
+        - Free index: For op = -1, keeps aᵢⱼ unchanged
+
+    Args:
+        cp_params (torch.Tensor): CP tensor factors of shape (R, T, D) where:
+            R: CP rank
+            T: number of tensor modes/dimensions
+            D: dimension of each mode
+        ops (torch.Tensor): Operation codes of shape (T) specifying:
+            -2: marginalize mode (sum reduction)
+            -1: keep mode as free index
+            [0,V): select index v in mode
+
+    Returns:
+        torch.Tensor: Result tensor of shape (F) where F is the number
+            of free indices (-1 operations) in ops.
+    """
+
+    # Validation:
+    assert len(cp_params.shape) == 3, "CP params tensor must be 3D (non-batched)"
+    assert len(ops.shape) == 1, "Ops tensor must be 1D (non-batched)"
+    assert (ops >= -2).all() and (ops < cp_params.size(2)).all(), "Invalid ops tensor"
+
+    # Note ops must be in the order of select, free, marginalize
+    bp_free, bp_margin = get_breakpoints(
+        ops.reshape(1, -1)
+    )  # (1,), (1,) selects index at which selects end
+    bp_free, bp_margin = int(bp_free.item()), int(bp_margin.item())
+    assert bp_free < bp_margin, "Invalid ops tensor (select/marginalize order)"
+
+    # Split CP tensor into selectable, margin, and free factors
+    rank, seq_len, vocab_size = cp_params.size()
+    cp_params_select = cp_params[:, :bp_free, :]  # (R, bp_select, D)
+    cp_params_margin = cp_params[:, bp_margin:, :]  # (R, n_mrgn, D)
+    cp_params_free = cp_params[:, bp_free:bp_margin, :]  # (R, n_free, D)
+
+    # Reduce selectable factors
+    result = torch.gather(
+        cp_params_select.reshape(-1, vocab_size),  # (R*n_slct, D)
+        dim=1,
+        index=ops[:bp_free].reshape(1, -1).repeat(rank, 1).reshape(-1, 1),
+    ).reshape(rank, bp_free, 1)
+
+    # Reduce margin factors
+    result = result * cp_params_margin  # (R, n_mrgn, D)
+    result = result.prod(dim=1).sum(dim=-1)  # (R,)
+
+    # Multiply free factors
+    result = result.reshape(rank, 1, 1) * cp_params_free  # (R, n_free, D)
+    return result
