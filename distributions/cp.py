@@ -7,6 +7,7 @@ from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.cp import (
     materialize_cp_tensor,
+    sample_from_cp_tensor,
     select_from_cp_tensor,
     sum_cp_tensor,
 )
@@ -70,19 +71,34 @@ class CPDist(BaseDistribution):
             last_hidden_state[:, -1:, :],
             horizon,
         )  # (B, 1, R, H, V) we only need the Tth hidden state
-        p_tilde = materialize_cp_tensor(
-            # (B, 1, R, H, V) => (B, H, V, R)
-            params.reshape(
-                -1,
-                self.rank,
-                horizon,
-                self.vocab_size,
-            )
-        )  # (B, V, V, ..., V) `horizon` times
+
+        # OPTION 1: Explicitly materialize the CP tensor
+        # p_tilde = materialize_cp_tensor(
+        #     # (B, 1, R, H, V) => (B, H, V, R)
+        #     params.reshape(
+        #         -1,
+        #         self.rank,
+        #         horizon,
+        #         self.vocab_size,
+        #     )
+        # )  # (B, V, V, ..., V) `horizon` times
+        # return torch.stack(
+        #     [sample_from_tensor_dist(p_tilde_b, num_samples=1) for p_tilde_b in p_tilde]
+        # ).reshape(
+        #     batch_size, horizon
+        # )  # (B, H)
+
+        # OPTION 2: Sample directly using CP representation
         return torch.stack(
-            [sample_from_tensor_dist(p_tilde_b, num_samples=1) for p_tilde_b in p_tilde]
-        ).reshape(
-            batch_size, horizon
+            [
+                sample_from_cp_tensor(
+                    params.reshape(
+                        self.rank,
+                        horizon,
+                        self.vocab_size,
+                    )
+                )
+            ]
         )  # (B, H)
 
     def evaluate_at_points(

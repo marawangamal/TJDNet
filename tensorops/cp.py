@@ -80,36 +80,34 @@ def materialize_cp_tensor(
     return torch.stack(contractions, dim=0)  # (B, V, V, ..., V)  H times
 
 
-def get_breakpoints(ops: torch.Tensor):
-    """Get breakpoints for select, free, and marginalize operations.
+def sample_from_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
+    """Samples from a CP tensor representation of probabilities.
 
     Args:
-        ops (torch.Tensor): Operation codes of shape (B, T) specifying:
-            -2: marginalize mode (sum reduction)
-            -1: keep mode as free index
-            [0,V): select index v in mode
+        cp_params (torch.Tensor): CP tensor factors of shape (R, T, D) where:
+
+    Raises:
+        NotImplementedError: _description_
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Breakpoints for select/free (h_slct) and free/marginalize (h_mrgn) operations
-
+        torch.Tensor: Sampled tensor of shape (T,)
     """
-    # For first non-select (first -1 or -2)
-    non_select_mask = (ops < 0).int()  # Convert bool to int, shape: (B, T)
-    has_non_select = non_select_mask.any(dim=1)
-    h_free = non_select_mask.argmax(dim=1)  # shape: (B,)
-    # For batches with all selects, set h_slct to T
-    h_free = torch.where(
-        has_non_select, h_free, torch.tensor(ops.size(1), device=ops.device)
-    )
-
-    # For first margin (first -2)
-    is_margin_mask = (ops == -2).int()  # Convert bool to int
-    has_margin = is_margin_mask.any(dim=1)
-    h_mrgn = is_margin_mask.argmax(dim=1)
-    h_mrgn = torch.where(
-        has_margin, h_mrgn, torch.tensor(ops.size(1), device=ops.device)
-    )
-    return h_free.long(), h_mrgn.long()
+    selected_indices = []
+    for t in range(cp_params.size(1)):
+        # Unnormalized P(y_t | y_{<t})
+        p_tilde_yt_given_prev, _ = select_margin_cp_tensor(
+            cp_params,
+            ops=torch.tensor(
+                selected_indices + [-1] + [-2] * (cp_params.size(1) - t - 1),
+                device=cp_params.device,
+            ),
+        )  # (R, 1, D)
+        # Sample from P(y_t | y_{<t})
+        selected_index = torch.multinomial(
+            p_tilde_yt_given_prev.sum(dim=0).reshape(-1), num_samples=1
+        ).item()
+        selected_indices.append(selected_index)
+    return torch.tensor(selected_indices, device=cp_params.device)
 
 
 def select_margin_cp_tensor(
@@ -128,7 +126,7 @@ def select_margin_cp_tensor(
             R: CP rank
             T: number of tensor modes/dimensions
             D: dimension of each mode
-        ops (torch.Tensor): Operation codes of shape (T) specifying:
+        ops (torch.Tensor): Operation codes of shape (T,) specifying:
             -2: marginalize mode (sum reduction)
             -1: keep mode as free index
             [0,V): select index v in mode
@@ -177,3 +175,35 @@ def select_margin_cp_tensor(
     # Multiply free factors
     result = result.reshape(rank, 1, 1) * cp_params_free  # (R, n_free, D)
     return result, scale_factors
+
+
+def get_breakpoints(ops: torch.Tensor):
+    """Get breakpoints for select, free, and marginalize operations.
+
+    Args:
+        ops (torch.Tensor): Operation codes of shape (B, T) specifying:
+            -2: marginalize mode (sum reduction)
+            -1: keep mode as free index
+            [0,V): select index v in mode
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Breakpoints for select/free (h_slct) and free/marginalize (h_mrgn) operations
+
+    """
+    # For first non-select (first -1 or -2)
+    non_select_mask = (ops < 0).int()  # Convert bool to int, shape: (B, T)
+    has_non_select = non_select_mask.any(dim=1)
+    h_free = non_select_mask.argmax(dim=1)  # shape: (B,)
+    # For batches with all selects, set h_slct to T
+    h_free = torch.where(
+        has_non_select, h_free, torch.tensor(ops.size(1), device=ops.device)
+    )
+
+    # For first margin (first -2)
+    is_margin_mask = (ops == -2).int()  # Convert bool to int
+    has_margin = is_margin_mask.any(dim=1)
+    h_mrgn = is_margin_mask.argmax(dim=1)
+    h_mrgn = torch.where(
+        has_margin, h_mrgn, torch.tensor(ops.size(1), device=ops.device)
+    )
+    return h_free.long(), h_mrgn.long()
