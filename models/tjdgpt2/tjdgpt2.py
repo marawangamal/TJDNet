@@ -100,10 +100,22 @@ class TJDGPT2(torch.nn.Module):
         horizon: Optional[int] = None,
         **kwargs,
     ):
-        # BUG: Should only accept a batch of size 1
+        """Generate sequences given an input tensor.
+
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+            num_beams (int, optional): Number of beams. Defaults to 1.
+            do_sample (bool, optional): Whether to sample. Defaults to False.
+            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
+        """
+        assert input_ids.size(0) == 1, "Only batch size 1 is supported"
         horizon = self._get_horizon(horizon)
         batch_size, _ = input_ids.size()
-        n_passes = max_new_tokens // horizon
+        n_passes = max(max_new_tokens // horizon, 1)
         output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
         input_tens = input_ids
 

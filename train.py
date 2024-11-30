@@ -89,7 +89,7 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="mps",
+        default="cp",
         help="Type of factorization to use for the model.",
         choices=[
             "cp",

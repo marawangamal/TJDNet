@@ -58,10 +58,12 @@ class CPDist(BaseDistribution):
         """Generate sequences given an input tensor.
 
         Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
             input_ids (torch.Tensor): Previous tokens of shape (B, T)
         """
         # Cannot generate sequences longer than `horizon`
-        assert last_hidden_state.size(0) == 1, "Only batch size 1 is supported"
+        batch_size, seq_len, _ = last_hidden_state.size()
+        assert batch_size == 1, "Only batch size 1 is supported"
         horizon = self._get_horizon(horizon)
         # print(f"Generating {horizon} tokens")
         params = self._get_pos_params(
@@ -78,7 +80,9 @@ class CPDist(BaseDistribution):
             )
         )  # (B, V, V, ..., V) `horizon` times
         return torch.stack(
-            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
+            [sample_from_tensor_dist(p_tilde_b, num_samples=1) for p_tilde_b in p_tilde]
+        ).reshape(
+            batch_size, horizon
         )  # (B, H)
 
     def evaluate_at_points(
