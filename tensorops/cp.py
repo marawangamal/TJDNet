@@ -170,7 +170,7 @@ def select_margin_cp_tensor(
 
     # Reduce margin factors
     if result.size(1) > 0 and cp_params_margin.size(1) > 0:
-        result = result * cp_params_margin  # (R, n_mrgn, D)
+        result = result.prod(1).reshape(rank, 1, 1) * cp_params_margin  # (R, n_mrgn, D)
     elif cp_params_margin.size(1) > 0:
         result = cp_params_margin  # (R, n_mrgn, D)
     result = result.prod(dim=1).sum(dim=-1)  # (R,)
