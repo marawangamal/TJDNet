@@ -165,6 +165,11 @@ class TJDGPT2(torch.nn.Module):
             last_hidden_state[:, :-horizon], horizon=horizon
         )  # (B, T-H)
 
+        # Health checks
+        # 1. Ensure no NaNs
+        assert not torch.isnan(p_tilde).any(), "p_tilde NaN"
+        assert not torch.isnan(norm_const).any(), "norm_const NaN"
+        # 2. Ensure p_tilde < norm_const (if no scale factors)
         if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
             assert (p_tilde < norm_const).all(), "p_tilde < norm_const"
 

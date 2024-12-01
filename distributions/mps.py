@@ -44,7 +44,7 @@ class MPSDist(BaseDistribution):
         )  # (B, T, R), (B, T, R*V*R), (B, T, R)
         return alpha, core, beta
 
-    def generate(self, last_hidden_state: torch.Tensor, horizon: int):
+    def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
         """Generate sequences given an input tensor.
 
         Args:
@@ -52,6 +52,8 @@ class MPSDist(BaseDistribution):
             horizon (int): Horizon of the generation (Must be <= Horizon of the model)
         """
         # Cannot generate sequences longer than `horizon`
+        batch_size, seq_len, _ = last_hidden_state.size()
+        assert batch_size == 1, "Batch size must be 1 for generation"
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
         )  # (B, 1, V*R*H) we only need the Tth hidden state
@@ -63,12 +65,15 @@ class MPSDist(BaseDistribution):
         )  # (B, V, V, ..., V)  `horizon` times
         return torch.stack(
             [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
+        ).reshape(
+            batch_size, -1
         )  # (B, H)
 
     def evaluate_at_points(
         self,
         last_hidden_state: torch.Tensor,
         points: torch.Tensor,
+        **kwargs,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points.
 
@@ -95,7 +100,7 @@ class MPSDist(BaseDistribution):
             return p_tilde, scale_factors
 
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, horizon: int
+        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Get the normalization constants for the BT distributions.
 

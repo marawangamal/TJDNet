@@ -286,7 +286,7 @@ def train(
 
 def evaluate(
     model: torch.nn.Module,
-    eval_dataloader: torch.utils.data.DataLoader,
+    eval_dataloader: DataLoader,
     epoch: int,
     horizon: int = 1,
 ):

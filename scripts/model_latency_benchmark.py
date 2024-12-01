@@ -123,7 +123,7 @@ def main():
     print(f"\nUsing device: {args.device}")
 
     # Model configuration
-    seq_len = 1
+    seq_len = 8
     shared_config = {
         "vocab_size": 128,
         "n_embd": 64,

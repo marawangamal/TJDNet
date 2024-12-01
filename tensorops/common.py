@@ -48,7 +48,7 @@ def sample_from_tensor_dist(tens, num_samples=1):
         num_samples (int): Number of samples to draw.
 
     Returns:
-        torch.Tensor: Sampled indices.
+        torch.Tensor: Sampled indices. Shape: (num_samples, ...).
     """
     # Ensure the distribution is properly normalized
     tens = tens / tens.sum()
