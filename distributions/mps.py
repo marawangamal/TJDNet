@@ -37,21 +37,15 @@ class MPSDist(BaseDistribution):
         params = self.positivity_func(
             self.param_func(last_hidden_state)
         )  # (B, T, R + R + HRVR)
-        alpha, beta, core = torch.split(
-            params,
-            [
-                self.rank,
-                self.rank,
-                self.horizon * self.rank * self.vocab_size * self.rank,
-            ],
-            dim=-1,
-        )  # (B, T, R), (B, T, R), (B, T, HRVR)
+        alpha = params[:, :, : self.rank]
+        beta = params[:, :, self.rank : self.rank * 2]
+        core = params[:, :, self.rank * 2 :].reshape(
+            batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
+        )
         return (
-            alpha,
-            core.reshape(
-                batch_size, seq_len, self.rank, self.horizon, self.vocab_size, self.rank
-            ),
-            beta,
+            alpha,  # (B, T, R)
+            core,  # (B, T, H, R, V, R)
+            beta,  # (B, T, R)
         )
 
     def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
@@ -66,15 +60,17 @@ class MPSDist(BaseDistribution):
         """
         # Cannot generate sequences longer than `horizon`
         horizon = self._get_horizon(horizon)
-        batch_size, seq_len, _ = last_hidden_state.size()
+        batch_size, _, _ = last_hidden_state.size()
         assert batch_size == 1, "Batch size must be 1 for generation"
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
-        )  # (B, 1, R), (B, 1, HRVR), (B, 1, R)
+        )  # (B, 1, R), (B, 1, H, R, V, R), (B, 1, R)
         p_tilde = materialize_mps_tensor(
-            alpha=alpha.reshape(-1, self.rank),
-            beta=beta.reshape(-1, self.rank),
-            core=core.reshape(-1, horizon, self.rank, self.vocab_size, self.rank),
+            alpha=alpha.reshape(batch_size * 1, self.rank),
+            beta=beta.reshape(batch_size * 1, self.rank),
+            core=core.reshape(
+                batch_size * 1, self.horizon, self.rank, self.vocab_size, self.rank
+            )[:, :horizon],
         )  # (B, V, V, ..., V)  `horizon` times
         return torch.stack(
             [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
@@ -130,7 +126,9 @@ class MPSDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
         horizon = self._get_horizon(horizon)
-        alpha, core, beta = self._get_pos_params(last_hidden_state)
+        alpha, core, beta = self._get_pos_params(
+            last_hidden_state
+        )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
         batch_size, seq_len, _ = last_hidden_state.shape
         with profiler.record_function("normalize_mps_tensor"):
             z, scale_factors = sum_mps_tensor(
