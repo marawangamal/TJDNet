@@ -27,12 +27,6 @@ def select_from_umps_tensor(
     result = alpha
     scale_factors = []
     for t in range(indices.shape[1]):
-        # OLD
-        # core_select = torch.stack(
-        #     [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
-        # )  # (B, R, R)
-        # NEW
-        # (B, R, D, R) -> (B, R, R, D) -> (BRR, D)
         core_reshape = core.permute(
             0,
             1,

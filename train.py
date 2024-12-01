@@ -93,6 +93,7 @@ def parse_args():
         help="Type of factorization to use for the model.",
         choices=[
             "cp",
+            "mps",
             "umps",
             "full",
             "base",
