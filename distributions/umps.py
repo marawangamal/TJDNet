@@ -4,7 +4,7 @@ import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
-from tensorops.mps import (
+from tensorops.umps import (
     select_from_umps_tensor,
     materialize_umps_tensor,
     sum_umps_tensor,
@@ -12,7 +12,7 @@ from tensorops.mps import (
 )
 
 
-class MPSDist(BaseDistribution):
+class UMPSDist(BaseDistribution):
     def __init__(
         self,
         n_embd: int,

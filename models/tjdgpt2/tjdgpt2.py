@@ -8,7 +8,7 @@ from transformers import (
 from distributions.base import BaseDist
 from distributions.cp import CPDist
 from distributions.full import FullDist
-from distributions.mps import MPSDist
+from distributions.umps import UMPSDist
 from tensorops.common import get_windowed_input_ids
 
 
@@ -65,7 +65,7 @@ class TJDGPT2(torch.nn.Module):
         self.model_head = {
             "full": FullDist,
             "cp": CPDist,
-            "mps": MPSDist,
+            "umps": UMPSDist,
             "base": BaseDist,
         }[model](
             n_embd=n_embd,
