@@ -3,6 +3,9 @@ import line_profiler
 
 
 # TODO: Try with gather
+# TODO: try this -> core_select.contiguous()
+# TODO: try torch.bmm
+# Make contiguous
 @line_profiler.profile
 def select_from_umps_tensor(
     alpha: torch.Tensor,
@@ -21,56 +24,40 @@ def select_from_umps_tensor(
     Returns:
         torch.Tensor: Selected elements of shape (B,)
     """
+    batch_size, rank_size, vocab_size, _ = core.shape
     result = alpha
     scale_factors = []
     for t in range(indices.shape[1]):
-        core_select = torch.stack(
-            [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
-        )  # (B, R, R)
-        # TODO: try this -> core_select.contiguous()
-        # TODO: try torch.bmm
-        result_raw = torch.einsum("bi, bij -> bj", result, core_select)
+        # OLD
+        # core_select = torch.stack(
+        #     [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
+        # )  # (B, R, R)
+        # NEW
+        # (B, R, D, R) -> (B, R, R, D) -> (BRR, D)
+        core_reshape = core.permute(
+            0,
+            1,
+            3,
+            2,
+        ).reshape(-1, vocab_size)
+        indices_repeated = (
+            indices[:, t]
+            .reshape(-1, 1, 1, 1)
+            .repeat(1, rank_size, rank_size, 1)
+            .reshape(-1, 1)
+        )
+        core_select = torch.gather(
+            core_reshape, 1, indices_repeated
+        )  # (BRR, D) -> (BRR, 1)
+        core_select = core_select.contiguous()
+        result_raw = torch.einsum(
+            "bi, bij -> bj", result, core_select.view(batch_size, rank_size, rank_size)
+        )
         scale_factor = torch.linalg.norm(result_raw, dim=-1)  # (B,)
         scale_factors.append(scale_factor)
         result = result_raw / scale_factor.unsqueeze(1)
     result = torch.einsum("bi, bi -> b", result, beta)
     return result, scale_factors
-
-
-# Line #      Hits         Time  Per Hit   % Time  Line Contents
-# ==============================================================
-#      6                                           @line_profiler.profile
-#      7                                           def select_from_umps_tensor(
-#      8                                               alpha: torch.Tensor,
-#      9                                               beta: torch.Tensor,
-#     10                                               core: torch.Tensor,
-#     11                                               indices: torch.Tensor,
-#     12                                           ):
-#     13                                               """Selects element from a uMPS tensor representation (batched).
-#     14
-#     15                                               Args:
-#     16                                                   alpha (torch.Tensor): Alpha tensor of shape (B, R)
-#     17                                                   beta (torch.Tensor): Beta tensor of shape (B R)
-#     18                                                   core (torch.Tensor): Core tensor of shape (B, R, D, R)
-#     19                                                   indices (torch.Tensor): Indices to select from the tensor of shape (B, H). `H` is horizon
-#     20
-#     21                                               Returns:
-#     22                                                   torch.Tensor: Selected elements of shape (B,)
-#     23                                               """
-#     24        10          4.0      0.4      0.2      result = alpha
-#     25        10          3.0      0.3      0.2      scale_factors = []
-#     26        30          9.0      0.3      0.5      for t in range(indices.shape[1]):
-#     27        40        107.0      2.7      6.0          core_select = torch.stack(
-#     28        20        647.0     32.4     36.3              [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
-#     29                                                   )  # (B, R, R)
-#     30                                                   # TODO: try this -> core_select.contiguous()
-#     31                                                   # TODO: try torch.bmm
-#     32        20        576.0     28.8     32.3          result_raw = torch.einsum("bi, bij -> bj", result, core_select)
-#     33        20        150.0      7.5      8.4          scale_factor = torch.linalg.norm(result_raw, dim=-1)  # (B,)
-#     34        20          6.0      0.3      0.3          scale_factors.append(scale_factor)
-#     35        20         91.0      4.5      5.1          result = result_raw / scale_factor.unsqueeze(1)
-#     36        10        187.0     18.7     10.5      result = torch.einsum("bi, bi -> b", result, beta)
-#     37        10          1.0      0.1      0.1      return result, scale_factors
 
 
 def sum_umps_tensorV2(

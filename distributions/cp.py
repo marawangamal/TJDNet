@@ -6,7 +6,6 @@ import torch.autograd.profiler as profiler
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.cp import (
-    materialize_cp_tensor,
     sample_from_cp_tensor,
     select_from_cp_tensor,
     sum_cp_tensor,

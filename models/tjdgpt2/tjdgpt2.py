@@ -149,6 +149,11 @@ class TJDGPT2(torch.nn.Module):
             torch.Tensor: Loss value.
         """
 
+        # Sequence length must be greater than horizon
+        assert (
+            input_ids.size(1) > self.horizon
+        ), "Sequence length must be greater than horizon"
+
         batch_size, _ = input_ids.size()
         horizon = self.horizon if horizon is None else min(self.horizon, horizon)
 
@@ -156,6 +161,8 @@ class TJDGPT2(torch.nn.Module):
         targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
             batch_size, -1, horizon
         )  # (B, T-H, H)
+
+        assert targets.size(1) >= horizon, "Invalid targets"
 
         p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
             last_hidden_state[:, :-horizon], targets

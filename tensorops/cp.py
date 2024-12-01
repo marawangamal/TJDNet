@@ -1,10 +1,12 @@
 from typing import List, Tuple, Union
 import torch
 import tensorly as tl
+import line_profiler
 
 tl.set_backend("pytorch")
 
 
+@line_profiler.profile
 def select_from_cp_tensor(
     cp_params: torch.Tensor, indices: torch.Tensor
 ) -> torch.Tensor:

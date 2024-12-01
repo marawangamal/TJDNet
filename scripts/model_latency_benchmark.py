@@ -8,6 +8,7 @@ Usage:
     python scripts/model_latency_benchmark.py --model mps  # For MPS model
 """
 
+from math import e
 import os
 import sys
 import argparse
@@ -55,6 +56,12 @@ def parse_args():
         help="Number of warmup runs",
     )
     parser.add_argument(
+        "--mode",
+        type=str,
+        default="generate",
+        help="Mode to benchmark (generate or train)",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default="cuda" if torch.cuda.is_available() else "cpu",
@@ -87,6 +94,7 @@ def measure_latency(
     warmup_runs,
     max_new_tokens=8,
     device="cuda",
+    mode: str = "generate",  # "generate" or "train"
 ):
     # Warmup runs
     for _ in range(warmup_runs):
@@ -101,7 +109,10 @@ def measure_latency(
             end_event = torch.cuda.Event(enable_timing=True)
 
             start_event.record()
-            _ = model.generate(inputs, max_new_tokens=max_new_tokens)
+            if mode == "train":
+                _ = model(inputs, labels=labels)
+            else:
+                _ = model.generate(inputs, max_new_tokens=max_new_tokens)
             end_event.record()
 
             torch.cuda.synchronize()
@@ -109,7 +120,10 @@ def measure_latency(
         else:
             # Use time.perf_counter for CPU timing
             start_time = time.perf_counter()
-            _ = model.generate(inputs, max_new_tokens=max_new_tokens)
+            if mode == "train":
+                _ = model(inputs, labels=labels)
+            else:
+                _ = model.generate(inputs, max_new_tokens=max_new_tokens)
             end_time = time.perf_counter()
             latencies.append((end_time - start_time) * 1000)  # Convert to milliseconds
 
@@ -123,7 +137,7 @@ def main():
     print(f"\nUsing device: {args.device}")
 
     # Model configuration
-    seq_len = 8
+    seq_len = 128
     shared_config = {
         "vocab_size": 128,
         "n_embd": 64,
@@ -157,6 +171,7 @@ def main():
         args.warmup_runs,
         args.max_new_tokens,
         args.device,
+        mode=args.mode,
     )
     baseline_latency = measure_latency(
         baseline_model,
@@ -166,6 +181,7 @@ def main():
         args.warmup_runs,
         args.max_new_tokens,
         args.device,
+        mode=args.mode,
     )
 
     # Print results
