@@ -6,7 +6,7 @@ import torch.autograd.profiler as profiler
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.cp import (
-    materialize_cp_tensorV2,
+    sample_from_cp_tensor,
     select_from_cp_tensor,
     sum_cp_tensor,
 )
@@ -52,38 +52,59 @@ class CPDist(BaseDistribution):
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
 
-    def generate(self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None):
+    def generate(
+        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
+    ) -> torch.Tensor:
         """Generate sequences given an input tensor.
 
         Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
             input_ids (torch.Tensor): Previous tokens of shape (B, T)
         """
         # Cannot generate sequences longer than `horizon`
-        assert last_hidden_state.size(0) == 1, "Only batch size 1 is supported"
+        batch_size, seq_len, _ = last_hidden_state.size()
+        assert batch_size == 1, "Only batch size 1 is supported"
         horizon = self._get_horizon(horizon)
         # print(f"Generating {horizon} tokens")
         params = self._get_pos_params(
             last_hidden_state[:, -1:, :],
             horizon,
         )  # (B, 1, R, H, V) we only need the Tth hidden state
-        # TODO: Don't need this permuation with v2
-        p_tilde = materialize_cp_tensorV2(
-            # (B, 1, R, H, V) => (B, H, V, R)
-            params.reshape(
-                -1,
-                self.rank,
-                horizon,
-                self.vocab_size,
-            ).permute(0, 2, 3, 1)
-        )  # (B, V, V, ..., V) `horizon` times
+
+        # OPTION 1: Explicitly materialize the CP tensor
+        # p_tilde = materialize_cp_tensor(
+        #     # (B, 1, R, H, V) => (B, H, V, R)
+        #     params.reshape(
+        #         -1,
+        #         self.rank,
+        #         horizon,
+        #         self.vocab_size,
+        #     )
+        # )  # (B, V, V, ..., V) `horizon` times
+        # return torch.stack(
+        #     [sample_from_tensor_dist(p_tilde_b, num_samples=1) for p_tilde_b in p_tilde]
+        # ).reshape(
+        #     batch_size, horizon
+        # )  # (B, H)
+
+        # OPTION 2: Sample directly using CP representation
         return torch.stack(
-            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
+            [
+                sample_from_cp_tensor(
+                    params.reshape(
+                        self.rank,
+                        horizon,
+                        self.vocab_size,
+                    )
+                )
+            ]
         )  # (B, H)
 
     def evaluate_at_points(
         self,
         last_hidden_state: torch.Tensor,
         points: torch.Tensor,
+        **kwargs,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points.
 
@@ -110,7 +131,7 @@ class CPDist(BaseDistribution):
             return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
 
     def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None
+        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Get the normalization constants for the BT distributions.
 

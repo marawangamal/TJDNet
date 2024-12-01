@@ -9,6 +9,7 @@ from distributions.base import BaseDist
 from distributions.cp import CPDist
 from distributions.full import FullDist
 from distributions.mps import MPSDist
+from distributions.umps import UMPSDist
 from tensorops.common import get_windowed_input_ids
 
 
@@ -66,6 +67,7 @@ class TJDGPT2(torch.nn.Module):
             "full": FullDist,
             "cp": CPDist,
             "mps": MPSDist,
+            "umps": UMPSDist,
             "base": BaseDist,
         }[model](
             n_embd=n_embd,
@@ -100,10 +102,22 @@ class TJDGPT2(torch.nn.Module):
         horizon: Optional[int] = None,
         **kwargs,
     ):
-        # BUG: Should only accept a batch of size 1
+        """Generate sequences given an input tensor.
+
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+            num_beams (int, optional): Number of beams. Defaults to 1.
+            do_sample (bool, optional): Whether to sample. Defaults to False.
+            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
+        """
+        assert input_ids.size(0) == 1, "Only batch size 1 is supported"
         horizon = self._get_horizon(horizon)
         batch_size, _ = input_ids.size()
-        n_passes = max_new_tokens // horizon
+        n_passes = max(max_new_tokens // horizon, 1)
         output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
         input_tens = input_ids
 
@@ -137,6 +151,11 @@ class TJDGPT2(torch.nn.Module):
             torch.Tensor: Loss value.
         """
 
+        # Sequence length must be greater than horizon
+        assert (
+            input_ids.size(1) > self.horizon
+        ), "Sequence length must be greater than horizon"
+
         batch_size, _ = input_ids.size()
         horizon = self.horizon if horizon is None else min(self.horizon, horizon)
 
@@ -144,6 +163,8 @@ class TJDGPT2(torch.nn.Module):
         targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
             batch_size, -1, horizon
         )  # (B, T-H, H)
+
+        assert targets.size(1) >= horizon, "Invalid targets"
 
         p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
             last_hidden_state[:, :-horizon], targets
@@ -153,6 +174,11 @@ class TJDGPT2(torch.nn.Module):
             last_hidden_state[:, :-horizon], horizon=horizon
         )  # (B, T-H)
 
+        # Health checks
+        # 1. Ensure no NaNs
+        assert not torch.isnan(p_tilde).any(), "p_tilde NaN"
+        assert not torch.isnan(norm_const).any(), "norm_const NaN"
+        # 2. Ensure p_tilde < norm_const (if no scale factors)
         if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
             assert (p_tilde < norm_const).all(), "p_tilde < norm_const"
 

@@ -1,0 +1,99 @@
+ON MAC
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+     6                                           @line_profiler.profile
+     7                                           def select_from_umps_tensor(
+     8                                               alpha: torch.Tensor,
+     9                                               beta: torch.Tensor,
+    10                                               core: torch.Tensor,
+    11                                               indices: torch.Tensor,
+    12                                           ):
+    13                                               """Selects element from a uMPS tensor representation (batched).
+    14
+    15                                               Args:
+    16                                                   alpha (torch.Tensor): Alpha tensor of shape (B, R)
+    17                                                   beta (torch.Tensor): Beta tensor of shape (B R)
+    18                                                   core (torch.Tensor): Core tensor of shape (B, R, D, R)
+    19                                                   indices (torch.Tensor): Indices to select from the tensor of shape (B, H). `H` is horizon
+    20
+    21                                               Returns:
+    22                                                   torch.Tensor: Selected elements of shape (B,)
+    23                                               """
+    24        10          4.0      0.4      0.2      result = alpha
+    25        10          3.0      0.3      0.2      scale_factors = []
+    26        30          9.0      0.3      0.5      for t in range(indices.shape[1]):
+    27        40        107.0      2.7      6.0          core_select = torch.stack(
+    28        20        647.0     32.4     36.3              [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
+    29                                                   )  # (B, R, R)
+    30                                                   # TODO: try this -> core_select.contiguous()
+    31                                                   # TODO: try torch.bmm
+    32        20        576.0     28.8     32.3          result_raw = torch.einsum("bi, bij -> bj", result, core_select)
+    33        20        150.0      7.5      8.4          scale_factor = torch.linalg.norm(result_raw, dim=-1)  # (B,)
+    34        20          6.0      0.3      0.3          scale_factors.append(scale_factor)
+    35        20         91.0      4.5      5.1          result = result_raw / scale_factor.unsqueeze(1)
+    36        10        187.0     18.7     10.5      result = torch.einsum("bi, bi -> b", result, beta)
+    37        10          1.0      0.1      0.1      return result, scale_factors
+
+
+
+ON SERVER WITH GPU
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+     6                                           @line_profiler.profile
+     7                                           def select_from_umps_tensor(
+     8                                               alpha: torch.Tensor,
+     9                                               beta: torch.Tensor,
+    10                                               core: torch.Tensor,
+    11                                               indices: torch.Tensor,
+    12                                           ):
+    13                                               """Selects element from a uMPS tensor representation (batched).
+    14
+    15                                               Args:
+    16                                                   alpha (torch.Tensor): Alpha tensor of shape (B, R)
+    17                                                   beta (torch.Tensor): Beta tensor of shape (B R)
+    18                                                   core (torch.Tensor): Core tensor of shape (B, R, D, R)
+    19                                                   indices (torch.Tensor): Indices to select from the tensor of shape (B, H). `H` is horizon
+    20
+    21                                               Returns:
+    22                                                   torch.Tensor: Selected elements of shape (B,)
+    23                                               """
+    24        10          4.1      0.4      0.0      result = alpha
+    25        10          2.7      0.3      0.0      scale_factors = []
+    26        30         30.8      1.0      0.1      for t in range(indices.shape[1]):
+    27        40       1282.1     32.1      2.8          core_select = torch.stack(
+    28        20       3266.6    163.3      7.1              [core[b, :, indices[b, t], :] for b in range(core.shape[0])]
+    29                                                   )  # (B, R, R)
+    30                                                   # TODO: try this -> core_select.contiguous()
+    31                                                   # TODO: try torch.bmm
+    32        20      13331.0    666.5     29.1          result_raw = torch.einsum("bi, bij -> bj", result, core_select)
+    33        20      19939.9    997.0     43.5          scale_factor = torch.linalg.norm(result_raw, dim=-1)  # (B,)
+    34        20         17.2      0.9      0.0          scale_factors.append(scale_factor)
+    35        20       7343.3    367.2     16.0          result = result_raw / scale_factor.unsqueeze(1)
+    36        10        604.5     60.4      1.3      result = torch.einsum("bi, bi -> b", result, beta)
+    37        10          4.1      0.4      0.0      return result, scale_factors
+
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+     9                                           @line_profiler.profile
+    10                                           def select_from_cp_tensor(
+    11                                               cp_params: torch.Tensor, indices: torch.Tensor
+    12                                           ) -> torch.Tensor:
+    13                                               """Selects an element from a CP tensor representation (batched).
+    14                                           
+    15                                               Args:
+    16                                                   cp_params (torch.Tensor): CP represention. Shape (B, R, T, D).
+    17                                                   indices (List[int]): Indices to select from the tensor. Shape (B, T).
+    18                                           
+    19                                               Returns:
+    20                                                   torch.Tensor: Selected elements of shape (B,)
+    21                                               """
+    22        10         21.0      2.1      0.0      batch_size, rank, seq_len, n_embd = cp_params.size()
+    23        10         38.5      3.8      0.0      idx = indices.unsqueeze(1)  # (B, 1, T)
+    24        10       9949.8    995.0     12.1      idx = idx.repeat(1, rank, 1)  # (B, R, T)
+    25        20       5768.4    288.4      7.0      result = torch.gather(
+    26        10         82.2      8.2      0.1          cp_params.reshape(-1, n_embd), dim=1, index=idx.reshape(-1, 1)
+    27                                               )  # (B * R * T, 1)
+    28                                               # Now need to reshape back to (B, R, T)
+    29        10         46.3      4.6      0.1      result = result.reshape(batch_size, rank, seq_len)
+    30        10      66289.4   6628.9     80.6      return result.prod(dim=2).sum(dim=1)  # (B,)

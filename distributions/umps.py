@@ -4,14 +4,15 @@ import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
-from tensorops.mps import (
-    select_from_mps_tensor,
-    materialize_mps_tensor,
-    sum_mps_tensor,
+from tensorops.umps import (
+    select_from_umps_tensor,
+    materialize_umps_tensor,
+    sum_umps_tensor,
+    sum_umps_tensorV2,
 )
 
 
-class MPSDist(BaseDistribution):
+class UMPSDist(BaseDistribution):
     def __init__(
         self,
         n_embd: int,
@@ -29,30 +30,20 @@ class MPSDist(BaseDistribution):
             "abs": lambda x: torch.abs(x),
             "exp": torch.exp,
         }[positivity_func]
-        self.tensor_train_size = rank + horizon * (rank * vocab_size * rank) + rank
+        self.tensor_train_size = rank + (rank * vocab_size * rank) + rank
         self.param_func = torch.nn.Linear(n_embd, self.tensor_train_size)
 
     def _get_pos_params(self, last_hidden_state: torch.Tensor):
-        batch_size, seq_len, _ = last_hidden_state.shape
         params = self.positivity_func(
             self.param_func(last_hidden_state)
-        )  # (B, T, R + R + HRVR)
-        alpha, beta, core = torch.split(
+        )  # (B, T, R*H*V)
+
+        alpha, core, beta = torch.split(
             params,
-            [
-                self.rank,
-                self.rank,
-                self.horizon * self.rank * self.vocab_size * self.rank,
-            ],
+            [self.rank, self.rank * self.vocab_size * self.rank, self.rank],
             dim=-1,
-        )  # (B, T, R), (B, T, R), (B, T, HRVR)
-        return (
-            alpha,
-            core.reshape(
-                batch_size, seq_len, self.rank, self.horizon, self.vocab_size, self.rank
-            ),
-            beta,
-        )
+        )  # (B, T, R), (B, T, R*V*R), (B, T, R)
+        return alpha, core, beta
 
     def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
         """Generate sequences given an input tensor.
@@ -60,21 +51,18 @@ class MPSDist(BaseDistribution):
         Args:
             input_ids (torch.Tensor): Previous tokens of shape (B, T)
             horizon (int): Horizon of the generation (Must be <= Horizon of the model)
-
-        Returns:
-            torch.Tensor: Generated sequences of shape (B, H)
         """
         # Cannot generate sequences longer than `horizon`
-        horizon = self._get_horizon(horizon)
         batch_size, seq_len, _ = last_hidden_state.size()
         assert batch_size == 1, "Batch size must be 1 for generation"
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
-        )  # (B, 1, R), (B, 1, HRVR), (B, 1, R)
-        p_tilde = materialize_mps_tensor(
+        )  # (B, 1, V*R*H) we only need the Tth hidden state
+        p_tilde = materialize_umps_tensor(
             alpha=alpha.reshape(-1, self.rank),
             beta=beta.reshape(-1, self.rank),
-            core=core.reshape(-1, horizon, self.rank, self.vocab_size, self.rank),
+            core=core.reshape(-1, self.rank, self.vocab_size, self.rank),
+            n_core_repititions=horizon,
         )  # (B, V, V, ..., V)  `horizon` times
         return torch.stack(
             [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
@@ -99,21 +87,15 @@ class MPSDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B*H) and scale_tensors (empty list)
         """
         batch_size, seq_len, _ = last_hidden_state.shape
-        horizon = self._get_horizon(points.size(-1))
-        alpha, core, beta = self._get_pos_params(
-            last_hidden_state
-        )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
+        alpha, core, beta = self._get_pos_params(last_hidden_state)
+        # (B, T, R*H*V) => (B, T)
         with profiler.record_function("select_from_mps_tensor"):
-            p_tilde, scale_factors = select_from_mps_tensor(
+            p_tilde, scale_factors = select_from_umps_tensor(
                 alpha=alpha.reshape(batch_size * seq_len, self.rank),
                 beta=beta.reshape(batch_size * seq_len, self.rank),
                 core=core.reshape(
-                    batch_size * seq_len,
-                    self.horizon,
-                    self.rank,
-                    self.vocab_size,
-                    self.rank,
-                )[:, :horizon],
+                    batch_size * seq_len, self.rank, self.vocab_size, self.rank
+                ),
                 indices=points.reshape(batch_size * seq_len, -1),
             )  # (batch_size, n_vocab)
             return p_tilde, scale_factors
@@ -133,15 +115,12 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(last_hidden_state)
         batch_size, seq_len, _ = last_hidden_state.shape
         with profiler.record_function("normalize_mps_tensor"):
-            z, scale_factors = sum_mps_tensor(
+            z, scale_factors = sum_umps_tensorV2(
                 alpha=alpha.reshape(batch_size * seq_len, self.rank),
                 beta=beta.reshape(batch_size * seq_len, self.rank),
                 core=core.reshape(
-                    batch_size * seq_len,
-                    self.horizon,
-                    self.rank,
-                    self.vocab_size,
-                    self.rank,
-                )[:, :horizon],
+                    batch_size * seq_len, self.rank, self.vocab_size, self.rank
+                ),
+                n_core_repititions=horizon,
             )
             return z, scale_factors

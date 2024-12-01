@@ -89,11 +89,12 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="mps",
+        default="cp",
         help="Type of factorization to use for the model.",
         choices=[
             "cp",
             "mps",
+            "umps",
             "full",
             "base",
         ],
@@ -286,7 +287,7 @@ def train(
 
 def evaluate(
     model: torch.nn.Module,
-    eval_dataloader: torch.utils.data.DataLoader,
+    eval_dataloader: DataLoader,
     epoch: int,
     horizon: int = 1,
 ):

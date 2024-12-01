@@ -3,8 +3,8 @@ Simple PyTorch model profiler with CUDA support.
 Profiles model performance and memory usage on either CPU or GPU.
 
 Usage:
-    python profiler.py --device cuda  # For GPU profiling
-    python profiler.py --device cpu   # For CPU profiling
+    python model_prof.py --device cuda  # For GPU profiling
+    python model_prof.py --device cpu   # For CPU profiling
 """
 
 import os
