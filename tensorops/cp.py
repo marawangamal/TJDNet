@@ -6,7 +6,6 @@ import line_profiler
 tl.set_backend("pytorch")
 
 
-@line_profiler.profile
 def select_from_cp_tensor(
     cp_params: torch.Tensor, indices: torch.Tensor
 ) -> torch.Tensor:
@@ -30,6 +29,7 @@ def select_from_cp_tensor(
     return result.prod(dim=2).sum(dim=1)  # (B,)
 
 
+@line_profiler.profile
 def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     """Sum all elements of a CP tensor representation (batched).
 

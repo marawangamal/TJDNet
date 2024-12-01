@@ -8,6 +8,7 @@ from tensorops.mps import (
     select_from_umps_tensor,
     materialize_umps_tensor,
     sum_umps_tensor,
+    sum_umps_tensorV2,
 )
 
 
@@ -114,15 +115,12 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(last_hidden_state)
         batch_size, seq_len, _ = last_hidden_state.shape
         with profiler.record_function("normalize_mps_tensor"):
-            z, scale_factors = sum_umps_tensor(
+            z, scale_factors = sum_umps_tensorV2(
                 alpha=alpha.reshape(batch_size * seq_len, self.rank),
                 beta=beta.reshape(batch_size * seq_len, self.rank),
                 core=core.reshape(
                     batch_size * seq_len, self.rank, self.vocab_size, self.rank
                 ),
-                operation_map=torch.ones(
-                    (batch_size * seq_len, horizon), device=alpha.device
-                )
-                * -1,
+                n_core_repititions=horizon,
             )
             return z, scale_factors

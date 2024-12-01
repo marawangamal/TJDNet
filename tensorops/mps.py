@@ -6,7 +6,6 @@ import line_profiler
 # TODO: try this -> core_select.contiguous()
 # TODO: try torch.bmm
 # Make contiguous
-@line_profiler.profile
 def select_from_umps_tensor(
     alpha: torch.Tensor,
     beta: torch.Tensor,
@@ -60,6 +59,7 @@ def select_from_umps_tensor(
     return result, scale_factors
 
 
+@line_profiler.profile
 def sum_umps_tensorV2(
     alpha: torch.Tensor,
     beta: torch.Tensor,
