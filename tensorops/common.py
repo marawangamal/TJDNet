@@ -109,3 +109,35 @@ def window_input_ids(input_ids: torch.Tensor, horizon: int, shift: int = 1):
             input_ids_windowed[:, zero_start:, i] = 0
 
     return input_ids_windowed
+
+
+def get_breakpoints(ops: torch.Tensor):
+    """Get breakpoints for select, free, and marginalize operations.
+
+    Args:
+        ops (torch.Tensor): Operation codes of shape (B, T) specifying:
+            -2: marginalize mode (sum reduction)
+            -1: keep mode as free index
+            [0,V): select index v in mode
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Breakpoints for select/free (h_slct) and free/marginalize (h_mrgn) operations
+
+    """
+    # For first non-select (first -1 or -2)
+    non_select_mask = (ops < 0).int()  # Convert bool to int, shape: (B, T)
+    has_non_select = non_select_mask.any(dim=1)
+    h_free = non_select_mask.argmax(dim=1)  # shape: (B,)
+    # For batches with all selects, set h_slct to T
+    h_free = torch.where(
+        has_non_select, h_free, torch.tensor(ops.size(1), device=ops.device)
+    )
+
+    # For first margin (first -2)
+    is_margin_mask = (ops == -2).int()  # Convert bool to int
+    has_margin = is_margin_mask.any(dim=1)
+    h_mrgn = is_margin_mask.argmax(dim=1)
+    h_mrgn = torch.where(
+        has_margin, h_mrgn, torch.tensor(ops.size(1), device=ops.device)
+    )
+    return h_free.long(), h_mrgn.long()

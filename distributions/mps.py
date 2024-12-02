@@ -5,6 +5,7 @@ import torch.autograd.profiler as profiler
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.mps import (
+    sample_from_mps_tensor,
     select_from_mps_tensor,
     materialize_mps_tensor,
     sum_mps_tensor,
@@ -65,17 +66,34 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
         )  # (B, 1, R), (B, 1, H, R, V, R), (B, 1, R)
-        p_tilde = materialize_mps_tensor(
-            alpha=alpha.reshape(batch_size * 1, self.rank),
-            beta=beta.reshape(batch_size * 1, self.rank),
-            core=core.reshape(
-                batch_size * 1, self.horizon, self.rank, self.vocab_size, self.rank
-            )[:, :horizon],
-        )  # (B, V, V, ..., V)  `horizon` times
+        # OLD:
+        # p_tilde = materialize_mps_tensor(
+        #     alpha=alpha.reshape(batch_size * 1, self.rank),
+        #     beta=beta.reshape(batch_size * 1, self.rank),
+        #     core=core.reshape(
+        #         batch_size * 1, self.horizon, self.rank, self.vocab_size, self.rank
+        #     )[:, :horizon],
+        # )  # (B, V, V, ..., V)  `horizon` times
+        # return torch.stack(
+        #     [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
+        # ).reshape(
+        #     batch_size, -1
+        # )  # (B, H)
+
+        # NEW:
         return torch.stack(
-            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
-        ).reshape(
-            batch_size, -1
+            [
+                sample_from_mps_tensor(
+                    alpha=alpha.reshape(self.rank),
+                    beta=beta.reshape(self.rank),
+                    core=core.reshape(
+                        self.horizon,
+                        self.rank,
+                        self.vocab_size,
+                        self.rank,
+                    )[:horizon],
+                )
+            ]
         )  # (B, H)
 
     def evaluate_at_points(
