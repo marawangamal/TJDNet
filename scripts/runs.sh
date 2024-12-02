@@ -28,9 +28,16 @@
 # python scripts/model_latency_benchmark.py --model cp --horizon 8 --max_new_tokens 2048
 
 
-# python train.py --model mps --rank 2 --horizon 2
-python train.py --model mps --rank 4 --horizon 2
-python train.py --model mps --rank 8 --horizon 2
-python train.py --model mps --rank 16 --horizon 2
-python train.py --model mps --rank 32 --horizon 2
-python train.py --model mps --rank 64 --horizon 2
+python train.py --lr 1e-4 --model mps --rank 2 --horizon 2 
+python train.py --lr 1e-4 --model mps --rank 4 --horizon 2
+python train.py --lr 1e-4 --model mps --rank 8 --horizon 2
+python train.py --lr 1e-4 --model mps --rank 16 --horizon 2
+python train.py --lr 1e-4 --model mps --rank 32 --horizon 2
+python train.py --lr 1e-4 --model mps --rank 64 --horizon 2
+
+python train.py --lr 1e-5 --model mps --rank 2 --horizon 2 
+python train.py --lr 1e-5 --model mps --rank 4 --horizon 2
+python train.py --lr 1e-5 --model mps --rank 8 --horizon 2
+python train.py --lr 1e-5 --model mps --rank 16 --horizon 2
+python train.py --lr 1e-5 --model mps --rank 32 --horizon 2
+python train.py --lr 1e-5 --model mps --rank 64 --horizon 2

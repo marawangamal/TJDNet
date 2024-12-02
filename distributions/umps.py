@@ -34,16 +34,20 @@ class UMPSDist(BaseDistribution):
         self.param_func = torch.nn.Linear(n_embd, self.tensor_train_size)
 
     def _get_pos_params(self, last_hidden_state: torch.Tensor):
+        batch_size, seq_len, _ = last_hidden_state.shape
         params = self.positivity_func(
             self.param_func(last_hidden_state)
-        )  # (B, T, R*H*V)
-
-        alpha, core, beta = torch.split(
-            params,
-            [self.rank, self.rank * self.vocab_size * self.rank, self.rank],
-            dim=-1,
-        )  # (B, T, R), (B, T, R*V*R), (B, T, R)
-        return alpha, core, beta
+        )  # (B, T, R + R + RVR)
+        alpha = params[:, :, : self.rank]
+        beta = params[:, :, self.rank : self.rank * 2]
+        core = params[:, :, self.rank * 2 :].reshape(
+            batch_size, seq_len, self.rank, self.vocab_size, self.rank
+        )
+        return (
+            alpha,  # (B, T, R)
+            core,  # (B, R, V, R)
+            beta,  # (B, T, R)
+        )
 
     def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
         """Generate sequences given an input tensor.
@@ -57,11 +61,11 @@ class UMPSDist(BaseDistribution):
         assert batch_size == 1, "Batch size must be 1 for generation"
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
-        )  # (B, 1, V*R*H) we only need the Tth hidden state
+        )  # (B, 1, R), (B, 1, R, V, R), (B, 1, R)
         p_tilde = materialize_umps_tensor(
-            alpha=alpha.reshape(-1, self.rank),
-            beta=beta.reshape(-1, self.rank),
-            core=core.reshape(-1, self.rank, self.vocab_size, self.rank),
+            alpha=alpha.reshape(batch_size * 1, self.rank),
+            beta=beta.reshape(batch_size * 1, self.rank),
+            core=core.reshape(batch_size * 1, self.rank, self.vocab_size, self.rank),
             n_core_repititions=horizon,
         )  # (B, V, V, ..., V)  `horizon` times
         return torch.stack(
@@ -87,8 +91,9 @@ class UMPSDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B*H) and scale_tensors (empty list)
         """
         batch_size, seq_len, _ = last_hidden_state.shape
-        alpha, core, beta = self._get_pos_params(last_hidden_state)
-        # (B, T, R*H*V) => (B, T)
+        alpha, core, beta = self._get_pos_params(
+            last_hidden_state
+        )  # (B, T, R), (B, T, R, V, R), (B, T, R)
         with profiler.record_function("select_from_mps_tensor"):
             p_tilde, scale_factors = select_from_umps_tensor(
                 alpha=alpha.reshape(batch_size * seq_len, self.rank),
@@ -112,7 +117,9 @@ class UMPSDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
         horizon = self._get_horizon(horizon)
-        alpha, core, beta = self._get_pos_params(last_hidden_state)
+        alpha, core, beta = self._get_pos_params(
+            last_hidden_state
+        )  # (B, T, R), (B, T, R, V, R), (B, T, R)
         batch_size, seq_len, _ = last_hidden_state.shape
         with profiler.record_function("normalize_mps_tensor"):
             z, scale_factors = sum_umps_tensorV2(
