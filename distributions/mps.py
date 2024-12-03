@@ -66,21 +66,6 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
         )  # (B, 1, R), (B, 1, H, R, V, R), (B, 1, R)
-        # OLD:
-        # p_tilde = materialize_mps_tensor(
-        #     alpha=alpha.reshape(batch_size * 1, self.rank),
-        #     beta=beta.reshape(batch_size * 1, self.rank),
-        #     core=core.reshape(
-        #         batch_size * 1, self.horizon, self.rank, self.vocab_size, self.rank
-        #     )[:, :horizon],
-        # )  # (B, V, V, ..., V)  `horizon` times
-        # return torch.stack(
-        #     [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
-        # ).reshape(
-        #     batch_size, -1
-        # )  # (B, H)
-
-        # NEW:
         return torch.stack(
             [
                 sample_from_mps_tensor(
@@ -117,20 +102,19 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(
             last_hidden_state
         )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
-        with profiler.record_function("select_from_mps_tensor"):
-            p_tilde, scale_factors = select_from_mps_tensor(
-                alpha=alpha.reshape(batch_size * seq_len, self.rank),
-                beta=beta.reshape(batch_size * seq_len, self.rank),
-                core=core.reshape(
-                    batch_size * seq_len,
-                    self.horizon,
-                    self.rank,
-                    self.vocab_size,
-                    self.rank,
-                )[:, :horizon],
-                indices=points.reshape(batch_size * seq_len, -1),
-            )  # (batch_size, n_vocab)
-            return p_tilde, scale_factors
+        p_tilde, scale_factors = select_from_mps_tensor(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len,
+                self.horizon,
+                self.rank,
+                self.vocab_size,
+                self.rank,
+            )[:, :horizon],
+            indices=points.reshape(batch_size * seq_len, -1),
+        )  # (batch_size, n_vocab)
+        return p_tilde, scale_factors
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
@@ -148,16 +132,15 @@ class MPSDist(BaseDistribution):
             last_hidden_state
         )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
         batch_size, seq_len, _ = last_hidden_state.shape
-        with profiler.record_function("normalize_mps_tensor"):
-            z, scale_factors = sum_mps_tensor(
-                alpha=alpha.reshape(batch_size * seq_len, self.rank),
-                beta=beta.reshape(batch_size * seq_len, self.rank),
-                core=core.reshape(
-                    batch_size * seq_len,
-                    self.horizon,
-                    self.rank,
-                    self.vocab_size,
-                    self.rank,
-                )[:, :horizon],
-            )
-            return z, scale_factors
+        z, scale_factors = sum_mps_tensor(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len,
+                self.horizon,
+                self.rank,
+                self.vocab_size,
+                self.rank,
+            )[:, :horizon],
+        )
+        return z, scale_factors
