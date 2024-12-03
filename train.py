@@ -25,6 +25,8 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 import os.path as osp
 import os
+import numpy as np
+import random
 import string
 import math
 import argparse
@@ -60,6 +62,12 @@ def parse_args():
         type=int,
         default=8,
         help="Batch size for training and evaluation.",
+    )
+    parser.add_argument(
+        "--grad_clip_val",
+        type=float,
+        default=None,
+        help="Gradient clipping value for training.",
     )
     parser.add_argument(
         "--seq_len",
@@ -132,7 +140,23 @@ def parse_args():
         default=128,
         help="Maximum number of tokens to generate during evaluation.",
     )
+    parser.add_argument(
+        "--seed", type=int, default=42, help="Random seed for reproducibility"
+    )
     return parser.parse_args()
+
+
+def set_seed(seed):
+    """Set random seeds for reproducibility"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # When running on the CuDNN backend, two further options must be set
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
 
 
 def preprocess_shakespeare(examples):
@@ -213,6 +237,7 @@ def train(
     save_dir="checkpoints",
     model_config={},
     horizon_eval=1,
+    grad_clip_val=None,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -247,6 +272,8 @@ def train(
             batch = {k: v.to(device) for k, v in batch.items()}
             loss = model(**batch)
             loss.backward()
+            if grad_clip_val is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_val)
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
@@ -309,6 +336,7 @@ def evaluate(
 if __name__ == "__main__":
 
     args = parse_args()
+    set_seed(args.seed)
 
     # Configuration
     exp_name = get_experiment_name(vars(args))
@@ -381,6 +409,7 @@ if __name__ == "__main__":
         save_dir=ckpt_dir,
         model_config=model_config,
         horizon_eval=args.horizon_eval,
+        grad_clip_val=args.grad_clip_val,
     )
 
     # Generate a test sample

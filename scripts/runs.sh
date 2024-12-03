@@ -43,8 +43,15 @@
 # python train.py --lr 1e-5 --model mps --rank 64 --horizon 2
 
 
-python train.py --model mps --rank 2 --horizon 2 --lr 1e-2
-python train.py --model mps --rank 2 --horizon 2 --lr 1e-3
-python train.py --model mps --rank 2 --horizon 2 --lr 1e-4
-python train.py --model mps --rank 2 --horizon 2 --lr 1e-5
-python train.py --model mps --rank 2 --horizon 2 --lr 1e-6
+# python train.py --model mps --rank 2 --horizon 2 --lr 1e-2
+# python train.py --model mps --rank 2 --horizon 2 --lr 1e-3
+# python train.py --model mps --rank 2 --horizon 2 --lr 1e-4
+# python train.py --model mps --rank 2 --horizon 2 --lr 1e-5
+# python train.py --model mps --rank 2 --horizon 2 --lr 1e-6
+
+
+python train.py --model mps --rank 4
+python train.py --model mps --rank 8
+python train.py --model mps --rank 16
+python train.py --model mps --rank 32
+python train.py --model mps --rank 64

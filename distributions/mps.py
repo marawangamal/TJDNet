@@ -30,19 +30,26 @@ class MPSDist(BaseDistribution):
             "abs": lambda x: torch.abs(x),
             "exp": torch.exp,
         }[positivity_func]
-        self.tensor_train_size = rank + horizon * (rank * vocab_size * rank) + rank
-        self.param_func = torch.nn.Linear(n_embd, self.tensor_train_size)
+        self.tensor_train_size = horizon * (rank * vocab_size * rank)
+        self.alpha = torch.ones(rank) * 0.1
+        self.beta = torch.ones(rank) * 0.1
+        self.param_func_core = torch.nn.Linear(n_embd, self.tensor_train_size)
 
     def _get_pos_params(self, last_hidden_state: torch.Tensor):
         batch_size, seq_len, _ = last_hidden_state.shape
-        params = self.positivity_func(
-            self.param_func(last_hidden_state)
-        )  # (B, T, R + R + HRVR)
-        alpha = params[:, :, : self.rank]
-        beta = params[:, :, self.rank : self.rank * 2]
-        core = params[:, :, self.rank * 2 :].reshape(
+        core = self.positivity_func(self.param_func_core(last_hidden_state)).reshape(
             batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
-        )
+        )  # (B, T, HRVR)
+        alpha = (
+            self.positivity_func(self.alpha)
+            .reshape(1, 1, self.rank)
+            .repeat(batch_size, seq_len, 1)
+        ).to(last_hidden_state.device)
+        beta = (
+            self.positivity_func(self.beta)
+            .reshape(1, 1, self.rank)
+            .repeat(batch_size, seq_len, 1)
+        ).to(last_hidden_state.device)
         return (
             alpha,  # (B, T, R)
             core,  # (B, T, H, R, V, R)
