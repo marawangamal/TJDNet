@@ -49,6 +49,8 @@ class TJDGPT2(torch.nn.Module):
             "pad_token_id": pad_token_id,
             "is_full_rank": is_full_rank,
         }
+        self.rank = rank
+        self.vocab_size = vocab_size
         self.horizon = horizon
         self.eps = eps
         self.model = GPT2LMHeadModel(
@@ -79,6 +81,19 @@ class TJDGPT2(torch.nn.Module):
     @property
     def device(self):
         return next(self.parameters()).device
+
+    # @property
+    # def lr_scale(self):
+    #     # Loss Equivalence Across Rank Scale Factors
+    #     if self.model_name == "cp":
+    #         lr_scale = self.horizon * torch.log(
+    #             torch.tensor(self.vocab_size, dtype=torch.float).to(self.device)
+    #         ) - (self.horizon - 1) * torch.log(
+    #             torch.tensor(self.rank, dtype=torch.float).to(self.device)
+    #         )
+    #         return lr_scale
+    #     else:
+    #         return 1.0
 
     def _get_last_hidden_state(self, input_ids: torch.Tensor, **kwargs) -> torch.Tensor:
         transformer_outputs = self.model.transformer(
@@ -185,7 +200,17 @@ class TJDGPT2(torch.nn.Module):
         loss = (
             -torch.log(p_tilde + self.eps)
             + torch.log(norm_const)
+            # Contraction Stability Scale Factors
             - sum([torch.log(z) for z in p_tilde_scale_factors])
             + sum([torch.log(z) for z in norm_const_scale_factors])
+            # Loss Equivalence Across Rank Scale Factors
+            # + self.horizon
+            # * torch.log(
+            #     torch.tensor(self.vocab_size, dtype=torch.float).to(self.device)
+            # )
+            # - (self.horizon - 1)
+            # * torch.log(torch.tensor(self.rank, dtype=torch.float).to(self.device))
         ).mean()
-        return loss
+        # v_sz = torch.tensor(self.vocab_size, dtype=torch.float).to(self.device)
+        # loss_scale = 1 - ((horizon * torch.log(v_sz)) / -loss)
+        return loss, 1 / self.rank

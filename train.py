@@ -70,6 +70,12 @@ def parse_args():
         help="Gradient clipping value for training.",
     )
     parser.add_argument(
+        "--scale_loss",
+        default=False,
+        action="store_true",
+        help="Whether to scale the loss during training.",
+    )
+    parser.add_argument(
         "--seq_len",
         type=int,
         default=256,
@@ -238,6 +244,7 @@ def train(
     model_config={},
     horizon_eval=1,
     grad_clip_val=None,
+    scale_loss=False,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -270,8 +277,9 @@ def train(
         # Training loop
         for i, batch in enumerate(progress_bar):
             batch = {k: v.to(device) for k, v in batch.items()}
-            loss = model(**batch)
-            loss.backward()
+            loss, loss_scale = model(**batch)
+            scaled_loss = loss * loss_scale if scale_loss else loss
+            scaled_loss.backward()
             if grad_clip_val is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_val)
             optimizer.step()
@@ -324,7 +332,7 @@ def evaluate(
     for batch in eval_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
         with torch.no_grad():
-            loss = model(horizon=horizon, **batch)
+            loss, _ = model(horizon=horizon, **batch)
         losses.append(loss.item())
 
     eval_loss = sum(losses) / len(losses)
@@ -410,6 +418,7 @@ if __name__ == "__main__":
         model_config=model_config,
         horizon_eval=args.horizon_eval,
         grad_clip_val=args.grad_clip_val,
+        scale_loss=args.scale_loss,
     )
 
     # Generate a test sample

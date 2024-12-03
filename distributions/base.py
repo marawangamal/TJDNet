@@ -11,7 +11,6 @@ class BaseDist(BaseDistribution):
         self,
         n_embd: int,
         vocab_size,
-        rank: int,
         positivity_func: str = "exp",
         horizon: int = 1,
         **kwargs,
@@ -28,7 +27,7 @@ class BaseDist(BaseDistribution):
         assert horizon == 1, "Only horizon=1 is supported for now"
         self.param_func = torch.nn.Linear(n_embd, vocab_size)
         self.vocab_size = vocab_size
-        self.rank = rank
+        self.rank = 1
         self.horizon = horizon
         self.positivity_func: torch.nn.Module = {
             "sq": lambda x: x**2,
