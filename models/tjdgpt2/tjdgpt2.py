@@ -194,5 +194,5 @@ class TJDGPT2(torch.nn.Module):
 
         # Train loss
         train_loss = loss.sum(dim=-1).mean()
-        eval_loss = loss[:, :: self.horizon].sum(dim=-1).mean()
+        eval_loss = loss[:, ::horizon].sum(dim=-1).mean()
         return train_loss, eval_loss, 1 / self.rank
