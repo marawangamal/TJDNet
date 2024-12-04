@@ -83,7 +83,7 @@ class BaseDist(BaseDistribution):
                 dim=1,
                 index=points.reshape(batch_size * seq_len, self.horizon),
             )  # (B*T, 1)
-            return p_tilde_select.reshape(-1), []  # (B*T)
+            return p_tilde_select.reshape(batch_size, seq_len), []  # (B*T)
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
@@ -97,9 +97,10 @@ class BaseDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
         # Get indexed distribution
+        batch_size, seq_len, _ = last_hidden_state.size()
         p_tilde = self.positivity_func(self.param_func(last_hidden_state))  # (B, T, V)
         norm_consts = torch.sum(p_tilde, dim=-1).reshape(-1)  # (B*T)
         return (
-            norm_consts,  # (B*T)
+            norm_consts.reshape(batch_size, seq_len),
             [],
         )
