@@ -41,6 +41,7 @@ from transformers import DataCollatorForLanguageModeling, get_scheduler
 from models.tjdgpt2.tjdgpt2 import TJDGPT2
 from models.tjdgpt2.tokenizer import Tokenizer
 from utils import get_experiment_name
+from utils.average_meter import AverageMeter
 
 
 def parse_args():
@@ -205,7 +206,7 @@ def load_shakespeare_data(tokenizer, input_seq_len, test_size=0.2):
     return dataset
 
 
-def get_test_sample(
+def get_test_samples(
     model,
     tokenizer,
     prompt="\n",
@@ -215,18 +216,49 @@ def get_test_sample(
     num_beams=1,
     do_sample=False,
     horizon_eval=1,
+    n_samples=1,
+    print_output=True,
 ):
     # Inference
     model.eval()
-    inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
-    outputs = model.generate(
-        inputs,
-        num_beams=num_beams,
-        do_sample=do_sample,
-        max_new_tokens=max_new_tokens,
-        horizon=horizon_eval,
-    )
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    samples = []
+    for i in range(n_samples):
+        inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
+        outputs = model.generate(
+            inputs,
+            num_beams=num_beams,
+            do_sample=do_sample,
+            max_new_tokens=max_new_tokens,
+            horizon=horizon_eval,
+        )
+        sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        if n_samples == 1:
+            samples.append(sample)
+        else:
+            samples.append(f"[{i+1}] {sample}")
+
+    if print_output:
+        print("\n---\n".join(samples) + "\n")
+    return "\n".join(samples)
+
+
+def evaluate(
+    model: torch.nn.Module,
+    eval_dataloader: DataLoader,
+    epoch: int,
+    horizon: int = 1,
+):
+    model.eval()
+    losses = []
+    device = next(model.parameters()).device
+    for batch in eval_dataloader:
+        batch = {k: v.to(device) for k, v in batch.items()}
+        with torch.no_grad():
+            _, eval_loss, _ = model(horizon=horizon, **batch)
+        losses.append(eval_loss.item())
+
+    eval_loss = sum(losses) / len(losses)
+    return eval_loss
 
 
 # Train function
@@ -259,14 +291,16 @@ def train(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
-    if eval_before_training:
-        evaluate(model, eval_dataloader, epoch=0)
-
     for epoch in range(1, num_epochs + 1):
-        for i in range(n_eval_samples):
-            print(
-                f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens, horizon_eval=horizon_eval)}\n-------------------\n"
-            )
+        get_test_samples(
+            model,
+            tokenizer,
+            max_new_tokens=max_new_tokens,
+            horizon_eval=horizon_eval,
+            n_samples=n_eval_samples,
+            print_output=True,
+        )
+        train_loss_meter = AverageMeter()  # Create new meter each epoch
         model.train()
         progress_bar = tqdm(
             train_dataloader,
@@ -275,16 +309,21 @@ def train(
         )
 
         # Training loop
-        for i, batch in enumerate(progress_bar):
+        for _, batch in enumerate(progress_bar):
             batch = {k: v.to(device) for k, v in batch.items()}
-            loss, loss_scale = model(**batch)
+            loss, _, loss_scale = model(**batch)
             scaled_loss = loss * loss_scale if scale_loss else loss
+            train_loss_meter.update(loss.item())
+            # Skip training first epoch if eval_before_training is True
+            if eval_before_training and epoch == 1:
+                continue
             scaled_loss.backward()
             if grad_clip_val is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_val)
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
+
             # Update progress bar with latest loss
             # Check if model has forward_avg_meter and loss_avg_meter
             model_fwd_time = 0
@@ -297,12 +336,7 @@ def train(
                 time_fwd_ms=f"{model_fwd_time:.3f}",
                 time_loss_ms=f"{model_loss_time:.3f}",
             )
-            if i % 100 == 0:
-                print(
-                    f"{get_test_sample(model, tokenizer, max_new_tokens=max_new_tokens)}\n-------------------\n"
-                )
 
-        # Evaluate model
         eval_loss = evaluate(model, eval_dataloader, epoch, horizon=horizon_eval)
         best_eval_loss = min(eval_loss, best_eval_loss)
 
@@ -319,26 +353,12 @@ def train(
                 osp.join(save_dir, "best_model.pth"),
             )
 
-
-def evaluate(
-    model: torch.nn.Module,
-    eval_dataloader: DataLoader,
-    epoch: int,
-    horizon: int = 1,
-):
-    model.eval()
-    losses = []
-    device = next(model.parameters()).device
-    for batch in eval_dataloader:
-        batch = {k: v.to(device) for k, v in batch.items()}
-        with torch.no_grad():
-            loss, _ = model(horizon=horizon, **batch)
-        losses.append(loss.item())
-
-    eval_loss = sum(losses) / len(losses)
-    print(f"[Epoch {epoch + 1}] PPL: {math.exp(eval_loss):.2f} | Loss: {eval_loss:.2f}")
-    wandb.log({"eval_loss": eval_loss, "epoch": epoch})
-    return eval_loss
+        # Log metrics to wandb
+        print(
+            f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Eval Loss: {eval_loss:.2f}"
+        )
+        wandb.log({"train_loss": train_loss_meter.avg, "epoch": epoch})
+        wandb.log({"eval_loss": eval_loss, "epoch": epoch})
 
 
 if __name__ == "__main__":
@@ -401,7 +421,7 @@ if __name__ == "__main__":
     model = TJDGPT2(**model_config)
 
     wandb.init(
-        project="tjdnet-shakepeare-v2",
+        project="tjdnet-shakepeare-v3",
         config=vars(args),
         name=exp_name,
     )
@@ -422,5 +442,4 @@ if __name__ == "__main__":
     )
 
     # Generate a test sample
-    sample_output = get_test_sample(model, tokenizer)
-    print(sample_output)
+    get_test_samples(model, tokenizer, print_output=True)

@@ -82,19 +82,6 @@ class TJDGPT2(torch.nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    # @property
-    # def lr_scale(self):
-    #     # Loss Equivalence Across Rank Scale Factors
-    #     if self.model_name == "cp":
-    #         lr_scale = self.horizon * torch.log(
-    #             torch.tensor(self.vocab_size, dtype=torch.float).to(self.device)
-    #         ) - (self.horizon - 1) * torch.log(
-    #             torch.tensor(self.rank, dtype=torch.float).to(self.device)
-    #         )
-    #         return lr_scale
-    #     else:
-    #         return 1.0
-
     def _get_last_hidden_state(self, input_ids: torch.Tensor, **kwargs) -> torch.Tensor:
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
@@ -172,7 +159,7 @@ class TJDGPT2(torch.nn.Module):
         ), "Sequence length must be greater than horizon"
 
         batch_size, _ = input_ids.size()
-        horizon = self.horizon if horizon is None else min(self.horizon, horizon)
+        horizon = self._get_horizon(horizon)
 
         last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
         targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
@@ -203,14 +190,9 @@ class TJDGPT2(torch.nn.Module):
             # Contraction Stability Scale Factors
             - sum([torch.log(z) for z in p_tilde_scale_factors])
             + sum([torch.log(z) for z in norm_const_scale_factors])
-            # Loss Equivalence Across Rank Scale Factors
-            # + self.horizon
-            # * torch.log(
-            #     torch.tensor(self.vocab_size, dtype=torch.float).to(self.device)
-            # )
-            # - (self.horizon - 1)
-            # * torch.log(torch.tensor(self.rank, dtype=torch.float).to(self.device))
-        ).mean()
-        # v_sz = torch.tensor(self.vocab_size, dtype=torch.float).to(self.device)
-        # loss_scale = 1 - ((horizon * torch.log(v_sz)) / -loss)
-        return loss, 1 / self.rank
+        )  # (B, T-H)
+
+        # Train loss
+        train_loss = loss.sum(dim=-1).mean()
+        eval_loss = loss[:, :: self.horizon].sum(dim=-1).mean()
+        return train_loss, eval_loss, 1 / self.rank
