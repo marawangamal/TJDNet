@@ -245,20 +245,17 @@ def get_test_samples(
 def evaluate(
     model: torch.nn.Module,
     eval_dataloader: DataLoader,
-    epoch: int,
     horizon: int = 1,
 ):
     model.eval()
-    losses = []
+    nll_meter = AverageMeter()
     device = next(model.parameters()).device
     for batch in eval_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
         with torch.no_grad():
-            _, eval_loss, _ = model(horizon=horizon, **batch)
-        losses.append(eval_loss.item())
-
-    eval_loss = sum(losses) / len(losses)
-    return eval_loss
+            _, nll, _ = model(horizon=horizon, **batch)
+            nll_meter.update(nll.item())
+    return nll_meter.avg
 
 
 # Train function
@@ -301,6 +298,7 @@ def train(
             print_output=True,
         )
         train_loss_meter = AverageMeter()  # Create new meter each epoch
+        nll_meter = AverageMeter()
         model.train()
         progress_bar = tqdm(
             train_dataloader,
@@ -311,9 +309,10 @@ def train(
         # Training loop
         for _, batch in enumerate(progress_bar):
             batch = {k: v.to(device) for k, v in batch.items()}
-            loss, _, loss_scale = model(**batch)
+            loss, nll, loss_scale = model(**batch)
             scaled_loss = loss * loss_scale if scale_loss else loss
             train_loss_meter.update(loss.item())
+            nll_meter.update(nll.item())
             # Skip training first epoch if eval_before_training is True
             if eval_before_training and epoch == 1:
                 continue
@@ -337,7 +336,9 @@ def train(
                 time_loss_ms=f"{model_loss_time:.3f}",
             )
 
-        eval_loss = evaluate(model, eval_dataloader, epoch, horizon=horizon_eval)
+        eval_loss = evaluate(
+            model=model, eval_dataloader=eval_dataloader, horizon=horizon_eval
+        )
         best_eval_loss = min(eval_loss, best_eval_loss)
 
         # Save model checkpoint
@@ -358,6 +359,7 @@ def train(
             f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Eval Loss: {eval_loss:.2f}"
         )
         wandb.log({"train_loss": train_loss_meter.avg, "epoch": epoch})
+        wandb.log({"nll": nll_meter.avg, "epoch": epoch})
         wandb.log({"eval_loss": eval_loss, "epoch": epoch})
 
 

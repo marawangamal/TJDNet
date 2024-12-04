@@ -194,5 +194,7 @@ class TJDGPT2(torch.nn.Module):
 
         # Train loss
         train_loss = loss.sum(dim=-1).mean()
-        eval_loss = loss[:, ::horizon].sum(dim=-1).mean()
-        return train_loss, eval_loss, 1 / self.rank
+        nll = (
+            loss[:, ::horizon].sum(dim=-1).mean()
+        )  # batch mean of negative log likelihood
+        return train_loss, nll, 1 / self.rank
