@@ -169,7 +169,7 @@ def select_margin_mps_tensor(
     # Validation:
     assert len(core.shape) == 4, "Core tensor must be 4D (non-batched)"
     assert len(ops.shape) == 1, "Ops tensor must be 1D (non-batched)"
-    assert (ops >= -2).all() and (ops < core.size(0)).all(), "Invalid ops tensor"
+    assert (ops >= -2).all() and (ops < core.size(2)).all(), "Invalid ops tensor"
 
     # Note ops must be in the order of select, free, marginalize
     bp_free, bp_margin = get_breakpoints(
@@ -189,17 +189,23 @@ def select_margin_mps_tensor(
             .reshape(-1, 1, 1)
             .repeat(1, rank_size, rank_size)
             .reshape(-1, 1),
-        )
-        result_select = torch.linalg.multi_dot(
-            [t for t in result_select]
-        )  # (R, R) x H' => (R, R
+        ).reshape(
+            bp_free, rank_size, rank_size
+        )  # (H', R, D, R) -> (H'RR, D) -> (H'RR, 1)
+        result_select = (
+            torch.linalg.multi_dot([t for t in result_select])
+            if result_select.size(0) > 1
+            else result_select.squeeze(0)
+        )  # (R, R) x H' => (R, R)
 
     # 2. Reduce via marginalization
     result_margin = None
     if bp_margin < horizon:
         result_margin = core[bp_margin:].sum(dim=2)  # (H'', R, R)
-        result_margin = torch.linalg.multi_dot(
-            [t for t in result_margin]
+        result_margin = (
+            torch.linalg.multi_dot([t for t in result_margin])
+            if result_margin.size(0) > 1
+            else result_margin.squeeze(0)
         )  # (R, R) x H'' => (R, R)
 
     # 3. Combine results

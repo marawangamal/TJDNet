@@ -44,16 +44,22 @@ def parse_args():
         help="Number of warmup runs",
     )
     parser.add_argument(
+        "--rank",
+        type=int,
+        default=2,
+        help="Rank of the MPS/CP model",
+    )
+    parser.add_argument(
         "--horizon",
         type=int,
         default=2,
-        help="Number of warmup runs",
+        help="Horizon of the MPS/CP model",
     )
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=2,
-        help="Number of warmup runs",
+        default=32,
+        help="Maximum number of tokens to generate",
     )
     parser.add_argument(
         "--mode",
@@ -144,7 +150,7 @@ def main():
         "n_layer": 2,
         "n_head": 2,
         "dropout": 0.1,
-        "rank": 2,
+        "rank": args.rank,
     }
 
     # Initialize models

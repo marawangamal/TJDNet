@@ -121,7 +121,9 @@ class MPSDist(BaseDistribution):
             )[:, :horizon],
             indices=points.reshape(batch_size * seq_len, -1),
         )  # (batch_size, n_vocab)
-        return p_tilde, scale_factors
+        return p_tilde.reshape(batch_size, seq_len), [
+            s.reshape(batch_size, seq_len) for s in scale_factors
+        ]
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
@@ -150,4 +152,6 @@ class MPSDist(BaseDistribution):
                 self.rank,
             )[:, :horizon],
         )
-        return z, scale_factors
+        return z.reshape(batch_size, seq_len), [
+            s.reshape(batch_size, seq_len) for s in scale_factors
+        ]
