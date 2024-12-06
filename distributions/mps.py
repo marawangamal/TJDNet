@@ -1,13 +1,12 @@
 from typing import List, Optional, Tuple
 import torch
-import torch.autograd.profiler as profiler
+import line_profiler
 
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.mps import (
     sample_from_mps_tensor,
     select_from_mps_tensor,
-    materialize_mps_tensor,
     sum_mps_tensor,
 )
 
@@ -19,27 +18,25 @@ class MPSDist(BaseDistribution):
         vocab_size,
         rank: int,
         horizon: int,
-        positivity_func: str = "exp",
+        positivity_func: str = "abs",
     ):
-        super().__init__(horizon)
+        super().__init__(horizon, positivity_func)
         self.rank = rank
         self.vocab_size = vocab_size
         self.horizon = horizon
-        self.positivity_func: torch.nn.Module = {
-            "sq": lambda x: x**2,
-            "abs": lambda x: torch.abs(x),
-            "exp": torch.exp,
-        }[positivity_func]
         self.tensor_train_size = horizon * (rank * vocab_size * rank)
         self.alpha = torch.ones(rank) * 0.1
         self.beta = torch.ones(rank) * 0.1
         self.param_func_core = torch.nn.Linear(n_embd, self.tensor_train_size)
 
+    @line_profiler.profile
     def _get_pos_params(self, last_hidden_state: torch.Tensor):
         batch_size, seq_len, _ = last_hidden_state.shape
-        core = self.positivity_func(self.param_func_core(last_hidden_state)).reshape(
+        core = self.param_func_core(last_hidden_state)  # (B, T, HRVR)
+        core = self.positivity_func(core)
+        core = core.reshape(
             batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
-        )  # (B, T, HRVR)
+        )
         alpha = (
             self.positivity_func(self.alpha)
             .reshape(1, 1, self.rank)
@@ -88,6 +85,7 @@ class MPSDist(BaseDistribution):
             ]
         )  # (B, H)
 
+    # @line_profiler.profile
     def evaluate_at_points(
         self,
         last_hidden_state: torch.Tensor,
