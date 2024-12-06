@@ -62,6 +62,18 @@ def parse_args():
         help="Maximum number of tokens to generate",
     )
     parser.add_argument(
+        "--seq_len",
+        type=int,
+        default=128,
+        help="Sequence length for input tensor",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Sequence length for input tensor",
+    )
+    parser.add_argument(
         "--mode",
         type=str,
         default="generate",
@@ -143,7 +155,6 @@ def main():
     print(f"\nUsing device: {args.device}")
 
     # Model configuration
-    seq_len = 128
     shared_config = {
         "vocab_size": 128,
         "n_embd": 64,
@@ -160,8 +171,12 @@ def main():
     baseline_model = TJDGPT2(**shared_config, model="base", horizon=1).to(args.device)
 
     # Prepare inputs
-    inputs = torch.randint(0, shared_config["vocab_size"], (1, seq_len)).to(args.device)
-    labels = torch.randint(0, shared_config["vocab_size"], (1, seq_len)).to(args.device)
+    inputs = torch.randint(
+        0, shared_config["vocab_size"], (args.batch_size, args.seq_len)
+    ).to(args.device)
+    labels = torch.randint(
+        0, shared_config["vocab_size"], (args.batch_size, args.seq_len)
+    ).to(args.device)
 
     print(f"\nMeasuring latency...")
     print(f"Model type: {args.model}")
