@@ -14,9 +14,17 @@ for run in runs:
     elif run.config.get("model") in ["mps", "cp"]:
         model = run.config["model"]
         horizon = run.config.get("horizon", 0)
+        rank = run.config.get("rank", 0)
+
+        # Calculate number of parameters based on model type
+        if model == "cp":
+            params = horizon * rank
+        else:  # mps
+            params = horizon * rank * rank
+
         if horizon not in data[model]:
-            data[model][horizon] = {"ranks": [], "losses": []}
-        data[model][horizon]["ranks"].append(run.config.get("rank", 0))
+            data[model][horizon] = {"params": [], "losses": []}
+        data[model][horizon]["params"].append(params)
         data[model][horizon]["losses"].append(run.summary["eval_loss"])
 
 plt.figure(figsize=(10, 6))
@@ -26,17 +34,19 @@ if baseline_loss:
     plt.axhline(y=baseline_loss, color="black", linestyle="-", label="Baseline")
 
 for i, (horizon, horizon_data) in enumerate(data["mps"].items()):
-    ranks, losses = zip(*sorted(zip(horizon_data["ranks"], horizon_data["losses"])))
-    plt.plot(ranks, losses, "--", marker="o", label=f"MPS h={horizon}", color=colors[i])
+    params, losses = zip(*sorted(zip(horizon_data["params"], horizon_data["losses"])))
+    plt.plot(
+        params, losses, "--", marker="o", label=f"MPS h={horizon}", color=colors[i]
+    )
 
     if horizon in data["cp"]:
         cp_data = data["cp"][horizon]
-        ranks, losses = zip(*sorted(zip(cp_data["ranks"], cp_data["losses"])))
+        params, losses = zip(*sorted(zip(cp_data["params"], cp_data["losses"])))
         plt.plot(
-            ranks, losses, "-", marker="o", label=f"CP h={horizon}", color=colors[i]
+            params, losses, "-", marker="o", label=f"CP h={horizon}", color=colors[i]
         )
 
-plt.xlabel("Rank")
+plt.xlabel("Number of Parameters")
 plt.ylabel("Eval Loss")
 plt.legend()
 plt.grid(True)

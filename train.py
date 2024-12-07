@@ -248,14 +248,16 @@ def evaluate(
     horizon: int = 1,
 ):
     model.eval()
+    loss_meter = AverageMeter()
     nll_meter = AverageMeter()
     device = next(model.parameters()).device
     for batch in eval_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
         with torch.no_grad():
-            _, nll, _ = model(horizon=horizon, **batch)
+            loss, nll, _ = model(horizon=horizon, **batch)
+            loss_meter.update(loss.item())
             nll_meter.update(nll.item())
-    return nll_meter.avg
+    return loss_meter.avg, nll_meter.avg
 
 
 # Train function
@@ -283,7 +285,7 @@ def train(
         num_warmup_steps=warmup_steps,
         num_training_steps=num_training_steps,
     )
-    best_eval_loss = float("inf")
+    best_eval_nll = float("inf")
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
@@ -298,7 +300,7 @@ def train(
             print_output=True,
         )
         train_loss_meter = AverageMeter()  # Create new meter each epoch
-        nll_meter = AverageMeter()
+        train_nll_meter = AverageMeter()
         model.train()
         progress_bar = tqdm(
             train_dataloader,
@@ -312,7 +314,7 @@ def train(
             loss, nll, loss_scale = model(**batch)
             scaled_loss = loss * loss_scale if scale_loss else loss
             train_loss_meter.update(loss.item())
-            nll_meter.update(nll.item())
+            train_nll_meter.update(nll.item())
             # Skip training first epoch if eval_before_training is True
             if eval_before_training and epoch == 1:
                 continue
@@ -336,19 +338,20 @@ def train(
                 time_loss_ms=f"{model_loss_time:.3f}",
             )
 
-        eval_loss = evaluate(
+        eval_loss, eval_nll = evaluate(
             model=model, eval_dataloader=eval_dataloader, horizon=horizon_eval
         )
-        best_eval_loss = min(eval_loss, best_eval_loss)
+        best_eval_nll = min(eval_nll, best_eval_nll)
 
         # Save model checkpoint
-        if eval_loss <= best_eval_loss:
+        if eval_nll <= best_eval_nll:
             print(f"Saving model checkpoint to {save_dir}")
             torch.save(
                 {
                     "state_dict": model.state_dict(),
                     "model_config": model_config,
                     "epoch": epoch,
+                    "eval_nll": eval_nll,
                     "eval_loss": eval_loss,
                 },
                 osp.join(save_dir, "best_model.pth"),
@@ -356,11 +359,12 @@ def train(
 
         # Log metrics to wandb
         print(
-            f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Eval Loss: {eval_loss:.2f}"
+            f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Eval Loss: {eval_nll:.2f}"
         )
         wandb.log({"train_loss": train_loss_meter.avg, "epoch": epoch})
-        wandb.log({"nll": nll_meter.avg, "epoch": epoch})
+        wandb.log({"train_nll": train_nll_meter.avg, "epoch": epoch})
         wandb.log({"eval_loss": eval_loss, "epoch": epoch})
+        wandb.log({"eval_nll": eval_nll, "epoch": epoch})
 
 
 if __name__ == "__main__":
@@ -423,7 +427,7 @@ if __name__ == "__main__":
     model = TJDGPT2(**model_config)
 
     wandb.init(
-        project="tjdnet-shakepeare-v3",
+        project="tjdnet-shakepeare",
         config=vars(args),
         name=exp_name,
     )
