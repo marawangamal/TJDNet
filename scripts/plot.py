@@ -3,14 +3,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 api = wandb.Api()
-runs = api.runs("marawan-gamal/tjdnet-shakepeare-v3")
+runs = api.runs("marawan-gamal/tjdnet-shakepeare")
 
 data = {"mps": {}, "cp": {}}
 baseline_loss = None
 
 for run in runs:
     if run.config.get("model") == "base":
-        baseline_loss = run.summary["eval_loss"]
+        baseline_loss = run.summary["eval_nll"]
     elif run.config.get("model") in ["mps", "cp"]:
         model = run.config["model"]
         horizon = run.config.get("horizon", 0)
@@ -25,7 +25,7 @@ for run in runs:
         if horizon not in data[model]:
             data[model][horizon] = {"params": [], "losses": []}
         data[model][horizon]["params"].append(params)
-        data[model][horizon]["losses"].append(run.summary["eval_loss"])
+        data[model][horizon]["losses"].append(run.summary["eval_nll"])
 
 plt.figure(figsize=(10, 6))
 colors = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3"]
