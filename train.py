@@ -118,7 +118,7 @@ def parse_args():
         "--positivity_func",
         type=str,
         default="exp",
-        choices=["sq", "abs", "exp", "relu"],
+        choices=["sq", "abs", "exp"],
         help="Positivity function to use for MPSDist.",
     )
 

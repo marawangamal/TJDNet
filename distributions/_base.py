@@ -4,18 +4,12 @@ from typing import Optional, Tuple, List
 
 
 class BaseDistribution(ABC, torch.nn.Module):
-    def __init__(self, horizon: int, positivity_func: str = "exp"):
+    def __init__(self, horizon: int):
         """
         Abstract base class for distributions compatible with TJDGPT2.
         """
         super().__init__()
         self.horizon = horizon
-        self.positivity_func: torch.nn.Module = {
-            "sq": lambda x: x**2,
-            "abs": lambda x: torch.abs(x),
-            "exp": torch.exp,
-            "relu": torch.nn.ReLU(),
-        }[positivity_func]
 
     def _get_horizon(self, horizon: Optional[int]):
         horizon = self.horizon if horizon is None else horizon

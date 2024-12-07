@@ -1,7 +1,7 @@
 from typing import List, Tuple
 from git import Optional
 import torch
-import line_profiler
+import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
@@ -29,19 +29,22 @@ class CPDist(BaseDistribution):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__(horizon, positivity_func)
+        super().__init__(horizon)
         self.param_func = torch.nn.Linear(n_embd, rank * horizon * vocab_size)
         self.horizon = horizon
         self.vocab_size = vocab_size
         self.rank = rank
+        self.positivity_func: torch.nn.Module = {
+            "sq": lambda x: x**2,
+            "abs": lambda x: torch.abs(x),
+            "exp": torch.exp,
+        }[positivity_func]
 
-    @line_profiler.profile
     def _get_pos_params(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None
     ):
         batch_size, seq_len, _ = last_hidden_state.size()
-        params = self.param_func(last_hidden_state)  # (B, T, R*H*V)
-        params = self.positivity_func(params)
+        params = self.positivity_func(self.param_func(last_hidden_state))
         params_reshaped = params.reshape(
             batch_size, seq_len, self.rank, self.horizon, self.vocab_size
         )
@@ -97,7 +100,6 @@ class CPDist(BaseDistribution):
             ]
         )  # (B, H)
 
-    # @line_profiler.profile
     def evaluate_at_points(
         self,
         last_hidden_state: torch.Tensor,
@@ -119,11 +121,14 @@ class CPDist(BaseDistribution):
         horizon = points.size(-1)
         params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
         # (B, T, R, H, V) => (B, T)
-        p_tilde = select_from_cp_tensor(
-            params.reshape(batch_size * seq_len, self.rank, horizon, self.vocab_size),
-            points.reshape(batch_size * seq_len, horizon),
-        )
-        return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
+        with profiler.record_function("select_from_cp_tensor"):
+            p_tilde = select_from_cp_tensor(
+                params.reshape(
+                    batch_size * seq_len, self.rank, horizon, self.vocab_size
+                ),
+                points.reshape(batch_size * seq_len, horizon),
+            )
+            return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
@@ -140,12 +145,13 @@ class CPDist(BaseDistribution):
         horizon = self._get_horizon(horizon)
         # Get indexed distribution
         params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        norm_consts = sum_cp_tensor(
-            cp_params=params.reshape(
-                batch_size * seq_len, self.rank, horizon, self.vocab_size
-            ),
-        )
-        return (
-            norm_consts.reshape(batch_size, seq_len),  # (B, T)
-            [],
-        )
+        with profiler.record_function("normalize_cp_tensor"):
+            norm_consts = sum_cp_tensor(
+                cp_params=params.reshape(
+                    batch_size * seq_len, self.rank, horizon, self.vocab_size
+                ),
+            )
+            return (
+                norm_consts.reshape(batch_size, seq_len),  # (B, T)
+                [],
+            )
