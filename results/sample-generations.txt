@@ -1,0 +1,31 @@
+BASELINE
+========
+>> python train.py --model base --horizon 1
+NORFOLK:
+I was now seal figund, I worse: by truments the had frown:
+I princer:
+Wass your ding forth ather gay,
+And my woundernes
+
+
+CP
+========
+>> python train.py --model cp --rank 4 --horizon 2 --horizon_eval 1 --max_new_tokens 128
+>> Epoch 9 
+Are is, I'll fire I'll burther town.
+
+GLOUCESTER:
+Thy whither than I, have in all treepose thy city My she:
+What's comparise to
+
+
+MPS
+========
+>> python train.py --model mps --rank 2 --horizon 2 --horizon_eval 1 --max_new_tokens 128
+>> Epoch 10 
+I kil errot
+Oubeal apiou impaal ougit un an absolunu0an oaw ou aloout
+A sea-noug un in Esignancicia impion'
+Awailou sairrolact
+
+

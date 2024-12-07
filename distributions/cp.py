@@ -12,6 +12,9 @@ from tensorops.cp import (
 )
 
 
+import line_profiler
+
+
 class CPDist(BaseDistribution):
     def __init__(
         self,
@@ -40,11 +43,14 @@ class CPDist(BaseDistribution):
             "exp": torch.exp,
         }[positivity_func]
 
+    @line_profiler.profile
     def _get_pos_params(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None
     ):
         batch_size, seq_len, _ = last_hidden_state.size()
-        params = self.positivity_func(self.param_func(last_hidden_state))
+        # params = self.positivity_func(self.param_func(last_hidden_state))
+        params = self.param_func(last_hidden_state)
+        params = self.positivity_func(params)
         params_reshaped = params.reshape(
             batch_size, seq_len, self.rank, self.horizon, self.vocab_size
         )
@@ -100,6 +106,7 @@ class CPDist(BaseDistribution):
             ]
         )  # (B, H)
 
+    @line_profiler.profile
     def evaluate_at_points(
         self,
         last_hidden_state: torch.Tensor,
@@ -130,6 +137,7 @@ class CPDist(BaseDistribution):
             )
             return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
 
+    @line_profiler.profile
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:

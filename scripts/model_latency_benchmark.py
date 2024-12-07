@@ -44,16 +44,34 @@ def parse_args():
         help="Number of warmup runs",
     )
     parser.add_argument(
+        "--rank",
+        type=int,
+        default=2,
+        help="Rank of the MPS/CP model",
+    )
+    parser.add_argument(
         "--horizon",
         type=int,
         default=2,
-        help="Number of warmup runs",
+        help="Horizon of the MPS/CP model",
     )
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=2,
-        help="Number of warmup runs",
+        default=32,
+        help="Maximum number of tokens to generate",
+    )
+    parser.add_argument(
+        "--seq_len",
+        type=int,
+        default=128,
+        help="Sequence length for input tensor",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Sequence length for input tensor",
     )
     parser.add_argument(
         "--mode",
@@ -137,14 +155,13 @@ def main():
     print(f"\nUsing device: {args.device}")
 
     # Model configuration
-    seq_len = 128
     shared_config = {
         "vocab_size": 128,
         "n_embd": 64,
         "n_layer": 2,
         "n_head": 2,
         "dropout": 0.1,
-        "rank": 2,
+        "rank": args.rank,
     }
 
     # Initialize models
@@ -154,8 +171,12 @@ def main():
     baseline_model = TJDGPT2(**shared_config, model="base", horizon=1).to(args.device)
 
     # Prepare inputs
-    inputs = torch.randint(0, shared_config["vocab_size"], (1, seq_len)).to(args.device)
-    labels = torch.randint(0, shared_config["vocab_size"], (1, seq_len)).to(args.device)
+    inputs = torch.randint(
+        0, shared_config["vocab_size"], (args.batch_size, args.seq_len)
+    ).to(args.device)
+    labels = torch.randint(
+        0, shared_config["vocab_size"], (args.batch_size, args.seq_len)
+    ).to(args.device)
 
     print(f"\nMeasuring latency...")
     print(f"Model type: {args.model}")

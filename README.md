@@ -41,11 +41,19 @@ for epoch in range(epochs):
 ## Training
 
 ```bash
-python train.py  \
-    --model_name gpt2 \
-    --dataset_name wikitext  \
-    --max_seq_len 128 \
-    --num_epochs 3
+python train.py  --model mps // mps model
+python train.py  --model cp // cp model
+```
+
+
+## Sanity Checks
+
+These should have roughly the same loss
+
+```bash
+python train.py --model base --rank 1 --horizon 1  // baseline model (no tensorization)
+python train.py --model mps --rank 1 --horizon 1 // mps model
+python train.py --model cp --rank 1 --horizon 1 // cp model
 ```
 
 ## Running Tests

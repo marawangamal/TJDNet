@@ -49,6 +49,8 @@ class TJDGPT2(torch.nn.Module):
             "pad_token_id": pad_token_id,
             "is_full_rank": is_full_rank,
         }
+        self.rank = rank
+        self.vocab_size = vocab_size
         self.horizon = horizon
         self.eps = eps
         self.model = GPT2LMHeadModel(
@@ -157,7 +159,7 @@ class TJDGPT2(torch.nn.Module):
         ), "Sequence length must be greater than horizon"
 
         batch_size, _ = input_ids.size()
-        horizon = self.horizon if horizon is None else min(self.horizon, horizon)
+        horizon = self._get_horizon(horizon)
 
         last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
         targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
@@ -185,7 +187,14 @@ class TJDGPT2(torch.nn.Module):
         loss = (
             -torch.log(p_tilde + self.eps)
             + torch.log(norm_const)
+            # Contraction Stability Scale Factors
             - sum([torch.log(z) for z in p_tilde_scale_factors])
             + sum([torch.log(z) for z in norm_const_scale_factors])
-        ).mean()
-        return loss
+        )  # (B, T-H)
+
+        # Train loss
+        train_loss = loss.sum(dim=-1).mean()
+        nll = (
+            loss[:, ::horizon].sum(dim=-1).mean()
+        )  # batch mean of negative log likelihood
+        return train_loss, nll, 1 / self.rank
