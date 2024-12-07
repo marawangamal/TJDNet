@@ -19,7 +19,7 @@ def group_texts(examples, input_seq_len):
     return result
 
 
-def load_wikitext_data(tokenizer, input_seq_len, version="wikitext-2-raw-v1"):
+def load_wikitext_data(tokenizer, input_seq_len, version="wikitext-2-v1"):
     """Load and preprocess WikiText dataset.
 
     Args:

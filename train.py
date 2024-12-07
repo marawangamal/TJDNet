@@ -35,11 +35,14 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 import wandb
 from transformers import DataCollatorForLanguageModeling, get_scheduler
+from transformers import AutoTokenizer
 
 
 from data.shakespeare import load_shakespeare_data
+from data.wikitext import load_wikitext_data
 from models.tjdgpt2.tjdgpt2 import TJDGPT2
-from models.tjdgpt2.tokenizer import Tokenizer
+from models.tjdgpt2.char_tokenizer import CharTokenizer
+from models.tjdgpt2.word_tokenizer import WordTokenizer
 from utils import get_experiment_name
 from utils.average_meter import AverageMeter
 
@@ -112,6 +115,23 @@ def parse_args():
             "umps",
             "full",
             "base",
+        ],
+    )
+    parser.add_argument(
+        "--tokenizer_type",
+        type=str,
+        default="word",
+        help="Type of tokenizer to use for processing text.",
+        choices=["char", "word"],
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="shakespeare",
+        help="Type of dataset to use for training.",
+        choices=[
+            "shakespeare",
+            "wikitext",
         ],
     )
     parser.add_argument(
@@ -338,26 +358,20 @@ if __name__ == "__main__":
     ckpt_dir = osp.join("checkpoints", exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    # Training
-
-    characters = list(string.ascii_letters + string.digits + string.punctuation) + [
-        "\n",
-        " ",
-        "\t",
-    ]
-    tokenizer = Tokenizer(characters, args.seq_len)
-
-    # Sanity check tokenizer
-    # print(f"Tokenizer test: {tokenizer.encode('Hello, my dog is cute.!')}")
-    decoded = tokenizer.decode(
-        tokenizer.encode("Hello, my dog is cute!"), skip_special_tokens=True
+    tokenizer = (
+        AutoTokenizer.from_pretrained("gpt2")
+        if args.tokenizer_type == "word"
+        else CharTokenizer(args.seq_len)
     )
-    assert (
-        decoded == "Hello, my dog is cute!"
-    ), f"[FAIL] Tokenizer test failed: {decoded}"
-    print(f"[PASS] Tokenizer test passed.")
+    # Set pad token for GPT-2 tokenizer
+    if args.tokenizer_type == "word":
+        tokenizer.pad_token = tokenizer.eos_token
 
-    lm_dataset = load_shakespeare_data(tokenizer, args.seq_len)
+    # lm_dataset = load_shakespeare_data(tokenizer, args.seq_len)
+    lm_dataset = {
+        "shakespeare": load_shakespeare_data,
+        "wikitext": load_wikitext_data,
+    }[args.dataset](tokenizer, args.seq_len)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     # Data loaders
@@ -371,7 +385,11 @@ if __name__ == "__main__":
     # Configuration for a smaller GPT2 model (baby GPT)
     model_config = {
         "model": args.model,
-        "vocab_size": len(tokenizer),
+        "vocab_size": (
+            len(tokenizer.get_vocab())
+            if hasattr(tokenizer, "get_vocab")
+            else len(tokenizer)
+        ),
         "n_embd": args.n_embd,
         "n_layer": args.n_layer,
         "n_head": args.n_head,
