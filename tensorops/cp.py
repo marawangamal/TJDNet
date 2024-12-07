@@ -31,7 +31,7 @@ def select_from_cp_tensor(
     return result.prod(dim=2).sum(dim=1)  # (B,)
 
 
-@line_profiler.profile
+# @line_profiler.profile
 def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     """Sum all elements of a CP tensor representation (batched).
 

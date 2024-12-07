@@ -53,7 +53,7 @@ def select_from_umps_tensor(
     return result, scale_factors
 
 
-@line_profiler.profile
+# @line_profiler.profile
 def sum_umps_tensorV2(
     alpha: torch.Tensor,
     beta: torch.Tensor,

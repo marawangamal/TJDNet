@@ -11,6 +11,8 @@ from tensorops.mps import (
     sum_mps_tensor,
 )
 
+import line_profiler
+
 
 class MPSDist(BaseDistribution):
     def __init__(
@@ -35,11 +37,17 @@ class MPSDist(BaseDistribution):
         self.beta = torch.ones(rank) * 0.1
         self.param_func_core = torch.nn.Linear(n_embd, self.tensor_train_size)
 
+    @line_profiler.profile
     def _get_pos_params(self, last_hidden_state: torch.Tensor):
         batch_size, seq_len, _ = last_hidden_state.shape
-        core = self.positivity_func(self.param_func_core(last_hidden_state)).reshape(
+        # core = self.positivity_func(self.param_func_core(last_hidden_state)).reshape(
+        #     batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
+        # )  # (B, T, HRVR)
+        core = self.param_func_core(last_hidden_state)
+        core = self.positivity_func(core)
+        core = core.reshape(
             batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
-        )  # (B, T, HRVR)
+        )
         alpha = (
             self.positivity_func(self.alpha)
             .reshape(1, 1, self.rank)
@@ -88,6 +96,7 @@ class MPSDist(BaseDistribution):
             ]
         )  # (B, H)
 
+    @line_profiler.profile
     def evaluate_at_points(
         self,
         last_hidden_state: torch.Tensor,
@@ -125,6 +134,7 @@ class MPSDist(BaseDistribution):
             s.reshape(batch_size, seq_len) for s in scale_factors
         ]
 
+    @line_profiler.profile
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
