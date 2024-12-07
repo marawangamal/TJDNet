@@ -387,7 +387,7 @@ if __name__ == "__main__":
     model = TJDGPT2(**model_config)
 
     wandb.init(
-        project="tjdnet-shakepeare",
+        project="tjdnet-shakepeare-dev",
         config=vars(args),
         name=exp_name,
     )
