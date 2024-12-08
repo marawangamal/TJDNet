@@ -4,8 +4,7 @@ Compares inference time between tensor model and baseline.
 Works on both CPU and CUDA devices.
 
 Usage:
-    python scripts/model_latency_benchmark.py --rank 2 --horizon 8 --vocab_size 50000
-    python scripts/model_latency_benchmark.py --model mps  # For MPS model
+    python scripts/model_latency_benchmark.py --rank 2 --horizon 2 --vocab_size 50257
 """
 
 import os

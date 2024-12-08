@@ -42,7 +42,6 @@ from data.shakespeare import load_shakespeare_data
 from data.wikitext import load_wikitext_data
 from models.tjdgpt2.tjdgpt2 import TJDGPT2
 from models.tjdgpt2.char_tokenizer import CharTokenizer
-from models.tjdgpt2.word_tokenizer import WordTokenizer
 from utils import get_experiment_name
 from utils.average_meter import AverageMeter
 
@@ -354,20 +353,19 @@ if __name__ == "__main__":
 
     # Configuration
     exp_name = get_experiment_name(vars(args))
-    # Make ckpt dir
     ckpt_dir = osp.join("checkpoints", exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
+    # Tokenizer
     tokenizer = (
         AutoTokenizer.from_pretrained("gpt2")
         if args.tokenizer_type == "word"
         else CharTokenizer(args.seq_len)
     )
-    # Set pad token for GPT-2 tokenizer
     if args.tokenizer_type == "word":
         tokenizer.pad_token = tokenizer.eos_token
 
-    # lm_dataset = load_shakespeare_data(tokenizer, args.seq_len)
+    # Datasets
     lm_dataset = {
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
@@ -382,7 +380,7 @@ if __name__ == "__main__":
         lm_dataset["test"], batch_size=args.batch_size, collate_fn=data_collator  # type: ignore
     )
 
-    # Configuration for a smaller GPT2 model (baby GPT)
+    # Model
     model_config = {
         "model": args.model,
         "vocab_size": (
@@ -401,7 +399,6 @@ if __name__ == "__main__":
         "bos_token_id": tokenizer.bos_token_id,
         "pad_token_id": tokenizer.pad_token_id,
     }
-
     model = TJDGPT2(**model_config)
 
     wandb.init(
@@ -426,4 +423,5 @@ if __name__ == "__main__":
     )
 
     # Generate a test sample
-    get_test_samples(model, tokenizer, print_output=True)
+    test_sample = get_test_samples(model, tokenizer, max_new_tokens=args.max_new_tokens)
+    print(f"Test sample:\n{test_sample}")

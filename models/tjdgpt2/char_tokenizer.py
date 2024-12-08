@@ -3,6 +3,7 @@
 This is heavily inspired from CanineTokenizer in transformers package.
 """
 
+import string
 import json
 import os
 from pathlib import Path
