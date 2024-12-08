@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, Optional
 import torch
 from transformers import (
     GPT2Config,
@@ -137,8 +137,9 @@ class TJDGPT2(torch.nn.Module):
         input_ids: torch.Tensor,
         labels: torch.Tensor,
         horizon: Optional[int] = None,
+        reduce="mean",
         **kwargs,
-    ):
+    ) -> Dict[str, torch.Tensor]:
         """Forward pass of the model.
 
         Args:
@@ -193,6 +194,14 @@ class TJDGPT2(torch.nn.Module):
         )  # (B, T-H)
 
         # Train loss
-        train_loss = loss.mean()
-        nll = loss[:, ::horizon].mean()  # batch and seq mean of negative log likelihood
-        return train_loss, nll, 1 / self.rank
+        nll = loss[:, ::horizon]  # batch and seq mean of negative log likelihood
+        reduct_fn = {
+            "mean": torch.mean,
+            "sum": torch.sum,
+            "none": lambda x: x,
+        }[reduce]
+        return {
+            "loss": reduct_fn(nll),
+            "nll": reduct_fn(nll),
+            "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
+        }

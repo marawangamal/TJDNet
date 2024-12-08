@@ -27,16 +27,15 @@ import os.path as osp
 import os
 import numpy as np
 import random
-import string
-import math
 import argparse
-import torch
 from tqdm import tqdm
-from torch.utils.data import DataLoader
+
+import torch
 import wandb
+from torch.utils.data import DataLoader
+from torch.nn import DataParallel
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 from transformers import AutoTokenizer
-
 
 from data.shakespeare import load_shakespeare_data
 from data.wikitext import load_wikitext_data
@@ -233,7 +232,8 @@ def evaluate(
     for batch in eval_dataloader:
         batch = {k: v.to(device) for k, v in batch.items()}
         with torch.no_grad():
-            loss, nll, _ = model(horizon=horizon, **batch)
+            output_dict = model(horizon=horizon, **batch)
+            loss, nll = output_dict["loss"], output_dict["nll"]
             loss_meter.update(loss.item())
             nll_meter.update(nll.item())
     return loss_meter.avg, nll_meter.avg
@@ -254,7 +254,7 @@ def train(
     model_config={},
     horizon_eval=1,
     grad_clip_val=None,
-    scale_loss=False,
+    use_loss_scale=False,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -290,8 +290,13 @@ def train(
         # Training loop
         for _, batch in enumerate(progress_bar):
             batch = {k: v.to(device) for k, v in batch.items()}
-            loss, nll, loss_scale = model(**batch)
-            scaled_loss = loss * loss_scale if scale_loss else loss
+            output_dict = model(**batch)
+            loss, nll, loss_scale = (
+                output_dict["loss"],  # (B, T) -> (1,)
+                output_dict["nll"],
+                output_dict["loss_scale"],
+            )
+            scaled_loss = loss * loss_scale if use_loss_scale else loss
             train_loss_meter.update(loss.item())
             train_nll_meter.update(nll.item())
             # Skip training first epoch if eval_before_training is True
@@ -303,19 +308,7 @@ def train(
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
-
-            # Update progress bar with latest loss
-            # Check if model has forward_avg_meter and loss_avg_meter
-            model_fwd_time = 0
-            model_loss_time = 0
-            if hasattr(model, "forward_avg_meter") and hasattr(model, "loss_avg_meter"):
-                model_fwd_time = model.forward_avg_meter.avg
-                model_loss_time = model.loss_avg_meter.avg
-            progress_bar.set_postfix(
-                loss=f"{loss.item():.3f}",
-                time_fwd_ms=f"{model_fwd_time:.3f}",
-                time_loss_ms=f"{model_loss_time:.3f}",
-            )
+            progress_bar.set_postfix(loss=f"{loss.item():.3f}")
 
         eval_loss, eval_nll = evaluate(
             model=model, eval_dataloader=eval_dataloader, horizon=horizon_eval
@@ -419,7 +412,7 @@ if __name__ == "__main__":
         model_config=model_config,
         horizon_eval=args.horizon_eval,
         grad_clip_val=args.grad_clip_val,
-        scale_loss=args.scale_loss,
+        use_loss_scale=args.scale_loss,
     )
 
     # Generate a test sample

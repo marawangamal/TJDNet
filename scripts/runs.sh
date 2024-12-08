@@ -1,5 +1,5 @@
 # Baseline
-python train.py --model base --rank 1 --horizon 1 --horizon_eval 1
+# python train.py --model base --rank 1 --horizon 1 --horizon_eval 1
 
 # Horizon 2
 python train.py --model cp --rank 4 --horizon 2 --horizon_eval 2
