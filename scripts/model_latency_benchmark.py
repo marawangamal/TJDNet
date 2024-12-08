@@ -4,11 +4,10 @@ Compares inference time between tensor model and baseline.
 Works on both CPU and CUDA devices.
 
 Usage:
-    python scripts/model_latency_benchmark.py --model cp  # For CP model
+    python scripts/model_latency_benchmark.py --rank 2 --horizon 8 --vocab_size 50000
     python scripts/model_latency_benchmark.py --model mps  # For MPS model
 """
 
-from math import e
 import os
 import sys
 import argparse
@@ -24,13 +23,7 @@ from models.tjdgpt2.tjdgpt2 import TJDGPT2
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="cp",
-        choices=["cp", "mps"],
-        help="Model type (cp or mps)",
-    )
+    # Existing arguments
     parser.add_argument(
         "--num_runs",
         type=int,
@@ -85,6 +78,38 @@ def parse_args():
         default="cuda" if torch.cuda.is_available() else "cpu",
         choices=["cuda", "cpu"],
         help="Device to run on (cuda/cpu)",
+    )
+
+    # Model configuration arguments
+    parser.add_argument(
+        "--vocab_size",
+        type=int,
+        default=128,
+        help="Vocabulary size for the model",
+    )
+    parser.add_argument(
+        "--n_embd",
+        type=int,
+        default=64,
+        help="Embedding dimension",
+    )
+    parser.add_argument(
+        "--n_layer",
+        type=int,
+        default=2,
+        help="Number of transformer layers",
+    )
+    parser.add_argument(
+        "--n_head",
+        type=int,
+        default=2,
+        help="Number of attention heads",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.1,
+        help="Dropout probability",
     )
     return parser.parse_args()
 
@@ -146,7 +171,22 @@ def measure_latency(
             latencies.append((end_time - start_time) * 1000)  # Convert to milliseconds
 
     avg_latency = sum(latencies) / len(latencies)
-    return avg_latency
+    std_latency = torch.tensor(latencies).std().item()
+    return avg_latency, std_latency
+
+
+def print_latency_results(latency_results):
+    # Get the width of the longest model name
+    name_width = max(len(name) for name in latency_results)
+
+    # Print header
+    print("\nLatency Results")
+    print(f"{'Model':<{name_width}} | {'Mean (ms)':>10} ± {'Std (ms)':>10}")
+    print("-" * (name_width + 25))  # Adjust line length
+
+    # Print each result
+    for model_name, (mean, std) in latency_results.items():
+        print(f"{model_name:<{name_width}} | {mean:>10.2f} ± {std:>10.2f}")
 
 
 def main():
@@ -155,62 +195,46 @@ def main():
     print(f"\nUsing device: {args.device}")
 
     # Model configuration
-    shared_config = {
-        "vocab_size": 128,
-        "n_embd": 64,
-        "n_layer": 2,
-        "n_head": 2,
-        "dropout": 0.1,
+    model_config = {
+        "vocab_size": args.vocab_size,
+        "n_embd": args.n_embd,
+        "n_layer": args.n_layer,
+        "n_head": args.n_head,
+        "dropout": args.dropout,
         "rank": args.rank,
     }
 
     # Initialize models
-    tensor_model = TJDGPT2(**shared_config, model=args.model, horizon=args.horizon).to(
-        args.device
-    )
-    baseline_model = TJDGPT2(**shared_config, model="base", horizon=1).to(args.device)
+    models = {
+        k: TJDGPT2(**model_config, model=k, horizon=h).to(args.device)
+        for k, h in [("base", 1), ("cp", args.horizon), ("mps", args.horizon)]
+    }
+    latency_results = {}
 
     # Prepare inputs
-    inputs = torch.randint(
-        0, shared_config["vocab_size"], (args.batch_size, args.seq_len)
-    ).to(args.device)
-    labels = torch.randint(
-        0, shared_config["vocab_size"], (args.batch_size, args.seq_len)
-    ).to(args.device)
-
-    print(f"\nMeasuring latency...")
-    print(f"Model type: {args.model}")
-    print(f"Number of runs: {args.num_runs}")
-    print(f"Warmup runs: {args.warmup_runs}\n")
-
-    # Measure latencies
-    tensor_latency = measure_latency(
-        tensor_model,
-        inputs,
-        labels,
-        args.num_runs,
-        args.warmup_runs,
-        args.max_new_tokens,
-        args.device,
-        mode=args.mode,
+    inputs = torch.randint(0, args.vocab_size, (args.batch_size, args.seq_len)).to(
+        args.device
     )
-    baseline_latency = measure_latency(
-        baseline_model,
-        inputs,
-        labels,
-        args.num_runs,
-        args.warmup_runs,
-        args.max_new_tokens,
-        args.device,
-        mode=args.mode,
+    labels = torch.randint(0, args.vocab_size, (args.batch_size, args.seq_len)).to(
+        args.device
     )
 
-    # Print results
-    print("\nResults:")
-    print("-" * 50)
-    print(f"Tensor Model latency: {tensor_latency:.2f} ms")
-    print(f"Baseline Model latency: {baseline_latency:.2f} ms")
-    print(f"Speedup (baseline/tensor): {baseline_latency/tensor_latency:.2f}x")
+    for model_name, model in models.items():
+        print(f"Measuring latency for {model_name} model...")
+        latency = measure_latency(
+            model,
+            inputs,
+            labels,
+            args.num_runs,
+            args.warmup_runs,
+            args.max_new_tokens,
+            args.device,
+            mode=args.mode,
+        )
+        latency_results[model_name] = latency
+
+    # Print results in tabular format
+    print_latency_results(latency_results)
 
 
 if __name__ == "__main__":
