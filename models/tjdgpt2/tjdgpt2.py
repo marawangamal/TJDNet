@@ -202,7 +202,7 @@ class TJDGPT2(torch.nn.Module):
             "none": lambda x: x,
         }[reduce]
         return {
-            "loss": reduct_fn(nll),
-            "nll": reduct_fn(nll),
+            "loss": reduct_fn(loss.sum(dim=-1)),
+            "nll": reduct_fn(nll.sum(dim=-1)),
             "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
         }
