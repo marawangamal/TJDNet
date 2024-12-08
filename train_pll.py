@@ -171,15 +171,6 @@ def parse_args():
     return parser.parse_args()
 
 
-# Replace the distributed setup with:
-def setup_parallel():
-    if torch.cuda.is_available():
-        n_gpus = torch.cuda.device_count()
-        print(f"Found {n_gpus} GPUs")
-        return True, n_gpus
-    return False, 0
-
-
 def set_seed(seed):
     """Set random seeds for reproducibility"""
     random.seed(seed)
@@ -207,12 +198,11 @@ def get_test_samples(
     print_output=True,
 ):
     # Inference
-    base_model = model.module if hasattr(model, "module") else model
-    base_model.eval()
+    model.eval()
     samples = []
     for i in range(n_samples):
-        inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(base_model.device)
-        outputs = base_model.generate(
+        inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
+        outputs = model.generate(
             inputs,
             num_beams=num_beams,
             do_sample=do_sample,
@@ -276,13 +266,8 @@ def train(
     )
     best_eval_nll = float("inf")
 
-    is_parallel, n_gpus = setup_parallel()
-    if is_parallel:
-        model = DataParallel(model)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
-    base_model = model.module if is_parallel else model
-    print(f"Parallel setup: {is_parallel}, GPUs: {n_gpus}")
 
     for epoch in range(1, num_epochs + 1):
         get_test_samples(
@@ -295,7 +280,7 @@ def train(
         )
         train_loss_meter = AverageMeter()  # Create new meter each epoch
         train_nll_meter = AverageMeter()
-        base_model.train()
+        model.train()
         progress_bar = tqdm(
             train_dataloader,
             desc=f"Epoch {epoch}",
@@ -305,24 +290,12 @@ def train(
         # Training loop
         for _, batch in enumerate(progress_bar):
             batch = {k: v.to(device) for k, v in batch.items()}
-
-            print("Before forward pass:")
-            for i in range(torch.cuda.device_count()):
-                print(f"GPU {i} memory: {torch.cuda.memory_allocated(i) / 1e9:.2f} GB")
-
             output_dict = model(**batch)
-
-            # After forward pass
-            print("After forward pass:")
-            for i in range(torch.cuda.device_count()):
-                print(f"GPU {i} memory: {torch.cuda.memory_allocated(i) / 1e9:.2f} GB")
-
             loss, nll, loss_scale = (
-                output_dict["loss"].mean(),
-                output_dict["nll"].mean(),
-                output_dict["loss_scale"].mean(),
+                output_dict["loss"],  # (B, T) -> (1,)
+                output_dict["nll"],
+                output_dict["loss_scale"],
             )
-            # Loss is of shape (D, B, H) where D is the number of devices
             scaled_loss = loss * loss_scale if use_loss_scale else loss
             train_loss_meter.update(loss.item())
             train_nll_meter.update(nll.item())
@@ -331,7 +304,7 @@ def train(
                 continue
             scaled_loss.backward()
             if grad_clip_val is not None:
-                torch.nn.utils.clip_grad_norm_(base_model.parameters(), grad_clip_val)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_val)
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
@@ -347,7 +320,7 @@ def train(
             print(f"Saving model checkpoint to {save_dir}")
             torch.save(
                 {
-                    "state_dict": base_model.state_dict(),
+                    "state_dict": model.state_dict(),
                     "model_config": model_config,
                     "epoch": epoch,
                     "eval_nll": eval_nll,
