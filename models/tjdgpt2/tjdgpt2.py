@@ -13,6 +13,7 @@ from distributions.umps import UMPSDist
 from tensorops.common import get_windowed_input_ids
 
 
+# TODO: Apply loss scaling in the forward pass directly
 class TJDGPT2(torch.nn.Module):
     def __init__(
         self,

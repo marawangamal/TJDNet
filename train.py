@@ -323,8 +323,8 @@ def train(
                     "state_dict": model.state_dict(),
                     "model_config": model_config,
                     "epoch": epoch,
-                    "eval_nll": eval_nll,
-                    "eval_loss": eval_loss,
+                    "eval/nll": eval_nll,
+                    "eval/loss": eval_loss,
                 },
                 osp.join(save_dir, "best_model.pth"),
             )
@@ -333,10 +333,10 @@ def train(
         print(
             f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Eval Loss: {eval_nll:.2f}"
         )
-        wandb.log({"train_loss": train_loss_meter.avg, "epoch": epoch})
-        wandb.log({"train_nll": train_nll_meter.avg, "epoch": epoch})
-        wandb.log({"eval_loss": eval_loss, "epoch": epoch})
-        wandb.log({"eval_nll": eval_nll, "epoch": epoch})
+        wandb.log({"train/loss": train_loss_meter.avg, "epoch": epoch})
+        wandb.log({"train/nll": train_nll_meter.avg, "epoch": epoch})
+        wandb.log({"eval/loss": eval_loss, "epoch": epoch})
+        wandb.log({"eval/nll": eval_nll, "epoch": epoch})
 
 
 if __name__ == "__main__":
