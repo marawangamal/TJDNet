@@ -236,9 +236,6 @@ def main():
     exp_name = get_experiment_name(vars(args))
     ckpt_dir = osp.join("checkpoints", exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
-
-    wandb.init(project="tjdnet-shakepeare-dev", name=exp_name)
-
     # Tokenizer
     tokenizer = (
         AutoTokenizer.from_pretrained("gpt2")
@@ -295,6 +292,13 @@ def main():
         # Reporting
         report_to="wandb",  # Enable wandb logging
     )
+
+    # Initialize wandb only on main process
+    if training_args.local_rank == 0:  # main process
+        wandb.init(
+            project="tjdnet-shakepeare-dev",
+            name=exp_name,
+        )
 
     # Custom evaluation function
     def compute_metrics(eval_pred):
