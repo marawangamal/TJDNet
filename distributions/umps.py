@@ -5,9 +5,8 @@ import torch.autograd.profiler as profiler
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.umps import (
+    sample_from_umps_tensor,
     select_from_umps_tensor,
-    materialize_umps_tensor,
-    sum_umps_tensor,
     sum_umps_tensorV2,
 )
 
@@ -55,23 +54,26 @@ class UMPSDist(BaseDistribution):
         Args:
             input_ids (torch.Tensor): Previous tokens of shape (B, T)
             horizon (int): Horizon of the generation (Must be <= Horizon of the model)
+
+        Returns:
+            torch.Tensor: Generated sequences of shape (B, H)
         """
         # Cannot generate sequences longer than `horizon`
-        batch_size, seq_len, _ = last_hidden_state.size()
+        horizon = self._get_horizon(horizon)
+        batch_size, _, _ = last_hidden_state.size()
         assert batch_size == 1, "Batch size must be 1 for generation"
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
         )  # (B, 1, R), (B, 1, R, V, R), (B, 1, R)
-        p_tilde = materialize_umps_tensor(
-            alpha=alpha.reshape(batch_size * 1, self.rank),
-            beta=beta.reshape(batch_size * 1, self.rank),
-            core=core.reshape(batch_size * 1, self.rank, self.vocab_size, self.rank),
-            n_core_repititions=horizon,
-        )  # (B, V, V, ..., V)  `horizon` times
         return torch.stack(
-            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
-        ).reshape(
-            batch_size, -1
+            [
+                sample_from_umps_tensor(
+                    alpha=alpha.reshape(self.rank),
+                    beta=beta.reshape(self.rank),
+                    core=core.reshape(self.rank, self.vocab_size, self.rank),
+                    horizon=horizon,
+                )
+            ]
         )  # (B, H)
 
     def evaluate_at_points(
@@ -91,19 +93,24 @@ class UMPSDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B*H) and scale_tensors (empty list)
         """
         batch_size, seq_len, _ = last_hidden_state.shape
+        horizon = self._get_horizon(points.size(-1))
         alpha, core, beta = self._get_pos_params(
             last_hidden_state
-        )  # (B, T, R), (B, T, R, V, R), (B, T, R)
-        with profiler.record_function("select_from_mps_tensor"):
-            p_tilde, scale_factors = select_from_umps_tensor(
-                alpha=alpha.reshape(batch_size * seq_len, self.rank),
-                beta=beta.reshape(batch_size * seq_len, self.rank),
-                core=core.reshape(
-                    batch_size * seq_len, self.rank, self.vocab_size, self.rank
-                ),
-                indices=points.reshape(batch_size * seq_len, -1),
-            )  # (batch_size, n_vocab)
-            return p_tilde, scale_factors
+        )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
+        p_tilde, scale_factors = select_from_umps_tensor(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len,
+                self.rank,
+                self.vocab_size,
+                self.rank,
+            ),
+            indices=points.reshape(batch_size * seq_len, -1),
+        )  # (batch_size, n_vocab)
+        return p_tilde.reshape(batch_size, seq_len), [
+            s.reshape(batch_size, seq_len) for s in scale_factors
+        ]
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
@@ -121,13 +128,14 @@ class UMPSDist(BaseDistribution):
             last_hidden_state
         )  # (B, T, R), (B, T, R, V, R), (B, T, R)
         batch_size, seq_len, _ = last_hidden_state.shape
-        with profiler.record_function("normalize_mps_tensor"):
-            z, scale_factors = sum_umps_tensorV2(
-                alpha=alpha.reshape(batch_size * seq_len, self.rank),
-                beta=beta.reshape(batch_size * seq_len, self.rank),
-                core=core.reshape(
-                    batch_size * seq_len, self.rank, self.vocab_size, self.rank
-                ),
-                n_core_repititions=horizon,
-            )
-            return z, scale_factors
+        z, scale_factors = sum_umps_tensorV2(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len, self.rank, self.vocab_size, self.rank
+            ),
+            n_core_repititions=horizon,
+        )
+        return z.reshape(batch_size, seq_len), [
+            s.reshape(batch_size, seq_len) for s in scale_factors
+        ]

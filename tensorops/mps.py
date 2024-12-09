@@ -1,6 +1,6 @@
 import torch
 
-from tensorops.common import get_breakpoints
+from tensorops.common import get_breakpoints, mps_to_tensor
 
 
 def select_from_mps_tensor(
@@ -196,24 +196,3 @@ def select_margin_mps_tensor(
         ),
         scale_factors,
     )
-
-
-def mps_to_tensor(
-    alpha: torch.Tensor,
-    beta: torch.Tensor,
-    core: torch.Tensor,
-):
-    """Converts a MPS tensor representation to a tensor.
-
-    Args:
-        alpha (torch.Tensor): Alpha tensor of shape (R)
-        beta (torch.Tensor): Beta tensor of shape (R)
-        core (torch.Tensor): Core tensor of shape (H, R, D, R)
-    """
-    full_shape = [core.size(2)] * core.size(0)
-    result = torch.einsum("r, rdj -> dj", alpha, core[0])
-    for t in range(1, core.size(0)):
-        result = torch.einsum("kr, rdj -> kdj", result, core[t])
-        result = result.reshape(-1, core.size(1))
-    result = torch.einsum("kr,r -> k", result, beta)
-    return result.reshape(full_shape)

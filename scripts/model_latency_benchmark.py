@@ -5,6 +5,7 @@ Works on both CPU and CUDA devices.
 
 Usage:
     python scripts/model_latency_benchmark.py --rank 2 --horizon 2 --vocab_size 50257
+    python scripts/model_latency_benchmark.py --mode train --batch_size 8 --rank 2 --horizon 2 --vocab_size 50257
 """
 
 import os
@@ -206,7 +207,12 @@ def main():
     # Initialize models
     models = {
         k: TJDGPT2(**model_config, model=k, horizon=h).to(args.device)
-        for k, h in [("base", 1), ("cp", args.horizon), ("mps", args.horizon)]
+        for k, h in [
+            ("base", 1),
+            ("cp", args.horizon),
+            ("mps", args.horizon),
+            ("umps", args.horizon),
+        ]
     }
     latency_results = {}
 
