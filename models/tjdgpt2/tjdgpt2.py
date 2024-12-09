@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, Optional
 import torch
 from transformers import (
     GPT2Config,
@@ -13,6 +13,7 @@ from distributions.umps import UMPSDist
 from tensorops.common import get_windowed_input_ids
 
 
+# TODO: Apply loss scaling in the forward pass directly
 class TJDGPT2(torch.nn.Module):
     def __init__(
         self,
@@ -137,8 +138,9 @@ class TJDGPT2(torch.nn.Module):
         input_ids: torch.Tensor,
         labels: torch.Tensor,
         horizon: Optional[int] = None,
+        reduce="mean",
         **kwargs,
-    ):
+    ) -> Dict[str, torch.Tensor]:
         """Forward pass of the model.
 
         Args:
@@ -193,8 +195,14 @@ class TJDGPT2(torch.nn.Module):
         )  # (B, T-H)
 
         # Train loss
-        train_loss = loss.sum(dim=-1).mean()
-        nll = (
-            loss[:, ::horizon].sum(dim=-1).mean()
-        )  # batch mean of negative log likelihood
-        return train_loss, nll, 1 / self.rank
+        nll = loss[:, ::horizon]  # batch and seq mean of negative log likelihood
+        reduct_fn = {
+            "mean": torch.mean,
+            "sum": torch.sum,
+            "none": lambda x: x,
+        }[reduce]
+        return {
+            "loss": reduct_fn(loss.sum(dim=-1)),
+            "nll": reduct_fn(nll.sum(dim=-1)),
+            "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
+        }

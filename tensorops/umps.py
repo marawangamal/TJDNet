@@ -1,6 +1,8 @@
 import torch
 import line_profiler
 
+from tensorops.common import get_breakpoints, mps_to_tensor
+
 
 # TODO: Try with gather
 # TODO: try this -> core_select.contiguous()
@@ -84,130 +86,100 @@ def sum_umps_tensorV2(
     return result, scale_factors
 
 
-def sum_umps_tensor(
+def sample_from_umps_tensor(
+    alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor, horizon: int
+) -> torch.Tensor:
+    """Samples from an MPS tensor representation of probabilities.
+
+    Args:
+        alpha (torch.Tensor): Alpha tensor of shape (R)
+        beta (torch.Tensor): Beta tensor of shape (R)
+        core (torch.Tensor): Core tensor of shape (R, D, R)
+        horizon (int): Number of steps to consider
+
+    Returns:
+        torch.Tensor: Sampled tensor of shape (H,)
+    """
+    selected_indices = []
+    for t in range(horizon):
+        # Unnormalized P(y_t | y_{<t})
+        p_tilde_yt_given_prev, _ = select_margin_umps_tensor(
+            alpha=alpha,
+            beta=beta,
+            core=core,
+            ops=torch.tensor(
+                selected_indices + [-1] + [-2] * (horizon - t - 1),
+                device=alpha.device,
+            ),
+        )  # (D,)
+        # Sample from P(y_t | y_{<t})
+        selected_index = torch.multinomial(p_tilde_yt_given_prev, num_samples=1).item()
+        selected_indices.append(selected_index)
+    return torch.tensor(selected_indices, device=alpha.device)
+
+
+def select_margin_umps_tensor(
     alpha: torch.Tensor,
     beta: torch.Tensor,
     core: torch.Tensor,
-    operation_map: torch.Tensor,
-    apply_scale_factors: bool = False,
-    reversed: bool = False,
-    skip_last: bool = False,
+    ops: torch.Tensor,
+    use_scale_factors: bool = True,
 ):
-    """Given a uMPS, perform select and/or marginalize operations (batched version).
+    """Performs selection and marginalization operations on a MPS tensor representation.
 
     Args:
-        alpha (torch.Tensor): Parameter tensor. Shape: (B, R).
-        beta (torch.Tensor): Parameter tensor. Shape: (B, R).
-        core (torch.Tensor): Core tensor. Shape: (B, R, D, R).
-        operation_map (torch.Tensor): Operations to perform on indices. Shape: (B, N).  -1 for marginalize, [0, V) for select
+        alpha (torch.Tensor): Alpha tensor of shape (R)
+        beta (torch.Tensor): Beta tensor of shape (R)
+        core (torch.Tensor): Core tensor of shape (R, D, R)
+        ops (torch.Tensor): Operation codes of shape (T,) specifying:
+            -2: marginalize mode (sum reduction)
+            -1: keep mode as free index
+            [0,V): select index v in mode
 
     Returns:
-        torch.Tensor: Evaluation of the uMPS tensor network. Shape: (B,)
-
+        Tuple[torch.Tensor, torch.Tensor]:
+            - Result tensor of shape (R, F, D) where F is the numbe of free indices (-1 operations) in ops
+            - Scale factors of shape (R,T)
     """
-    # Input validation: alpha, beta, core
-    assert len(alpha.shape) == 2, "Alpha should be a 2D tensor"
-    assert len(beta.shape) == 2, "Beta should be a 2D tensor"
-    assert len(core.shape) == 4, "Core should be a 4D tensor"
+    # Validation:
+    assert len(core.shape) == 3, "Core tensor must be 3D (non-batched)"
+    assert len(ops.shape) == 1, "Ops tensor must be 1D (non-batched)"
+    assert (ops >= -2).all() and (ops < core.size(1)).all(), "Invalid ops tensor"
 
-    # Input validation: selection_map, marginalize_mask
-    assert len(operation_map.shape) == 2, "Operation map should be a 2D tensor"
+    # Shapes
+    horizon = ops.size(0)
+    rank_size, vocab_size, _ = core.size()
 
-    free_legs = (operation_map == -2).sum(dim=-1)
-    assert torch.all(free_legs.sum(dim=-1) <= 1), "Must have at most one free leg"
-    core_margins = core.sum(dim=2)
+    # Note ops must be in the order of select, free, marginalize
+    bp_free, bp_margin = get_breakpoints(
+        ops.reshape(1, -1)
+    )  # (1,), (1,) selects index at which selects end
+    bp_free, bp_margin = int(bp_free.item()), int(bp_margin.item())
+    assert bp_free < bp_margin, "Invalid ops tensor (select/marginalize order)"
 
-    n_core_repititions = operation_map.shape[1]
-    res_tmp = beta if reversed else alpha
+    # 1. Reduce via selection
     scale_factors = []
+    result_select = None
+    if bp_free > 0:
+        result_select = core[:, ops[0]]  # (R, R)
+        for t in range(1, bp_free):
+            result_select = torch.einsum("ij, jr -> ir", result_select, core[:, ops[t]])
 
-    def get_contracted_core(
-        core: torch.Tensor, batch_idx: int, time_idx: int, operation_map: torch.Tensor
-    ):
-        if operation_map[batch_idx, time_idx] >= 0:  # Select
-            return core[batch_idx, :, operation_map[batch_idx, time_idx], :]
-        elif operation_map[batch_idx, time_idx] == -1:  # Marginalize
-            return core_margins[batch_idx]
-        else:  # Not accepted
-            raise ValueError("Invalid operation")
+    # 2. Reduce via marginalization
+    result_margin = None
+    if bp_margin < horizon:
+        result_margin = core.sum(dim=1)  # (R, R)
+        for t in range(bp_margin, horizon):
+            result_margin = torch.einsum("ij, jr -> ir", result_margin, result_margin)
 
-    for t in range(n_core_repititions):
-        res_tmp_prime = torch.stack(
-            [
-                get_contracted_core(core, b, t, operation_map)
-                for b in range(core.shape[0])
-            ]
-        )  # (B, R, R)
-        z_tmp = torch.linalg.norm(res_tmp, dim=1)
-        scale_factors.append(z_tmp)
-        res_tmp = res_tmp / z_tmp.unsqueeze(1)
-        if reversed:
-            res_tmp = torch.einsum("bij, bi->bj", res_tmp_prime, res_tmp)
-        else:
-            res_tmp = torch.einsum("bi,bij->bj", res_tmp, res_tmp_prime)
-    if skip_last:
-        return res_tmp, scale_factors
-    res = torch.einsum("bi, bi -> b", res_tmp, alpha if reversed else beta)
-    if apply_scale_factors:
-        norm_const = torch.stack(scale_factors, dim=1).prod(dim=1)
-        res = res * norm_const
-        scale_factors = []
-    return res, scale_factors
-
-
-def materialize_umps_tensor(
-    alpha: torch.Tensor,
-    beta: torch.Tensor,
-    core: torch.Tensor,
-    n_core_repititions: int,
-    is_normalized: bool = False,
-):
-    """Materialize a uMPS tensor network (batched version).
-
-    Args:
-        alpha (torch.Tensor): Alpha tensor of shape (B, R)
-        beta (torch.Tensor): Beta tensor of shape (B, R)
-        core (torch.Tensor): Core tensor of shape (B, R, D, R)
-
-    Raises:
-        NotImplementedError: _description_
-
-    Returns:
-        torch.Tensor: Materialized tensor of shape (B, D, D ... D) with `n_core_repititions` dimensions
-    """
-    batch_size, rank_size, vocab_size, _ = core.shape
-
-    result = torch.einsum(
-        "bi, bidj->bdj",
-        alpha,
-        core,
+    # 3. Combine results
+    return (
+        mps_to_tensor(
+            alpha=alpha @ result_select if result_select is not None else alpha,
+            beta=result_margin @ beta if result_margin is not None else beta,
+            core=core.reshape(1, rank_size, vocab_size, rank_size).repeat(
+                bp_margin - bp_free, 1, 1, 1
+            ),
+        ),
+        scale_factors,
     )
-
-    for i in range(1, n_core_repititions):
-        result = torch.einsum(
-            "bdi, bivj->bdvj",
-            result,
-            core,
-        )
-        result = result.reshape(batch_size, -1, rank_size)
-
-    result = torch.einsum(
-        "bdj, bj->bd",
-        result,
-        beta,
-    )
-
-    # Break out all vocab_size dimensions
-    result = result.reshape(
-        batch_size, *[vocab_size for _ in range(n_core_repititions)]
-    )
-
-    if is_normalized:
-        norm_const = (
-            result.reshape(batch_size, -1)
-            .sum(1)
-            .reshape(tuple([batch_size, *[1 for _ in range(n_core_repititions)]]))
-        )
-        result = result / norm_const
-
-    return result

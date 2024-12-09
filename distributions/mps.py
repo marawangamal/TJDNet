@@ -7,7 +7,6 @@ from tensorops.common import sample_from_tensor_dist
 from tensorops.mps import (
     sample_from_mps_tensor,
     select_from_mps_tensor,
-    materialize_mps_tensor,
     sum_mps_tensor,
 )
 

@@ -3,6 +3,7 @@
 This is heavily inspired from CanineTokenizer in transformers package.
 """
 
+import string
 import json
 import os
 from pathlib import Path
@@ -11,8 +12,13 @@ from typing import Dict, List, Optional, Sequence, Union
 from transformers.tokenization_utils import AddedToken, PreTrainedTokenizer
 
 
-class Tokenizer(PreTrainedTokenizer):
-    def __init__(self, characters: Sequence[str], model_max_length: int, **kwargs):
+class CharTokenizer(PreTrainedTokenizer):
+    def __init__(
+        self,
+        model_max_length: int,
+        characters: Optional[Sequence[str]] = None,
+        **kwargs
+    ):
         """Character tokenizer for Hugging Face transformers.
 
         Args:
@@ -31,6 +37,16 @@ class Tokenizer(PreTrainedTokenizer):
 
             model_max_length (int): Model maximum sequence length.
         """
+        characters = (
+            characters
+            if characters is not None
+            else list(string.ascii_letters + string.digits + string.punctuation)
+            + [
+                "\n",
+                " ",
+                "\t",
+            ]
+        )
         self.characters = characters
         self.model_max_length = model_max_length
         bos_token = AddedToken("[BOS]", lstrip=False, rstrip=False)
@@ -86,16 +102,6 @@ class Tokenizer(PreTrainedTokenizer):
     def convert_tokens_to_string(self, tokens):
         return "".join(tokens)
 
-    # def build_inputs_with_special_tokens(
-    #     self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    # ) -> List[int]:
-    #     sep = [self.sep_token_id]
-    #     cls = [self.cls_token_id]
-    #     result = cls + token_ids_0 + sep
-    #     if token_ids_1 is not None:
-    #         result += token_ids_1 + sep
-    #     return result  # type: ignore
-
     def get_special_tokens_mask(
         self,
         token_ids_0: List[int],
@@ -132,7 +138,7 @@ class Tokenizer(PreTrainedTokenizer):
         }
 
     @classmethod
-    def from_config(cls, config: Dict) -> "Tokenizer":
+    def from_config(cls, config: Dict) -> "CharTokenizer":
         cfg = {}
         cfg["characters"] = [chr(i) for i in config["char_ords"]]
         cfg["model_max_length"] = config["model_max_length"]
