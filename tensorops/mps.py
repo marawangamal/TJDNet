@@ -41,30 +41,13 @@ def select_from_mps_tensor(
             core_reshape, 1, indices_repeated
         )  # (BRR, D) -> (BRR, 1)
         core_select = core_select.contiguous()
-        # OLD:
         result_raw = torch.einsum(
             "bi, bij -> bj", result, core_select.view(batch_size, rank_size, rank_size)
         )
         scale_factor = torch.linalg.norm(result_raw, dim=-1)  # (B,)
         scale_factors.append(scale_factor)
         result = result_raw / scale_factor.unsqueeze(1)
-
-        # NEW:
-        # result = torch.bmm(
-        #     result.reshape(batch_size, 1, rank_size),
-        #     core_select.view(batch_size, rank_size, rank_size),
-        # )  # (B, 1, R) x (B, R, R) -> (B, 1, R)
-
-    # OLD:
     result = torch.einsum("bi, bi -> b", result, beta)
-
-    # NEW:
-    # result = torch.bmm(
-    #     result.reshape(batch_size, 1, rank_size),
-    #     beta.reshape(batch_size, rank_size, 1),
-    # ).reshape(
-    #     -1
-    # )  # (B, 1, R) x (B, R, 1) -> (B, 1, 1) -> (B,)
     return result, scale_factors
 
 
@@ -89,26 +72,12 @@ def sum_mps_tensor(
     result = alpha
     scale_factors = []
     for t in range(horizon):
-        # OLD:
         result_raw = torch.einsum("bi, bij -> bj", result, core_margin[:, t])
         scale_factor = torch.linalg.norm(result_raw, dim=-1)
         scale_factors.append(scale_factor)
         result = result_raw / scale_factor.unsqueeze(1)
 
-        # NEW:
-        # result = torch.bmm(
-        #     result.reshape(batch_size, 1, rank_size),
-        #     core_margin[:, t],
-        # )
-
-    # OLD:
     result = torch.einsum("bi, bi -> b", result, beta)
-
-    # NEW:
-    # result = torch.bmm(
-    #     result.reshape(batch_size, 1, rank_size),
-    #     beta.reshape(batch_size, rank_size, 1),
-    # ).reshape(-1)
     return result, scale_factors
 
 
@@ -149,6 +118,7 @@ def select_margin_mps_tensor(
     beta: torch.Tensor,
     core: torch.Tensor,
     ops: torch.Tensor,
+    use_scale_factors: bool = True,
 ):
     """Performs selection and marginalization operations on a MPS tensor representation.
 
@@ -178,6 +148,7 @@ def select_margin_mps_tensor(
     bp_free, bp_margin = int(bp_free.item()), int(bp_margin.item())
     assert bp_free < bp_margin, "Invalid ops tensor (select/marginalize order)"
 
+    scale_factors = []
     # 1. Reduce via selection
     horizon, rank_size, vocab_size, _ = core.shape
     result_select = None
@@ -191,7 +162,11 @@ def select_margin_mps_tensor(
             .reshape(-1, 1),
         ).reshape(
             bp_free, rank_size, rank_size
-        )  # (H', R, D, R) -> (H'RR, D) -> (H'RR, 1)
+        )  # (H', R, D, R) -> (H'RR, D) -> (H'RR, 1) -> (H', R, R)
+        if use_scale_factors:
+            _scale_factors = torch.linalg.norm(result_select, dim=(-2, -1))
+            result_select = result_select / _scale_factors.reshape(-1, 1, 1)
+            scale_factors.extend(_scale_factors.tolist())
         result_select = (
             torch.linalg.multi_dot([t for t in result_select])
             if result_select.size(0) > 1
@@ -202,6 +177,10 @@ def select_margin_mps_tensor(
     result_margin = None
     if bp_margin < horizon:
         result_margin = core[bp_margin:].sum(dim=2)  # (H'', R, R)
+        if use_scale_factors:
+            _scale_factors = torch.linalg.norm(result_margin, dim=(-2, -1))
+            result_margin = result_margin / _scale_factors.reshape(-1, 1, 1)
+            scale_factors.extend(_scale_factors.tolist())
         result_margin = (
             torch.linalg.multi_dot([t for t in result_margin])
             if result_margin.size(0) > 1
@@ -215,7 +194,7 @@ def select_margin_mps_tensor(
             beta=result_margin @ beta if result_margin is not None else beta,
             core=core[bp_free:bp_margin],
         ),
-        [],
+        scale_factors,
     )
 
 
@@ -238,55 +217,3 @@ def mps_to_tensor(
         result = result.reshape(-1, core.size(1))
     result = torch.einsum("kr,r -> k", result, beta)
     return result.reshape(full_shape)
-
-
-def materialize_mps_tensor(
-    alpha: torch.Tensor,
-    beta: torch.Tensor,
-    core: torch.Tensor,
-    is_normalized: bool = False,
-):
-    """Materialize a MPS tensor network (batched version).
-
-    Args:
-        alpha (torch.Tensor): Alpha tensor of shape (B, R)
-        beta (torch.Tensor): Beta tensor of shape (B, R)
-        core (torch.Tensor): Core tensor of shape (B, H, R, D, R)
-
-    Returns:
-        torch.Tensor: Materialized tensor of shape (B, D, D ... D) with `n_core_repititions` dimensions
-    """
-    batch_size, horizon, rank_size, vocab_size, _ = core.shape
-
-    result = torch.einsum(
-        "bi, bidj->bdj",
-        alpha,
-        core[:, 0],
-    )
-
-    for t in range(1, horizon):
-        result = torch.einsum(
-            "bdi, bivj->bdvj",
-            result,
-            core[:, t],
-        )
-        result = result.reshape(batch_size, -1, rank_size)
-
-    result = torch.einsum(
-        "bdj, bj->bd",
-        result,
-        beta,
-    )
-
-    # Break out all vocab_size dimensions
-    result = result.reshape(batch_size, *[vocab_size for _ in range(horizon)])
-
-    if is_normalized:
-        norm_const = (
-            result.reshape(batch_size, -1)
-            .sum(1)
-            .reshape(tuple([batch_size, *[1 for _ in range(horizon)]]))
-        )
-        result = result / norm_const
-
-    return result
