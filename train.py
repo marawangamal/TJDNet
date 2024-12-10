@@ -105,7 +105,7 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="cp",
+        default="mps",
         help="Type of factorization to use for the model.",
         choices=[
             "cp",
@@ -143,7 +143,7 @@ def parse_args():
     parser.add_argument(
         "--rank",
         type=int,
-        default=4,
+        default=2,
         help="Rank of the tensor train decomposition.",
     )
     parser.add_argument(
@@ -156,7 +156,7 @@ def parse_args():
     parser.add_argument(
         "--horizon_eval",
         type=int,
-        default=1,
+        default=2,
         help="Block size for model input sequences.",
     )
     parser.add_argument(
@@ -395,7 +395,7 @@ if __name__ == "__main__":
     model = TJDGPT2(**model_config)
 
     wandb.init(
-        project="tjdnet-shakepeare-prod",
+        project="tjdnet-shakepeare-dev",
         config=vars(args),
         name=exp_name,
     )

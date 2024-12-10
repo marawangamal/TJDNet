@@ -296,7 +296,7 @@ def main():
     # Initialize wandb only on main process
     if training_args.local_rank == 0:  # main process
         wandb.init(
-            project="tjdnet-shakepeare-prod",
+            project="tjdnet-shakepeare-dev",
             name=exp_name,
         )
 

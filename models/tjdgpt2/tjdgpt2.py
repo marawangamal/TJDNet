@@ -100,6 +100,56 @@ class TJDGPT2(torch.nn.Module):
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,
+        num_beams: int = 1,
+        do_sample: bool = False,
+        horizon: Optional[int] = None,
+        **kwargs,
+    ):
+        """Generate sequences given an input tensor.
+
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+            num_beams (int, optional): Number of beams. Defaults to 1.
+            do_sample (bool, optional): Whether to sample. Defaults to False.
+            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
+        """
+        assert input_ids.size(0) == 1, "Only batch size 1 is supported"
+        horizon = self._get_horizon(horizon)
+        n_passes = max(max_new_tokens // horizon, 1)
+
+        # Initialize beam with input sequence
+        beam = [(input_ids, 0.0)]  # (sequence, score)
+
+        for _ in range(n_passes):
+            candidates = []
+
+            # Process each sequence in beam
+            for seq, cum_log_prob in beam:
+                last_hidden_state = self._get_last_hidden_state(seq, **kwargs)
+
+                # Generate next tokens using model head
+                next_tokens, next_log_prob = self.model_head.generate(
+                    last_hidden_state=last_hidden_state,
+                    horizon=horizon,
+                    num_beams=num_beams,
+                )  # (B, H), (B,)
+
+                # Sum log probs over horizon dim to get sequence score
+                new_seq = torch.cat([seq, next_tokens], dim=1)
+                new_log_prob = cum_log_prob + next_log_prob.item()
+                candidates.append((new_seq, new_log_prob))
+
+            beam = sorted(candidates, key=lambda x: x[1], reverse=True)[:num_beams]
+        return beam[0][0]
+
+    def generateV1(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 8,
         num_beams=1,
         do_sample=False,
         horizon: Optional[int] = None,
@@ -126,7 +176,7 @@ class TJDGPT2(torch.nn.Module):
 
         for _ in range(n_passes):
             last_hidden_state = self._get_last_hidden_state(input_tens, **kwargs)
-            sample = self.model_head.generate(
+            sample, _ = self.model_head.generate(
                 last_hidden_state=last_hidden_state, horizon=horizon
             )  # (B, H)
             output_tens = torch.cat([output_tens, sample], dim=1)
