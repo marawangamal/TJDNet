@@ -50,18 +50,19 @@ def get_candidates(
     log_probs: torch.Tensor,
     next_token_log_probs: torch.Tensor,
     num_beams: int,
+    do_sample: bool = True,
+    top_k: int = 50,
 ) -> List[Tuple[list, float]]:
     """
-    Helper function to extend sequences in beam search.
+    Helper function to extend sequences with top-k sampling.
 
     Args:
         seqs: Current sequences in beam (n_beams, sequence_length)
         log_probs: Current sequence scores (n_beams,)
-        next_token_scores: Scores for next tokens (n_beams, vocab_size)
+        next_token_log_probs: Log probabilities for next tokens (n_beams, vocab_size)
         num_beams: Number of sequences to keep
-
-    Returns:
-        List of (new_sequence, new_score) tuples
+        do_sample: Whether to use sampling (True) or deterministic selection (False)
+        top_k: Number of top tokens to consider for sampling
     """
     # Calculate combined scores
     candidate_scores = (
@@ -69,15 +70,29 @@ def get_candidates(
     )  # (n_beams, vocab_size)
     vocab_size = next_token_log_probs.size(1)
 
-    # Get top candidates
-    flat_scores = candidate_scores.view(-1)
-    top_scores, top_indices = torch.topk(
-        flat_scores, k=min(num_beams, len(flat_scores))
-    )
+    if do_sample:
+        # Get top-k tokens for each sequence
+        scores, indices = torch.topk(candidate_scores, k=min(top_k, vocab_size), dim=1)
 
-    # Convert flat indices to sequence and token indices
-    prev_seq_idx = top_indices // vocab_size
-    token_idx = top_indices % vocab_size
+        # Convert to probabilities and sample
+        probs = torch.softmax(scores, dim=1)  # (n_beams, top_k)
+        sample_idx = torch.multinomial(probs, num_samples=1).squeeze(-1)  # (n_beams,)
+
+        # Get selected tokens and their scores
+        top_scores = torch.gather(scores, 1, sample_idx.unsqueeze(1)).squeeze(1)
+        top_indices = torch.gather(indices, 1, sample_idx.unsqueeze(1)).squeeze(1)
+
+        # For sampled tokens, prev_seq_idx is just the beam index
+        prev_seq_idx = torch.arange(len(seqs), device=top_indices.device)
+        token_idx = top_indices
+    else:
+        # Original beam search logic
+        flat_scores = candidate_scores.view(-1)
+        top_scores, top_indices = torch.topk(
+            flat_scores, k=min(num_beams, len(flat_scores))
+        )
+        prev_seq_idx = top_indices // vocab_size
+        token_idx = top_indices % vocab_size
 
     # Build new candidates
     new_candidates = []
