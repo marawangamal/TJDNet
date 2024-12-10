@@ -1,7 +1,8 @@
-from typing import Tuple
+from typing import List, Optional, Tuple
 import torch
 
 from tensorops.common import get_breakpoints, mps_to_tensor
+from utils.beam_search import beam_search
 
 
 def select_from_mps_tensor(
@@ -82,6 +83,82 @@ def sum_mps_tensor(
     return result, scale_factors
 
 
+def sample_from_mps_tensorV2(
+    alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor, num_beams: int = 5
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Samples from an MPS tensor using beam search.
+
+    Args:
+        alpha (torch.Tensor): Alpha tensor of shape (R)
+        beta (torch.Tensor): Beta tensor of shape (R)
+        core (torch.Tensor): Core tensor of shape (H, R, D, R)
+        beam_size (int): Size of beam for search
+
+    Returns:
+        torch.Tensor: Most probable sequence found, shape (H,)
+    """
+    horizon, _, vocab_size, _ = core.shape
+
+    def expand_beam(beam):
+        seqs, log_probs = zip(*beam)
+        log_probs = torch.tensor(log_probs, device=alpha.device)  # (beam_size,)
+
+        # Get next token probabilities
+        all_p_next = []
+        for seq in seqs:
+            t = len(seq)
+            p_next, _ = select_margin_mps_tensor(
+                alpha=alpha,
+                beta=beta,
+                core=core,
+                ops=torch.tensor(
+                    seq + [-1] + [-2] * (horizon - t - 1), device=alpha.device
+                ),
+                use_scale_factors=False,
+            )
+            all_p_next.append(p_next)
+
+        # Calculate scores
+        all_p_next = torch.stack(all_p_next)  # (beam_size, vocab_size)
+        candidate_scores = log_probs.unsqueeze(1) + torch.log(all_p_next)
+
+        # Get top candidates
+        flat_scores = candidate_scores.view(-1)
+        top_scores, top_indices = torch.topk(
+            flat_scores, k=min(num_beams, len(flat_scores))
+        )
+
+        # Build new sequences
+        prev_seq_idx = top_indices // vocab_size
+        token_idx = top_indices % vocab_size
+
+        # Build new candidates list
+        new_candidates = []
+        for i in range(len(top_scores)):  # num_beams times
+            # Get the previous sequence we're extending
+            prev_sequence = list(seqs[prev_seq_idx[i]])
+            # Add the new token to it
+            new_token = token_idx[i].item()
+            new_sequence = prev_sequence + [new_token]
+            # Get the score for this sequence
+            new_score = top_scores[i].item()
+            # Add to candidates
+            new_candidates.append((new_sequence, new_score))
+        return new_candidates
+
+    best_seq, best_score = beam_search(
+        expand_fn=expand_beam,  # (beam) -> candidates
+        initial_beam=[([], 0.0)],
+        num_beams=num_beams,
+        max_steps=horizon,
+    )
+
+    return (
+        torch.tensor(best_seq, device=alpha.device),  # (H,)
+        torch.tensor(best_score, device=alpha.device),  # (1,)
+    )
+
+
 def sample_from_mps_tensor(
     alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor, num_beams: int = 5
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -142,60 +219,6 @@ def sample_from_mps_tensor(
     )
 
 
-def sample_from_mps_tensor_new(
-    alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor, beam_size: int = 1
-) -> torch.Tensor:
-    """Samples from an MPS tensor using beam search.
-
-    Args:
-        alpha (torch.Tensor): Alpha tensor of shape (R)
-        beta (torch.Tensor): Beta tensor of shape (R)
-        core (torch.Tensor): Core tensor of shape (H, R, D, R)
-        beam_size (int): Size of beam for search
-
-    Returns:
-        torch.Tensor: Most probable sequence found, shape (H,)
-    """
-    horizon, _, vocab_size, _ = core.shape
-
-    # Initialize beam with empty sequences
-    beam = [([], 0.0)]  # (sequence, log_prob)
-
-    for t in range(horizon):
-        candidates = []
-
-        # Expand each sequence in current beam
-        for seq, log_prob in beam:
-            # Get probabilities for next token
-            # TODO: p_ next, scale_factors = ...
-            p_next, _ = select_margin_mps_tensor(
-                alpha=alpha,
-                beta=beta,
-                core=core,
-                ops=torch.tensor(
-                    seq + [-1] + [-2] * (horizon - t - 1),
-                    device=alpha.device,
-                ),
-            )  # (vocab_size,)
-
-            # Add log probabilities for numerical stability
-            # TODO: log_p_next = torch.log(p_next) + sum([torch.log(sf) for sf in scale_factors])
-            log_p_next = torch.log(p_next)
-
-            # Add all possible next tokens to candidates
-            for token_idx in range(vocab_size):
-                new_seq = seq + [token_idx]
-                new_log_prob = log_prob + log_p_next[token_idx].item()
-                candidates.append((new_seq, new_log_prob))
-
-        # Select top beam_size candidates
-        beam = sorted(candidates, key=lambda x: x[1], reverse=True)[:beam_size]
-
-    # Return sequence with highest probability
-    best_sequence = beam[0][0]
-    return torch.tensor(best_sequence, device=alpha.device)  # (H,)
-
-
 def sample_from_mps_tensor_old(
     alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor, beam_size: int = 1
 ) -> torch.Tensor:
@@ -248,8 +271,8 @@ def select_margin_mps_tensor(
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
-            - Result tensor of shape (R, F, D) where F is the numbe of free indices (-1 operations) in ops
-            - Scale factors of shape (R,T)
+            - Result tensor of shape (F, D) where F is the numbe of free indices (-1 operations) in ops
+            - Scale factors of shape (T)
     """
     # Validation:
     assert len(core.shape) == 4, "Core tensor must be 4D (non-batched)"

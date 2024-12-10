@@ -11,6 +11,11 @@ from distributions.full import FullDist
 from distributions.mps import MPSDist
 from distributions.umps import UMPSDist
 from tensorops.common import get_windowed_input_ids
+from utils.beam_search import beam_search, get_candidates
+
+from transformers.generation.beam_search import BeamSearchScorer
+from transformers.generation.logits_process import LogitsProcessor
+import torch
 
 
 # TODO: Apply loss scaling in the forward pass directly
@@ -97,6 +102,78 @@ class TJDGPT2(torch.nn.Module):
         return horizon
 
     def generate(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 8,
+        num_beams: int = 1,
+        do_sample: bool = False,
+        horizon: Optional[int] = None,
+    ):
+        """Generate sequences given an input tensor.
+
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+            num_beams (int, optional): Number of beams. Defaults to 1.
+            do_sample (bool, optional): Whether to sample. Defaults to False.
+            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
+        """
+        assert input_ids.size(0) == 1, "Only batch size 1 is supported"
+
+        dvc = input_ids.device
+        horizon = self._get_horizon(horizon)
+        last_hidden_states = [
+            self._get_last_hidden_state(input_ids)[:, -1:, :]
+        ] * num_beams
+
+        def expand_fn(beams):
+            nonlocal last_hidden_states  # Allow modification of outer variable
+            seqs, log_probs = zip(*beams)  # Lists of shape (n_beams, T), (n_beams,)
+            log_probs = torch.tensor(log_probs).to(dvc)
+
+            time_step = len(seqs[0])
+            if time_step % horizon == 0 and time_step != 0:
+                last_hidden_states = [
+                    self._get_last_hidden_state(
+                        torch.cat([input_ids, sq.reshape(1, -1)], dim=1)
+                    )[:, -1:, :]
+                    for sq in torch.tensor(seqs).to(dvc)
+                ]
+
+            all_probs_next = []
+            for i_beam, seq in enumerate(seqs):
+                sub_time_step = time_step % horizon
+                sub_seq = seq[-sub_time_step:] if sub_time_step != 0 else []
+                probs_next, _ = self.model_head.get_dist(
+                    hidden_state=last_hidden_states[i_beam],
+                    ops=torch.tensor(
+                        sub_seq + [-1] + [-2] * (horizon - sub_time_step - 1),
+                        device=dvc,
+                    ),
+                )  # (V,)
+                all_probs_next.append(probs_next)
+
+            all_probs_next = torch.stack(all_probs_next)  # (n_beams, V)
+            return get_candidates(
+                seqs=seqs,
+                log_probs=log_probs,
+                next_token_log_probs=all_probs_next,
+                num_beams=num_beams,
+            )
+
+        # Run beam search
+        best_seq, _ = beam_search(
+            expand_fn=expand_fn,
+            initial_beam=[([], 0.0)],
+            num_beams=num_beams,
+            max_steps=max_new_tokens,
+        )
+        return torch.tensor(best_seq, device=dvc).reshape(1, -1)
+
+    def generateV2(
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,

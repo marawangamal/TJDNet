@@ -191,7 +191,7 @@ def get_test_samples(
     max_new_tokens=8,
     # top_k=200,
     # temperature=0.8,
-    num_beams=1,
+    num_beams=5,
     do_sample=False,
     horizon_eval=1,
     n_samples=1,

@@ -7,6 +7,7 @@ from tensorops.common import sample_from_tensor_dist
 from tensorops.mps import (
     sample_from_mps_tensor,
     select_from_mps_tensor,
+    select_margin_mps_tensor,
     sum_mps_tensor,
 )
 
@@ -93,7 +94,36 @@ class MPSDist(BaseDistribution):
             )[:horizon],
             num_beams=num_beams,
         )
-        return sample.unsqueeze(0), log_prob.unsqueeze(0)
+        return sample.unsqueeze(0), log_prob.unsqueeze(0)  # (1, H), (1,)
+
+    def get_dist(
+        self,
+        hidden_state: torch.Tensor,
+        ops: torch.Tensor,
+    ):
+        """Get distribution specified by ops.
+
+        Args:
+            last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
+            ops (torch.Tensor): Operation codes of shape (T,) specifying:
+                -2: marginalize mode (sum reduction)
+                -1: keep mode as free index
+                [0,V): select index v in mode
+        """
+        alpha, core, beta = self._get_pos_params(
+            hidden_state.reshape(1, 1, -1)
+        )  # (1, 1, R), (1, 1, H, R, V, R), (1, 1, R)
+        return select_margin_mps_tensor(
+            alpha=alpha.reshape(self.rank),
+            beta=beta.reshape(self.rank),
+            core=core.reshape(
+                self.horizon,
+                self.rank,
+                self.vocab_size,
+                self.rank,
+            ),
+            ops=ops,
+        )
 
     @line_profiler.profile
     def evaluate_at_points(
