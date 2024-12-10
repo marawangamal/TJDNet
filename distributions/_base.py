@@ -51,8 +51,8 @@ class BaseDistribution(ABC, torch.nn.Module):
 
     @abstractmethod
     def generate(
-        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
-    ) -> torch.Tensor:
+        self, last_hidden_state: torch.Tensor, horizon: int, num_beams: int, **kwargs
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Generate sequences based on the distribution.
 
@@ -61,6 +61,7 @@ class BaseDistribution(ABC, torch.nn.Module):
             horizon (int): Number of steps to generate.
 
         Returns:
-            torch.Tensor: Generated sequences of shape (B, H).
+            - torch.Tensor: Generated sequences of shape (B, H).
+            - torch.Tensor: Log probabilities of the generated sequences of shape (B, H).
         """
         pass

@@ -63,7 +63,9 @@ class MPSDist(BaseDistribution):
             beta,  # (B, T, R)
         )
 
-    def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
+    def generate(
+        self, last_hidden_state: torch.Tensor, horizon: int, num_beams: int, **kwargs
+    ):
         """Generate sequences given an input tensor.
 
         Args:
@@ -80,20 +82,18 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self._get_pos_params(
             last_hidden_state[:, -1:, :]
         )  # (B, 1, R), (B, 1, H, R, V, R), (B, 1, R)
-        return torch.stack(
-            [
-                sample_from_mps_tensor(
-                    alpha=alpha.reshape(self.rank),
-                    beta=beta.reshape(self.rank),
-                    core=core.reshape(
-                        self.horizon,
-                        self.rank,
-                        self.vocab_size,
-                        self.rank,
-                    )[:horizon],
-                )
-            ]
-        )  # (B, H)
+        sample, log_prob = sample_from_mps_tensor(
+            alpha=alpha.reshape(self.rank),
+            beta=beta.reshape(self.rank),
+            core=core.reshape(
+                self.horizon,
+                self.rank,
+                self.vocab_size,
+                self.rank,
+            )[:horizon],
+            num_beams=num_beams,
+        )
+        return sample.unsqueeze(0), log_prob.unsqueeze(0)
 
     @line_profiler.profile
     def evaluate_at_points(
