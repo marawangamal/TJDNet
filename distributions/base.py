@@ -6,7 +6,7 @@ from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 
 
-class BaseDist(BaseDistribution):
+class BaseDist(BaseDistribution[torch.Tensor]):
     def __init__(
         self,
         n_embd: int,
@@ -35,36 +35,37 @@ class BaseDist(BaseDistribution):
             "exp": torch.exp,
         }[positivity_func]
 
-    def _get_pos_params(self, last_hidden_state: torch.Tensor):
+    def get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         return self.positivity_func(self.param_func(last_hidden_state))
 
     def get_dist(
         self,
         hidden_state: torch.Tensor,
         ops: torch.Tensor,
+        **kwargs,
     ):
         """Get distribution specified by ops."""
         assert ops.size(-1) == 1, "Only 1D points are supported"
-        p_tilde = self._get_pos_params(hidden_state)  # (B, 1, V)
+        p_tilde = self.get_params(hidden_state)  # (B, 1, V)
         p_tilde = p_tilde.reshape(-1)  # (B, V)
         return p_tilde, []
 
-    # def generate(
-    #     self, last_hidden_state: torch.Tensor, horizon: int, num_beams: int, **kwargs
-    # ) -> torch.Tensor:
-    #     """Generate sequences given an input tensor.
+    def generate(
+        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
+    ) -> torch.Tensor:
+        """Generate sequences given an input tensor.
 
-    #     Args:
-    #         input_ids (torch.Tensor): Previous tokens of shape (B, T)
-    #     """
-    #     # Cannot generate sequences longer than `horizon`
-    #     p_tilde = self._get_pos_params(
-    #         last_hidden_state[:, -1:, :]
-    #     )  # (B, 1, V) we only need the Tth hidden state
-    #     p_tilde = p_tilde.reshape(-1, self.vocab_size)  # (B, V)
-    #         return torch.stack(
-    #             [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
-    #         )  # (B, H)
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+        """
+        # Cannot generate sequences longer than `horizon`
+        p_tilde = self.get_params(
+            last_hidden_state[:, -1:, :]
+        )  # (B, 1, V) we only need the Tth hidden state
+        p_tilde = p_tilde.reshape(-1, self.vocab_size)  # (B, V)
+        return torch.stack(
+            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
+        )  # (B, H)
 
     def evaluate_at_points(
         self,
@@ -84,7 +85,7 @@ class BaseDist(BaseDistribution):
         """
         # Get indexed distribution
         assert points.size(-1) == 1, "Only 1D points are supported"
-        p_tilde = self._get_pos_params(last_hidden_state)  # (B, T, V)
+        p_tilde = self.get_params(last_hidden_state)  # (B, T, V)
         batch_size, seq_len, _ = last_hidden_state.size()
 
         # (B, T, R*H*V) => (B, T)

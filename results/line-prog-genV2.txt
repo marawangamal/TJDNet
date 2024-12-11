@@ -1,0 +1,96 @@
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   185                                               @line_profiler.profile
+   186                                               def generateV1(
+   187                                                   self,
+   188                                                   input_ids: torch.Tensor,
+   189                                                   max_new_tokens: int = 8,
+   190                                                   num_beams=1,
+   191                                                   do_sample=False,
+   192                                                   horizon: Optional[int] = None,
+   193                                                   **kwargs,
+   194                                               ):
+   195                                                   """Generate sequences given an input tensor.
+   196                                           
+   197                                                   Args:
+   198                                                       input_ids (torch.Tensor): Previous tokens of shape (B, T)
+   199                                                       max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+   200                                                       num_beams (int, optional): Number of beams. Defaults to 1.
+   201                                                       do_sample (bool, optional): Whether to sample. Defaults to False.
+   202                                                       horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+   203                                           
+   204                                                   Returns:
+   205                                                       torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
+   206                                                   """
+   207         1          3.0      3.0      0.0          assert input_ids.size(0) == 1, "Only batch size 1 is supported"
+   208         1          2.0      2.0      0.0          horizon = self._get_horizon(horizon)
+   209         1          1.0      1.0      0.0          batch_size, _ = input_ids.size()
+   210         1          2.0      2.0      0.0          n_passes = max(max_new_tokens // horizon, 1)
+   211         1         55.0     55.0      0.0          output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
+   212         1          0.0      0.0      0.0          input_tens = input_ids
+   213                                           
+   214         5          3.0      0.6      0.0          for _ in range(n_passes):
+   215         4       8309.0   2077.2      7.1              last_hidden_state = self._get_last_hidden_state(input_tens)
+   216         8     109311.0  13663.9     92.8              sample = self.model_head.generate(
+   217         4          2.0      0.5      0.0                  last_hidden_state=last_hidden_state, horizon=horizon
+   218                                                       )  # (B, H)
+   219         4         44.0     11.0      0.0              output_tens = torch.cat([output_tens, sample], dim=1)
+   220         4         12.0      3.0      0.0              input_tens = torch.cat([input_tens, sample], dim=1)
+   221         1          0.0      0.0      0.0          return output_tens
+
+
+
+Total time: 0.0671 s
+File: /Users/marawangamal/Documents/github/TJDNet/distributions/cp.py
+Function: generate at line 59
+
+   Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    59                                               @line_profiler.profile
+    60                                               def generate(
+    61                                                   self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
+    62                                               ) -> torch.Tensor:
+    63                                                   """Generate sequences given an input tensor.
+    64                                           
+    65                                                   Args:
+    66                                                       last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+    67                                                       input_ids (torch.Tensor): Previous tokens of shape (B, T)
+    68                                                   """
+    69                                                   # Cannot generate sequences longer than `horizon`
+    70         4          3.0      0.8      0.0          batch_size, seq_len, _ = last_hidden_state.size()
+    71         4          0.0      0.0      0.0          assert batch_size == 1, "Only batch size 1 is supported"
+    72         4          5.0      1.2      0.0          horizon = self._get_horizon(horizon)
+    73                                                   # print(f"Generating {horizon} tokens")
+    74         8      25115.0   3139.4     37.4          params = self._get_pos_params(
+    75         4         26.0      6.5      0.0              last_hidden_state[:, -1:, :],
+    76         4          0.0      0.0      0.0              horizon,
+    77                                                   )  # (B, 1, R, H, V) we only need the Tth hidden state
+    78                                           
+    79                                                   # OPTION 1: Explicitly materialize the CP tensor
+    80                                                   # p_tilde = materialize_cp_tensor(
+    81                                                   #     # (B, 1, R, H, V) => (B, H, V, R)
+    82                                                   #     params.reshape(
+    83                                                   #         -1,
+    84                                                   #         self.rank,
+    85                                                   #         horizon,
+    86                                                   #         self.vocab_size,
+    87                                                   #     )
+    88                                                   # )  # (B, V, V, ..., V) `horizon` times
+    89                                                   # return torch.stack(
+    90                                                   #     [sample_from_tensor_dist(p_tilde_b, num_samples=1) for p_tilde_b in p_tilde]
+    91                                                   # ).reshape(
+    92                                                   #     batch_size, horizon
+    93                                                   # )  # (B, H)
+    94                                           
+    95                                                   # OPTION 2: Sample directly using CP representation
+    96         8         54.0      6.8      0.1          return torch.stack(
+    97         4          2.0      0.5      0.0              [
+    98         8      41883.0   5235.4     62.4                  sample_from_cp_tensor(
+    99         8         11.0      1.4      0.0                      params.reshape(
+   100         4          0.0      0.0      0.0                          self.rank,
+   101         4          1.0      0.2      0.0                          horizon,
+   102         4          0.0      0.0      0.0                          self.vocab_size,
+   103                                                               )
+   104                                                           )
+   105                                                       ]
+   106                                                   )  # (B, H)

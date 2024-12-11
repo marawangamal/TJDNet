@@ -219,8 +219,8 @@ def sample_from_mps_tensor(
     )
 
 
-def sample_from_mps_tensor_old(
-    alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor, beam_size: int = 1
+def sample_from_mps_tensorV1(
+    alpha: torch.Tensor, beta: torch.Tensor, core: torch.Tensor
 ) -> torch.Tensor:
     """Samples from an MPS tensor representation of probabilities.
 
@@ -257,7 +257,7 @@ def select_margin_mps_tensor(
     core: torch.Tensor,
     ops: torch.Tensor,
     use_scale_factors: bool = True,
-):
+) -> Tuple[torch.Tensor, List[torch.Tensor]]:
     """Performs selection and marginalization operations on a MPS tensor representation.
 
     Args:
@@ -272,7 +272,7 @@ def select_margin_mps_tensor(
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
             - Result tensor of shape (F, D) where F is the numbe of free indices (-1 operations) in ops
-            - Scale factors of shape (T)
+            - Scale factors list of shape (T)
     """
     # Validation:
     assert len(core.shape) == 4, "Core tensor must be 4D (non-batched)"

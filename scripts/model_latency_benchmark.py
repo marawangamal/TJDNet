@@ -4,7 +4,7 @@ Compares inference time between tensor model and baseline.
 Works on both CPU and CUDA devices.
 
 Usage:
-    python scripts/model_latency_benchmark.py --rank 2 --horizon 2 --vocab_size 50257
+    python scripts/model_latency_benchmark.py --rank 2 --horizon 8 --vocab_size 50257
     python scripts/model_latency_benchmark.py --mode train --batch_size 8 --rank 2 --horizon 2 --vocab_size 50257
 """
 
@@ -111,26 +111,29 @@ def parse_args():
         default=0.1,
         help="Dropout probability",
     )
-    return parser.parse_args()
-
-
-def get_test_sample(
-    model: torch.nn.Module,
-    inp: torch.Tensor,
-    max_new_tokens: int = 8,
-    horizon: int = 1,
-):
-    model.eval()
-    outputs = model.generate(
-        inp,
-        max_new_tokens=max_new_tokens,
-        horizon=horizon,
+    parser.add_argument(
+        "--beam_size",
+        type=int,
+        default=5,
+        help="Beam size for beam search",
     )
-    return outputs
+    parser.add_argument(
+        "--do_sample",
+        action="store_true",
+        default=False,
+        help="Use sampling for generation",
+    )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=50,
+    )
+    return parser.parse_args()
 
 
 def measure_latency(
     model,
+    model_forward_kwargs,
     inputs,
     labels,
     num_runs,
@@ -141,7 +144,7 @@ def measure_latency(
 ):
     # Warmup runs
     for _ in range(warmup_runs):
-        _ = model(inputs, labels=labels)
+        _ = model(inputs, labels=labels, **model_forward_kwargs)
 
     # Measure latency
     latencies = []
@@ -153,9 +156,11 @@ def measure_latency(
 
             start_event.record()
             if mode == "train":
-                _ = model(inputs, labels=labels)
+                _ = model(inputs, labels=labels, **model_forward_kwargs)
             else:
-                _ = model.generate(inputs, max_new_tokens=max_new_tokens)
+                _ = model.generate(
+                    inputs, max_new_tokens=max_new_tokens, **model_forward_kwargs
+                )
             end_event.record()
 
             torch.cuda.synchronize()
@@ -164,9 +169,11 @@ def measure_latency(
             # Use time.perf_counter for CPU timing
             start_time = time.perf_counter()
             if mode == "train":
-                _ = model(inputs, labels=labels)
+                _ = model(inputs, labels=labels, **model_forward_kwargs)
             else:
-                _ = model.generate(inputs, max_new_tokens=max_new_tokens)
+                _ = model.generate(
+                    inputs, max_new_tokens=max_new_tokens, **model_forward_kwargs
+                )
             end_time = time.perf_counter()
             latencies.append((end_time - start_time) * 1000)  # Convert to milliseconds
 
@@ -204,6 +211,12 @@ def main():
         "rank": args.rank,
     }
 
+    model_forward_kwargs = {
+        "do_sample": args.do_sample,
+        "top_k": args.top_k,
+        "num_beams": args.beam_size,
+    }
+
     # Initialize models
     models = {
         k: TJDGPT2(**model_config, model=k, horizon=h).to(args.device)
@@ -211,7 +224,7 @@ def main():
             ("base", 1),
             ("cp", args.horizon),
             ("mps", args.horizon),
-            ("umps", args.horizon),
+            # ("umps", args.horizon),
         ]
     }
     latency_results = {}
@@ -228,6 +241,7 @@ def main():
         print(f"Measuring latency for {model_name} model...")
         latency = measure_latency(
             model,
+            model_forward_kwargs,
             inputs,
             labels,
             args.num_runs,

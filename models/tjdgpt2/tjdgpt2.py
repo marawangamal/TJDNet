@@ -1,4 +1,5 @@
 from typing import Dict, Optional
+import line_profiler
 import torch
 from transformers import (
     GPT2Config,
@@ -10,12 +11,9 @@ from distributions.cp import CPDist
 from distributions.full import FullDist
 from distributions.mps import MPSDist
 from distributions.umps import UMPSDist
+
 from tensorops.common import get_windowed_input_ids
 from utils.beam_search import beam_search, get_candidates
-
-from transformers.generation.beam_search import BeamSearchScorer
-from transformers.generation.logits_process import LogitsProcessor
-import torch
 
 
 # TODO: Apply loss scaling in the forward pass directly
@@ -38,6 +36,7 @@ class TJDGPT2(torch.nn.Module):
         is_full_rank: bool = False,
     ):
         super().__init__()
+        self.generate = self.generateV2
         self.model_name = model
         self.model_config = {
             "model": model,
@@ -88,10 +87,9 @@ class TJDGPT2(torch.nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def _get_last_hidden_state(self, input_ids: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _get_last_hidden_state(self, input_ids: torch.Tensor) -> torch.Tensor:
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
-            **kwargs,
         )
         return transformer_outputs.last_hidden_state
 
@@ -101,13 +99,16 @@ class TJDGPT2(torch.nn.Module):
             raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
         return horizon
 
-    def generate(
+    @line_profiler.profile
+    def generateV2(
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,
         num_beams: int = 1,
-        do_sample: bool = False,
+        do_sample: bool = True,
         horizon: Optional[int] = None,
+        top_k: int = 50,
+        **kwargs,
     ):
         """Generate sequences given an input tensor.
 
@@ -129,6 +130,7 @@ class TJDGPT2(torch.nn.Module):
             self._get_last_hidden_state(input_ids)[:, -1:, :]
         ] * num_beams
 
+        @line_profiler.profile
         def expand_fn(beams):
             nonlocal last_hidden_states  # Allow modification of outer variable
             seqs, log_probs = zip(*beams)  # Lists of shape (n_beams, T), (n_beams,)
@@ -136,24 +138,32 @@ class TJDGPT2(torch.nn.Module):
 
             time_step = len(seqs[0])
             if time_step % horizon == 0 and time_step != 0:
-                last_hidden_states = [
-                    self._get_last_hidden_state(
-                        torch.cat([input_ids, sq.reshape(1, -1)], dim=1)
-                    )[:, -1:, :]
-                    for sq in torch.tensor(seqs).to(dvc)
-                ]
+                # print(f"[Hidden states] Time step: {time_step} (horizon: {horizon})")
+                last_hidden_states = []
+                seqs_tensor = torch.tensor(seqs).to(dvc)
+                for sq in seqs_tensor:
+                    inp = torch.cat([input_ids, sq.reshape(1, -1)], dim=1)
+                    hidden = self._get_last_hidden_state(inp)[:, -1:, :]
+                    last_hidden_states.append(hidden)
 
             all_probs_next = []
             for i_beam, seq in enumerate(seqs):
                 sub_time_step = time_step % horizon
                 sub_seq = seq[-sub_time_step:] if sub_time_step != 0 else []
+                ops_tensor = torch.tensor(
+                    sub_seq + [-1] + [-2] * (horizon - sub_time_step - 1),
+                    device=dvc,
+                )
+                # BUG: get_pos_params called many times with the same `hidden_state`
                 probs_next, _ = self.model_head.get_dist(
                     hidden_state=last_hidden_states[i_beam],
-                    ops=torch.tensor(
-                        sub_seq + [-1] + [-2] * (horizon - sub_time_step - 1),
-                        device=dvc,
-                    ),
+                    ops=ops_tensor,
+                    use_cache=False if sub_time_step == 0 else True,
+                    save_cache=True,
                 )  # (V,)
+                assert (
+                    len(probs_next.shape) == 1 and probs_next.size(0) == self.vocab_size
+                ), "Invalid shape for probs_next"
                 all_probs_next.append(probs_next)
 
             all_probs_next = torch.stack(all_probs_next)  # (n_beams, V)
@@ -162,6 +172,8 @@ class TJDGPT2(torch.nn.Module):
                 log_probs=log_probs,
                 next_token_log_probs=all_probs_next,
                 num_beams=num_beams,
+                do_sample=do_sample,
+                top_k=top_k,
             )
 
         # Run beam search
@@ -173,56 +185,7 @@ class TJDGPT2(torch.nn.Module):
         )
         return torch.tensor(best_seq, device=dvc).reshape(1, -1)
 
-    def generateV2(
-        self,
-        input_ids: torch.Tensor,
-        max_new_tokens: int = 8,
-        num_beams: int = 1,
-        do_sample: bool = False,
-        horizon: Optional[int] = None,
-        **kwargs,
-    ):
-        """Generate sequences given an input tensor.
-
-        Args:
-            input_ids (torch.Tensor): Previous tokens of shape (B, T)
-            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
-            num_beams (int, optional): Number of beams. Defaults to 1.
-            do_sample (bool, optional): Whether to sample. Defaults to False.
-            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
-
-        Returns:
-            torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
-        """
-        assert input_ids.size(0) == 1, "Only batch size 1 is supported"
-        horizon = self._get_horizon(horizon)
-        n_passes = max(max_new_tokens // horizon, 1)
-
-        # Initialize beam with input sequence
-        beam = [(input_ids, 0.0)]  # (sequence, score)
-
-        for _ in range(n_passes):
-            candidates = []
-
-            # Process each sequence in beam
-            for seq, cum_log_prob in beam:
-                last_hidden_state = self._get_last_hidden_state(seq, **kwargs)
-
-                # Generate next tokens using model head
-                next_tokens, next_log_prob = self.model_head.generate(
-                    last_hidden_state=last_hidden_state,
-                    horizon=horizon,
-                    num_beams=num_beams,
-                )  # (B, H), (B,)
-
-                # Sum log probs over horizon dim to get sequence score
-                new_seq = torch.cat([seq, next_tokens], dim=1)
-                new_log_prob = cum_log_prob + next_log_prob.item()
-                candidates.append((new_seq, new_log_prob))
-
-            beam = sorted(candidates, key=lambda x: x[1], reverse=True)[:num_beams]
-        return beam[0][0]
-
+    @line_profiler.profile
     def generateV1(
         self,
         input_ids: torch.Tensor,
@@ -252,8 +215,8 @@ class TJDGPT2(torch.nn.Module):
         input_tens = input_ids
 
         for _ in range(n_passes):
-            last_hidden_state = self._get_last_hidden_state(input_tens, **kwargs)
-            sample, _ = self.model_head.generate(
+            last_hidden_state = self._get_last_hidden_state(input_tens)
+            sample = self.model_head.generate(
                 last_hidden_state=last_hidden_state, horizon=horizon
             )  # (B, H)
             output_tens = torch.cat([output_tens, sample], dim=1)
@@ -290,7 +253,7 @@ class TJDGPT2(torch.nn.Module):
         batch_size, _ = input_ids.size()
         horizon = self._get_horizon(horizon)
 
-        last_hidden_state = self._get_last_hidden_state(input_ids, **kwargs)
+        last_hidden_state = self._get_last_hidden_state(input_ids)
         targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
             batch_size, -1, horizon
         )  # (B, T-H, H)

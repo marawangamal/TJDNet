@@ -31,7 +31,6 @@ def select_from_cp_tensor(
     return result.prod(dim=2).sum(dim=1)  # (B,)
 
 
-# @line_profiler.profile
 def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     """Sum all elements of a CP tensor representation (batched).
 
@@ -108,16 +107,15 @@ def sample_from_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
             ),
         )  # (R, 1, D)
         # Sample from P(y_t | y_{<t})
-        selected_index = torch.multinomial(
-            p_tilde_yt_given_prev.sum(dim=0).reshape(-1), num_samples=1
-        ).item()
+        selected_index = torch.multinomial(p_tilde_yt_given_prev, num_samples=1).item()
         selected_indices.append(selected_index)
     return torch.tensor(selected_indices, device=cp_params.device)
 
 
+# TODO: Redo using cp_to_tensor func
 def select_margin_cp_tensor(
-    cp_params: torch.Tensor, ops: torch.Tensor, apply_scale_factors=False
-) -> Tuple[torch.Tensor, Union[None, torch.Tensor]]:
+    cp_params: torch.Tensor, ops: torch.Tensor, use_scale_factors=False
+) -> Tuple[torch.Tensor, List[torch.Tensor]]:
     """Performs selection and marginalization operations on a CP tensor representation.
 
     Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
@@ -138,8 +136,8 @@ def select_margin_cp_tensor(
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
-            - Result tensor of shape (R, F, D) where F is the numbe of free indices (-1 operations) in ops
-            - Scale factors of shape (R,T)
+            - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
+            - Scale factors list of shape (T,)
     """
 
     # Validation:
@@ -147,40 +145,41 @@ def select_margin_cp_tensor(
     assert len(ops.shape) == 1, "Ops tensor must be 1D (non-batched)"
     assert (ops >= -2).all() and (ops < cp_params.size(2)).all(), "Invalid ops tensor"
 
+    rank_size, seq_len, vocab_size = cp_params.size()
+
     # Note ops must be in the order of select, free, marginalize
     bp_free, bp_margin = get_breakpoints(
         ops.reshape(1, -1)
     )  # (1,), (1,) selects index at which selects end
     bp_free, bp_margin = int(bp_free.item()), int(bp_margin.item())
     assert bp_free < bp_margin, "Invalid ops tensor (select/marginalize order)"
+    assert bp_margin - bp_free == 1, "Only one free index is supported"
 
-    cp_params_scaled = cp_params
-    scale_factors = None
-    if apply_scale_factors:
-        scale_factors = torch.linalg.norm(cp_params, dim=-1)  # (R, T)
-        cp_params_scaled = cp_params / scale_factors.unsqueeze(-1)
-
-    # Split CP tensor into selectable, margin, and free factors
-    rank, seq_len, vocab_size = cp_params_scaled.size()
-    cp_params_select = cp_params_scaled[:, :bp_free, :]  # (R, bp_select, D)
-    cp_params_margin = cp_params_scaled[:, bp_margin:, :]  # (R, n_mrgn, D)
-    cp_params_free = cp_params_scaled[:, bp_free:bp_margin, :]  # (R, n_free, D)
+    cp_params = cp_params
+    cp_params_select = cp_params[:, :bp_free, :]  # (R, bp_select, D)
+    cp_params_margin = cp_params[:, bp_margin:, :]  # (R, n_mrgn, D)
+    cp_params_free = cp_params[:, bp_free:bp_margin, :]  # (R, n_free, D)
 
     # Reduce selectable factors
     result = torch.gather(
         cp_params_select.reshape(-1, vocab_size),  # (R*n_slct, D)
         dim=1,
         # BUG: does .repeat(rank, 1) work? Dont we have R*n_slct indices?
-        index=ops[:bp_free].reshape(1, -1).repeat(rank, 1).reshape(-1, 1),
-    ).reshape(rank, bp_free, 1)
+        index=ops[:bp_free].reshape(1, -1).repeat(rank_size, 1).reshape(-1, 1),
+    ).reshape(rank_size, bp_free, 1)
 
     # Reduce margin factors
+    # Select and marginalize
     if result.size(1) > 0 and cp_params_margin.size(1) > 0:
-        result = result.prod(1).reshape(rank, 1, 1) * cp_params_margin  # (R, n_mrgn, D)
+        result = (
+            result.prod(1).reshape(rank_size, 1, 1) * cp_params_margin
+        )  # (R, n_mrgn, D)
+    # Marginalize only
     elif cp_params_margin.size(1) > 0:
         result = cp_params_margin  # (R, n_mrgn, D)
+    # BUG: this summation might be incorrect - technically we need to sum all possible combinations
     result = result.prod(dim=1).sum(dim=-1)  # (R,)
 
     # Multiply free factors
-    result = result.reshape(rank, 1, 1) * cp_params_free  # (R, n_free, D)
-    return result, scale_factors
+    result = result.reshape(rank_size, 1, 1) * cp_params_free  # (R, n_free, D)
+    return result.sum(dim=0).reshape(-1), []

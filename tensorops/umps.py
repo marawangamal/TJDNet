@@ -1,5 +1,4 @@
 import torch
-import line_profiler
 
 from tensorops.common import get_breakpoints, mps_to_tensor
 
@@ -55,7 +54,6 @@ def select_from_umps_tensor(
     return result, scale_factors
 
 
-# @line_profiler.profile
 def sum_umps_tensorV2(
     alpha: torch.Tensor,
     beta: torch.Tensor,

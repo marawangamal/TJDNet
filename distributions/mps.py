@@ -6,15 +6,14 @@ from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.mps import (
     sample_from_mps_tensor,
+    sample_from_mps_tensorV1,
     select_from_mps_tensor,
     select_margin_mps_tensor,
     sum_mps_tensor,
 )
 
-import line_profiler
 
-
-class MPSDist(BaseDistribution):
+class MPSDist(BaseDistribution[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
         n_embd: int,
@@ -37,8 +36,7 @@ class MPSDist(BaseDistribution):
         self.beta = torch.ones(rank) * 0.1
         self.param_func_core = torch.nn.Linear(n_embd, self.tensor_train_size)
 
-    @line_profiler.profile
-    def _get_pos_params(self, last_hidden_state: torch.Tensor):
+    def get_params(self, last_hidden_state: torch.Tensor, **kwargs):
         batch_size, seq_len, _ = last_hidden_state.shape
         # core = self.positivity_func(self.param_func_core(last_hidden_state)).reshape(
         #     batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
@@ -64,9 +62,7 @@ class MPSDist(BaseDistribution):
             beta,  # (B, T, R)
         )
 
-    def generate(
-        self, last_hidden_state: torch.Tensor, horizon: int, num_beams: int, **kwargs
-    ):
+    def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
         """Generate sequences given an input tensor.
 
         Args:
@@ -80,38 +76,44 @@ class MPSDist(BaseDistribution):
         horizon = self._get_horizon(horizon)
         batch_size, _, _ = last_hidden_state.size()
         assert batch_size == 1, "Batch size must be 1 for generation"
-        alpha, core, beta = self._get_pos_params(
+        alpha, core, beta = self.get_params(
             last_hidden_state[:, -1:, :]
         )  # (B, 1, R), (B, 1, H, R, V, R), (B, 1, R)
-        sample, log_prob = sample_from_mps_tensor(
-            alpha=alpha.reshape(self.rank),
-            beta=beta.reshape(self.rank),
-            core=core.reshape(
-                self.horizon,
-                self.rank,
-                self.vocab_size,
-                self.rank,
-            )[:horizon],
-            num_beams=num_beams,
-        )
-        return sample.unsqueeze(0), log_prob.unsqueeze(0)  # (1, H), (1,)
+        return torch.stack(
+            [
+                sample_from_mps_tensorV1(
+                    alpha=alpha.reshape(self.rank),
+                    beta=beta.reshape(self.rank),
+                    core=core.reshape(
+                        self.horizon,
+                        self.rank,
+                        self.vocab_size,
+                        self.rank,
+                    )[:horizon],
+                )
+            ]
+        )  # (B, H)
 
     def get_dist(
         self,
         hidden_state: torch.Tensor,
         ops: torch.Tensor,
+        use_cache: bool = True,
+        save_cache: bool = True,
     ):
         """Get distribution specified by ops.
 
         Args:
-            last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
+            hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
             ops (torch.Tensor): Operation codes of shape (T,) specifying:
                 -2: marginalize mode (sum reduction)
                 -1: keep mode as free index
                 [0,V): select index v in mode
         """
-        alpha, core, beta = self._get_pos_params(
-            hidden_state.reshape(1, 1, -1)
+        alpha, core, beta = self.get_params_from_cache(
+            hidden_state.reshape(1, 1, -1),
+            use_cache=use_cache,
+            save_cache=save_cache,
         )  # (1, 1, R), (1, 1, H, R, V, R), (1, 1, R)
         return select_margin_mps_tensor(
             alpha=alpha.reshape(self.rank),
@@ -125,7 +127,6 @@ class MPSDist(BaseDistribution):
             ops=ops,
         )
 
-    @line_profiler.profile
     def evaluate_at_points(
         self,
         last_hidden_state: torch.Tensor,
@@ -144,7 +145,7 @@ class MPSDist(BaseDistribution):
         """
         batch_size, seq_len, _ = last_hidden_state.shape
         horizon = self._get_horizon(points.size(-1))
-        alpha, core, beta = self._get_pos_params(
+        alpha, core, beta = self.get_params(
             last_hidden_state
         )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
         p_tilde, scale_factors = select_from_mps_tensor(
@@ -163,7 +164,6 @@ class MPSDist(BaseDistribution):
             s.reshape(batch_size, seq_len) for s in scale_factors
         ]
 
-    @line_profiler.profile
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
@@ -176,7 +176,7 @@ class MPSDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
         horizon = self._get_horizon(horizon)
-        alpha, core, beta = self._get_pos_params(
+        alpha, core, beta = self.get_params(
             last_hidden_state
         )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
         batch_size, seq_len, _ = last_hidden_state.shape
