@@ -6,7 +6,7 @@ from typing import Generic, Optional, Tuple, List, TypeVar, Union
 ParamType = TypeVar("ParamType")
 
 
-class BaseDistribution(Generic[ParamType], ABC, torch.nn.Module):
+class BaseDistribution(ABC, torch.nn.Module):
     def __init__(self, horizon: int):
         """
         Abstract base class for distributions compatible with TJDGPT2.
@@ -22,20 +22,20 @@ class BaseDistribution(Generic[ParamType], ABC, torch.nn.Module):
         return horizon
 
     # TODO: should always just return a tensor
-    def get_params_from_cache(
+    def _get_params_from_cache(
         self, hidden_state: torch.Tensor, use_cache: bool, save_cache: bool, **kwargs
-    ) -> ParamType:
+    ) -> torch.Tensor:
         params = None
         if use_cache and "hidden_state" in self.cache:
             params = self.cache["hidden_state"]
         else:
-            params = self.get_params(hidden_state.reshape(1, 1, -1))  # (1, 1, R, H, V)
+            params = self._get_params(hidden_state.reshape(1, 1, -1))  # (1, 1, R, H, V)
             if save_cache:
                 self.cache["hidden_state"] = params
         return params
 
     @abstractmethod
-    def get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> ParamType:
+    def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         pass
 
     @abstractmethod

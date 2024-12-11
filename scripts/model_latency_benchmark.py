@@ -114,7 +114,7 @@ def parse_args():
     parser.add_argument(
         "--beam_size",
         type=int,
-        default=5,
+        default=1,
         help="Beam size for beam search",
     )
     parser.add_argument(

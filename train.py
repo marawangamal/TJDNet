@@ -33,7 +33,6 @@ from tqdm import tqdm
 import torch
 import wandb
 from torch.utils.data import DataLoader
-from torch.nn import DataParallel
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 from transformers import AutoTokenizer
 

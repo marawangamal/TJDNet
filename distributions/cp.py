@@ -5,7 +5,6 @@ import torch
 import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
-from tensorops.common import sample_from_tensor_dist
 from tensorops.cp import (
     sample_from_cp_tensor,
     select_from_cp_tensor,
@@ -14,7 +13,7 @@ from tensorops.cp import (
 )
 
 
-class CPDist(BaseDistribution[torch.Tensor]):  # specify Tensor as the ParamType
+class CPDist(BaseDistribution):  # Specify Tensor as the ParamType
     def __init__(
         self,
         n_embd: int,
@@ -43,9 +42,9 @@ class CPDist(BaseDistribution[torch.Tensor]):  # specify Tensor as the ParamType
         }[positivity_func]
         self.cache = {}
 
-    def get_params(
+    def _get_params(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
-    ) -> torch.Tensor:
+    ):
         batch_size, seq_len, _ = last_hidden_state.size()
         params = self.param_func(last_hidden_state)
         params = self.positivity_func(params)
@@ -71,7 +70,7 @@ class CPDist(BaseDistribution[torch.Tensor]):  # specify Tensor as the ParamType
         assert batch_size == 1, "Only batch size 1 is supported"
         horizon = self._get_horizon(horizon)
         # print(f"Generating {horizon} tokens")
-        params = self.get_params(
+        params = self._get_params(
             last_hidden_state[:, -1:, :],
             horizon,
         )  # (B, 1, R, H, V) we only need the Tth hidden state
@@ -122,7 +121,7 @@ class CPDist(BaseDistribution[torch.Tensor]):  # specify Tensor as the ParamType
                 [0,V): select index v in mode
             use_cache (bool, optional): Whether to use cached values. Defaults to False.
         """
-        params = self.get_params_from_cache(
+        params = self._get_params_from_cache(
             hidden_state.reshape(1, 1, -1), use_cache, save_cache
         )  # (1, 1, R, H, V)
         return select_margin_cp_tensor(
@@ -149,7 +148,7 @@ class CPDist(BaseDistribution[torch.Tensor]):  # specify Tensor as the ParamType
         # Get indexed distribution
         batch_size, seq_len, _ = last_hidden_state.size()
         horizon = points.size(-1)
-        params = self.get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
+        params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
         # (B, T, R, H, V) => (B, T)
         with profiler.record_function("select_from_cp_tensor"):
             p_tilde = select_from_cp_tensor(
@@ -174,7 +173,7 @@ class CPDist(BaseDistribution[torch.Tensor]):  # specify Tensor as the ParamType
         batch_size, seq_len, _ = last_hidden_state.size()
         horizon = self._get_horizon(horizon)
         # Get indexed distribution
-        params = self.get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
+        params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
         with profiler.record_function("normalize_cp_tensor"):
             norm_consts = sum_cp_tensor(
                 cp_params=params.reshape(
