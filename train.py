@@ -187,9 +187,9 @@ def get_test_samples(
     tokenizer,
     prompt="\n",
     max_new_tokens=8,
-    num_beams=1,
+    num_beams=5,
     do_sample=True,
-    top_k=2000,
+    top_k=50,
     horizon_eval=1,
     n_samples=1,
     print_output=True,
@@ -414,5 +414,11 @@ if __name__ == "__main__":
     )
 
     # Generate a test sample
-    test_sample = get_test_samples(model, tokenizer, max_new_tokens=args.max_new_tokens)
+    test_sample = get_test_samples(
+        model,
+        tokenizer,
+        print_output=False,
+        max_new_tokens=args.max_new_tokens,
+        horizon_eval=args.horizon_eval,
+    )
     print(f"Test sample:\n{test_sample}")

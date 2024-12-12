@@ -32,19 +32,25 @@ def get_candidates(
 
     if do_sample:
         # Get top-k tokens for each sequence
-        scores, indices = torch.topk(candidate_scores, k=min(top_k, vocab_size), dim=1)
+        flat_scores = candidate_scores.view(-1)
+        top_scores, top_indices = torch.topk(
+            flat_scores, k=min(top_k, vocab_size)
+        )  # (n_beams*top_k,)
 
         # Convert to probabilities and sample
-        probs = torch.softmax(scores, dim=1)  # (n_beams, top_k)
-        sample_idx = torch.multinomial(probs, num_samples=1).squeeze(-1)  # (n_beams,)
+        probs = torch.softmax(top_scores, dim=0)  # (n_beams*top_k)
+        sampled_indices = torch.multinomial(probs, num_samples=num_beams).squeeze(
+            -1
+        )  # (n_beams,)
 
         # Get selected tokens and their scores
-        top_scores = torch.gather(scores, 1, sample_idx.unsqueeze(1)).squeeze(1)
-        top_indices = torch.gather(indices, 1, sample_idx.unsqueeze(1)).squeeze(1)
+        top_scores = torch.index_select(top_scores, 0, sampled_indices)
+        top_indices = torch.index_select(top_indices, 0, sampled_indices)
 
-        # For sampled tokens, prev_seq_idx is just the beam index
-        prev_seq_idx = torch.arange(len(seqs), device=top_indices.device)
-        token_idx = top_indices
+        # Convert flat indices back to beam and token indices
+        prev_seq_idx = top_indices // vocab_size
+        token_idx = top_indices % vocab_size
+
     else:
         # Original beam search logic
         flat_scores = candidate_scores.view(-1)
