@@ -191,7 +191,8 @@ def get_test_samples(
     # top_k=200,
     # temperature=0.8,
     num_beams=5,
-    do_sample=False,
+    do_sample=True,
+    top_k=50,
     horizon_eval=1,
     n_samples=1,
     print_output=True,
@@ -207,6 +208,7 @@ def get_test_samples(
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
             horizon=horizon_eval,
+            top_k=top_k,
         )
         sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
         if n_samples == 1:
