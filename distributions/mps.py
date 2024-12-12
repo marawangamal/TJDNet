@@ -1,11 +1,9 @@
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 import torch
-import torch.autograd.profiler as profiler
 
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
 from tensorops.mps import (
-    sample_from_mps_tensor,
     sample_from_mps_tensorV1,
     select_from_mps_tensor,
     select_margin_mps_tensor,
@@ -13,6 +11,7 @@ from tensorops.mps import (
 )
 
 
+# TODO: dont apply positivity function to alpha and beta and use 1hot instead of ones
 class MPSDist(BaseDistribution):
     def __init__(
         self,
@@ -36,22 +35,8 @@ class MPSDist(BaseDistribution):
         self.beta = torch.ones(rank) * 0.1
         self.param_func_core = torch.nn.Linear(n_embd, self.tensor_train_size)
 
-    def _destruct_mps_params(self, mps_params: torch.Tensor):
-        """Destruct MPS parameters into alpha, core, beta.
-
-        Args:
-            mps_params (torch.Tensor): MPS parameters of shape (B, T, 2*R + H*R*V*R)
-        """
-        batch_size, seq_len, _ = mps_params.size()
-        alpha = mps_params[:, :, : self.rank]
-        core = mps_params[:, :, self.rank : -self.rank].reshape(
-            batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
-        )
-        beta = mps_params[:, :, -self.rank :]
-        return alpha, core, beta
-
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
-        """Get MPS parameters from the last hidden state.
+        """Get trainable parameters from the last hidden state.
 
         Args:
             last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (B, T, D)
@@ -59,16 +44,44 @@ class MPSDist(BaseDistribution):
         Returns:
             torch.Tensor: MPS parameters of shape (B, T, 2*R + H*R*V*R)
         """
-        batch_size, seq_len, _ = last_hidden_state.shape
         core = self.param_func_core(last_hidden_state)
         core = self.positivity_func(core)  # (B, T, HRVR)
-        alpha = (self.alpha.reshape(1, 1, self.rank).repeat(batch_size, seq_len, 1)).to(
+        return core
+
+    def get_mps_params(
+        self,
+        last_hidden_state: torch.Tensor,
+        use_cache: bool = True,
+        save_cache: bool = True,
+    ):
+        """Get both trainable and fixed parameters from the last hidden state.
+
+        Args:
+            last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (B, T, D)
+
+        Returns:
+            - torch.Tensor: Alpha of shape (B, T, R)
+            - torch.Tensor: Core of shape (B, T, H, R, V, R)
+            - torch.Tensor: Beta of shape (B, T, R)
+
+        """
+        batch_size, seq_len, _ = last_hidden_state.size()
+        core = self._get_params_from_cache(last_hidden_state, use_cache, save_cache)
+        alpha = (
+            self.positivity_func(self.alpha)
+            .reshape(1, 1, self.rank)
+            .repeat(batch_size, seq_len, 1)
+        ).to(
             last_hidden_state.device
         )  # (B, T, R)
-        beta = (self.beta.reshape(1, 1, self.rank).repeat(batch_size, seq_len, 1)).to(
+        beta = (
+            self.positivity_func(self.beta)
+            .reshape(1, 1, self.rank)
+            .repeat(batch_size, seq_len, 1)
+        ).to(
             last_hidden_state.device
         )  # (B, T, R)
-        return torch.cat([alpha, core, beta], dim=-1)
+        return alpha, core, beta
 
     def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
         """Generate sequences given an input tensor.
@@ -84,12 +97,9 @@ class MPSDist(BaseDistribution):
         horizon = self._get_horizon(horizon)
         batch_size, _, _ = last_hidden_state.size()
         assert batch_size == 1, "Batch size must be 1 for generation"
-        mps_params = self._get_params(
+        alpha, core, beta = self.get_mps_params(
             last_hidden_state[:, -1:, :],
-        )
-        alpha, core, beta = self._destruct_mps_params(
-            mps_params
-        )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
+        )  # (1, 1, R), (1, 1, H, R, V, R), (1, 1, R)
         return torch.stack(
             [
                 sample_from_mps_tensorV1(
@@ -121,13 +131,10 @@ class MPSDist(BaseDistribution):
                 -1: keep mode as free index
                 [0,V): select index v in mode
         """
-        mps_params = self._get_params_from_cache(
+        alpha, core, beta = self.get_mps_params(
             hidden_state.reshape(1, 1, -1),
             use_cache=use_cache,
             save_cache=save_cache,
-        )
-        alpha, core, beta = self._destruct_mps_params(
-            mps_params
         )  # (1, 1, R), (1, 1, H, R, V, R), (1, 1, R)
         return select_margin_mps_tensor(
             alpha=alpha.reshape(self.rank),
@@ -159,11 +166,8 @@ class MPSDist(BaseDistribution):
         """
         batch_size, seq_len, _ = last_hidden_state.shape
         horizon = self._get_horizon(points.size(-1))
-        mps_params = self._get_params(
+        alpha, core, beta = self.get_mps_params(
             last_hidden_state,
-        )
-        alpha, core, beta = self._destruct_mps_params(
-            mps_params
         )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
         p_tilde, scale_factors = select_from_mps_tensor(
             alpha=alpha.reshape(batch_size * seq_len, self.rank),
@@ -193,11 +197,8 @@ class MPSDist(BaseDistribution):
             Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
         """
         horizon = self._get_horizon(horizon)
-        mps_params = self._get_params(
-            last_hidden_state,
-        )
-        alpha, core, beta = self._destruct_mps_params(
-            mps_params
+        alpha, core, beta = self.get_mps_params(
+            last_hidden_state
         )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
         batch_size, seq_len, _ = last_hidden_state.shape
         z, scale_factors = sum_mps_tensor(
