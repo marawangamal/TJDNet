@@ -29,6 +29,7 @@ class BaseDistribution(ABC, torch.nn.Module):
         if use_cache and "hidden_state" in self.cache:
             params = self.cache["hidden_state"]
         else:
+            # BUGFIX: Dont assume shape
             params = self._get_params(hidden_state.reshape(1, 1, -1))  # (1, 1, R, H, V)
             if save_cache:
                 self.cache["hidden_state"] = params

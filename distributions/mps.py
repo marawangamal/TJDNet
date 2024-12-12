@@ -51,8 +51,6 @@ class MPSDist(BaseDistribution):
     def get_mps_params(
         self,
         last_hidden_state: torch.Tensor,
-        use_cache: bool = True,
-        save_cache: bool = True,
     ):
         """Get both trainable and fixed parameters from the last hidden state.
 
@@ -66,7 +64,7 @@ class MPSDist(BaseDistribution):
 
         """
         batch_size, seq_len, _ = last_hidden_state.size()
-        core = self._get_params_from_cache(last_hidden_state, use_cache, save_cache)
+        core = self._get_params(last_hidden_state)
         alpha = (
             self.positivity_func(self.alpha)
             .reshape(1, 1, self.rank)
@@ -133,8 +131,6 @@ class MPSDist(BaseDistribution):
         """
         alpha, core, beta = self.get_mps_params(
             hidden_state.reshape(1, 1, -1),
-            use_cache=use_cache,
-            save_cache=save_cache,
         )  # (1, 1, R), (1, 1, H, R, V, R), (1, 1, R)
         return select_margin_mps_tensor(
             alpha=alpha.reshape(self.rank),

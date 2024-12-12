@@ -229,6 +229,7 @@ class TJDGPT2(torch.nn.Module):
         labels: torch.Tensor,
         horizon: Optional[int] = None,
         reduce="mean",
+        use_memory_efficient_loss: bool = False,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass of the model.
@@ -260,12 +261,19 @@ class TJDGPT2(torch.nn.Module):
 
         assert targets.size(1) >= horizon, "Invalid targets"
 
+        last_hidden_state_ds = last_hidden_state[:, :-horizon]  # (B, T-H, D)
+        targets_ds = targets  # (B, T-H, H)
+        if use_memory_efficient_loss:
+            # Downsample hidden states and targets
+            last_hidden_state_ds = last_hidden_state_ds[:, ::horizon]
+            targets_ds = targets[:, ::horizon]
+
         p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
-            last_hidden_state[:, :-horizon], targets
+            last_hidden_state_ds, targets_ds
         )  # (B, T-H)
 
         norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(
-            last_hidden_state[:, :-horizon], horizon=horizon
+            last_hidden_state_ds, horizon=horizon
         )  # (B, T-H)
 
         # Health checks
