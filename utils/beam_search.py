@@ -4,52 +4,11 @@ import torch
 import line_profiler
 
 
-# def get_candidates(
-#     seqs: List[List],
-#     log_probs: torch.Tensor,
-#     next_token_log_probs: torch.Tensor,
-#     num_beams: int,
-# ) -> List[Tuple[list, float]]:
-#     """
-#     Helper function to extend sequences in beam search.
-#     Handles empty sequences at start of generation.
-#     """
-#     vocab_size = next_token_log_probs.size(1)
-
-#     # Calculate combined scores
-#     candidate_scores = log_probs.unsqueeze(1) + next_token_log_probs
-
-#     # Get top candidates
-#     flat_scores = candidate_scores.view(-1)
-#     top_scores, top_indices = torch.topk(
-#         flat_scores, k=min(num_beams, len(flat_scores))
-#     )
-
-#     # Convert indices
-#     prev_seq_idx = top_indices // vocab_size
-#     token_idx = top_indices % vocab_size
-
-#     # Build new candidates - handle empty seqs case
-#     new_candidates = []
-#     for i in range(len(top_scores)):
-#         # For empty seqs, just use the new token
-#         # Otherwise extend the previous sequence
-#         if len(seqs) == 1 and not seqs[0]:
-#             new_sequence = [token_idx[i].item()]
-#         else:
-#             prev_sequence = list(seqs[prev_seq_idx[i]])
-#             new_sequence = prev_sequence + [token_idx[i].item()]
-
-#         new_score = top_scores[i].item()
-#         new_candidates.append((new_sequence, new_score))
-
-#     return new_candidates
-
-
+# TODO: scores are log probs, does this cause any issues with softmax?
 def get_candidates(
     seqs: List[List],
-    log_probs: torch.Tensor,
-    next_token_log_probs: torch.Tensor,
+    seq_log_probs: torch.Tensor,
+    next_token_probs: torch.Tensor,
     num_beams: int,
     do_sample: bool = True,
     top_k: int = 50,
@@ -59,17 +18,17 @@ def get_candidates(
 
     Args:
         seqs: Current sequences in beam (n_beams, sequence_length)
-        log_probs: Current sequence scores (n_beams,)
-        next_token_log_probs: Log probabilities for next tokens (n_beams, vocab_size)
+        seq_log_probs: Current sequence scores (n_beams,)
+        next_token_probs: Log probabilities for next tokens (n_beams, vocab_size)
         num_beams: Number of sequences to keep
         do_sample: Whether to use sampling (True) or deterministic selection (False)
         top_k: Number of top tokens to consider for sampling
     """
     # Calculate combined scores
-    candidate_scores = (
-        log_probs.unsqueeze(1) + next_token_log_probs
+    candidate_scores = seq_log_probs.unsqueeze(1) + torch.log(
+        next_token_probs
     )  # (n_beams, vocab_size)
-    vocab_size = next_token_log_probs.size(1)
+    vocab_size = next_token_probs.size(1)
 
     if do_sample:
         # Get top-k tokens for each sequence

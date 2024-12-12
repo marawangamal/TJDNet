@@ -133,8 +133,8 @@ class TJDGPT2(torch.nn.Module):
         @line_profiler.profile
         def expand_fn(beams):
             nonlocal last_hidden_states  # Allow modification of outer variable
-            seqs, log_probs = zip(*beams)  # Lists of shape (n_beams, T), (n_beams,)
-            log_probs = torch.tensor(log_probs).to(dvc)
+            seqs, seq_log_probs = zip(*beams)  # Lists of shape (n_beams, T), (n_beams,)
+            seq_log_probs = torch.tensor(seq_log_probs).to(dvc)
 
             time_step = len(seqs[0])
             if time_step % horizon == 0 and time_step != 0:
@@ -146,7 +146,7 @@ class TJDGPT2(torch.nn.Module):
                     hidden = self._get_last_hidden_state(inp)[:, -1:, :]
                     last_hidden_states.append(hidden)
 
-            all_probs_next = []
+            next_token_probs = []
             for i_beam, seq in enumerate(seqs):
                 sub_time_step = time_step % horizon
                 sub_seq = seq[-sub_time_step:] if sub_time_step != 0 else []
@@ -164,13 +164,13 @@ class TJDGPT2(torch.nn.Module):
                 assert (
                     len(probs_next.shape) == 1 and probs_next.size(0) == self.vocab_size
                 ), "Invalid shape for probs_next"
-                all_probs_next.append(probs_next)
+                next_token_probs.append(probs_next)
 
-            all_probs_next = torch.stack(all_probs_next)  # (n_beams, V)
+            next_token_probs = torch.stack(next_token_probs)  # (n_beams, V)
             return get_candidates(
                 seqs=seqs,
-                log_probs=log_probs,
-                next_token_log_probs=all_probs_next,
+                seq_log_probs=seq_log_probs,
+                next_token_probs=next_token_probs,
                 num_beams=num_beams,
                 do_sample=do_sample,
                 top_k=top_k,
