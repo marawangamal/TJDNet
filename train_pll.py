@@ -33,14 +33,14 @@ import argparse
 import wandb
 
 import torch
-from transformers import DataCollatorForLanguageModeling, get_scheduler
+from transformers import DataCollatorForLanguageModeling
 from transformers import AutoTokenizer
 from transformers import Trainer, TrainingArguments
 
-from data.shakespeare import load_shakespeare_data
-from data.wikitext import load_wikitext_data
 from models.tjdgpt2.tjdgpt2 import TJDGPT2
 from models.tjdgpt2.char_tokenizer import CharTokenizer
+from data.shakespeare import load_shakespeare_data
+from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
 
 
@@ -188,10 +188,9 @@ def get_test_samples(
     tokenizer,
     prompt="\n",
     max_new_tokens=8,
-    # top_k=200,
-    # temperature=0.8,
-    num_beams=1,
-    do_sample=False,
+    top_k=200,
+    num_beams=5,
+    do_sample=True,
     horizon_eval=1,
     n_samples=1,
     print_output=True,
@@ -207,6 +206,7 @@ def get_test_samples(
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
             horizon=horizon_eval,
+            top_k=top_k,
         )
         sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
         if n_samples == 1:

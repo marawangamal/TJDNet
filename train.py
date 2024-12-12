@@ -36,12 +36,11 @@ from torch.utils.data import DataLoader
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 from transformers import AutoTokenizer
 
-from data.shakespeare import load_shakespeare_data
-from data.wikitext import load_wikitext_data
 from models.tjdgpt2.tjdgpt2 import TJDGPT2
 from models.tjdgpt2.char_tokenizer import CharTokenizer
-from utils import get_experiment_name
-from utils.average_meter import AverageMeter
+from data.shakespeare import load_shakespeare_data
+from data.wikitext import load_wikitext_data
+from utils import get_experiment_name, AverageMeter
 
 
 def parse_args():
@@ -188,8 +187,6 @@ def get_test_samples(
     tokenizer,
     prompt="\n",
     max_new_tokens=8,
-    # top_k=200,
-    # temperature=0.8,
     num_beams=5,
     do_sample=True,
     top_k=50,

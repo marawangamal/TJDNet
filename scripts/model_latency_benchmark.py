@@ -224,7 +224,7 @@ def main():
             ("base", 1),
             ("cp", args.horizon),
             ("mps", args.horizon),
-            # ("umps", args.horizon),
+            ("umps", args.horizon),
         ]
     }
     latency_results = {}
