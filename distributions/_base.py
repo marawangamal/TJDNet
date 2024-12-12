@@ -1,9 +1,6 @@
 import torch
 from abc import ABC, abstractmethod
-from typing import Generic, Optional, Tuple, List, TypeVar, Union
-
-
-ParamType = TypeVar("ParamType")
+from typing import Optional, Tuple, List
 
 
 class BaseDistribution(ABC, torch.nn.Module):
@@ -21,16 +18,18 @@ class BaseDistribution(ABC, torch.nn.Module):
             raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
         return horizon
 
-    # TODO: should always just return a tensor
     def _get_params_from_cache(
-        self, hidden_state: torch.Tensor, use_cache: bool, save_cache: bool, **kwargs
+        self,
+        last_hidden_state: torch.Tensor,
+        use_cache: bool,
+        save_cache: bool,
+        **kwargs,
     ) -> torch.Tensor:
         params = None
         if use_cache and "hidden_state" in self.cache:
             params = self.cache["hidden_state"]
         else:
-            # BUGFIX: Dont assume shape
-            params = self._get_params(hidden_state.reshape(1, 1, -1))  # (1, 1, R, H, V)
+            params = self._get_params(last_hidden_state)
             if save_cache:
                 self.cache["hidden_state"] = params
         return params

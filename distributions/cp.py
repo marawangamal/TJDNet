@@ -13,7 +13,7 @@ from tensorops.cp import (
 )
 
 
-class CPDist(BaseDistribution):  # Specify Tensor as the ParamType
+class CPDist(BaseDistribution):
     def __init__(
         self,
         n_embd: int,
