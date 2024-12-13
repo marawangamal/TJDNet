@@ -25,6 +25,7 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 import os.path as osp
 import os
+import time
 from tqdm import tqdm
 
 import torch
@@ -127,6 +128,7 @@ def train(
     model.to(device)
 
     epochs_range = range(num_epochs + 1) if eval_before_training else range(num_epochs)
+    start_time = time.time()
     for epoch in epochs_range:
         get_test_samples(
             model,
@@ -188,8 +190,9 @@ def train(
             )
 
         # Log metrics to wandb
+        elapsed_mins = (time.time() - start_time) / 60
         print(
-            f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Eval Loss: {eval_nll:.2f}"
+            f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Elapsed: {elapsed_mins} | Eval Loss: {eval_nll:.2f}"
         )
         wandb.log({"train/loss": train_loss_meter.avg, "train/epoch": epoch})
         wandb.log({"train/nll": train_nll_meter.avg, "train/epoch": epoch})
@@ -274,11 +277,11 @@ if __name__ == "__main__":
     )
 
     # Generate a test sample
-    test_sample = get_test_samples(
+    print(f"\nTest sample:")
+    get_test_samples(
         model,
         tokenizer,
-        print_output=False,
         max_new_tokens=args.max_new_tokens,
         horizon_eval=args.horizon_eval,
+        print_output=True,
     )
-    print(f"Test sample:\n{test_sample}")
