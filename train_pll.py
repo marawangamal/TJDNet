@@ -282,9 +282,8 @@ def main():
         max_grad_norm=args.grad_clip_val,
         eval_on_start=True,
         # Logging
-        logging_strategy="steps",  # When to log: "steps", "epoch", or "no"
-        logging_steps=100,  # Log every N steps (if strategy="steps")
-        logging_first_step=True,  # Log the first step
+        logging_strategy="epoch",  # Changed from "steps" to "epoch"
+        logging_first_step=True,
         # Checkpoints
         save_strategy="no",  # Disable saving
         # Evaluation

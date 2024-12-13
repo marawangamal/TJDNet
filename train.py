@@ -267,7 +267,7 @@ def train(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
-    for epoch in range(1, num_epochs + 1):
+    for epoch in range(num_epochs):
         get_test_samples(
             model,
             tokenizer,
@@ -298,7 +298,7 @@ def train(
             train_loss_meter.update(loss.item())
             train_nll_meter.update(nll.item())
             # Skip training first epoch if eval_before_training is True
-            if eval_before_training and epoch == 1:
+            if eval_before_training and epoch == 0:
                 continue
             scaled_loss.backward()
             if grad_clip_val is not None:
@@ -320,7 +320,7 @@ def train(
                 {
                     "state_dict": model.state_dict(),
                     "model_config": model_config,
-                    "epoch": epoch,
+                    "train/epoch": epoch,
                     "eval/nll": eval_nll,
                     "eval/loss": eval_loss,
                 },
@@ -331,10 +331,10 @@ def train(
         print(
             f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Eval Loss: {eval_nll:.2f}"
         )
-        wandb.log({"train/loss": train_loss_meter.avg, "epoch": epoch})
-        wandb.log({"train/nll": train_nll_meter.avg, "epoch": epoch})
-        wandb.log({"eval/loss": eval_loss, "epoch": epoch})
-        wandb.log({"eval/nll": eval_nll, "epoch": epoch})
+        wandb.log({"train/loss": train_loss_meter.avg, "train/epoch": epoch})
+        wandb.log({"train/nll": train_nll_meter.avg, "train/epoch": epoch})
+        wandb.log({"eval/loss": eval_loss, "train/epoch": epoch})
+        wandb.log({"eval/nll": eval_nll, "train/epoch": epoch})
 
 
 if __name__ == "__main__":
