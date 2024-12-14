@@ -99,7 +99,6 @@ class TJDGPT2(torch.nn.Module):
             raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
         return horizon
 
-    @line_profiler.profile
     def generateV2(
         self,
         input_ids: torch.Tensor,
@@ -130,7 +129,6 @@ class TJDGPT2(torch.nn.Module):
             self._get_last_hidden_state(input_ids)[:, -1:, :]
         ] * num_beams
 
-        @line_profiler.profile
         def expand_fn(beams):
             nonlocal last_hidden_states  # Allow modification of outer variable
             seqs, seq_log_probs = zip(*beams)  # Lists of shape (n_beams, T), (n_beams,)
@@ -185,7 +183,6 @@ class TJDGPT2(torch.nn.Module):
         )
         return torch.tensor(best_seq, device=dvc).reshape(1, -1)
 
-    @line_profiler.profile
     def generateV1(
         self,
         input_ids: torch.Tensor,
@@ -268,12 +265,10 @@ class TJDGPT2(torch.nn.Module):
             last_hidden_state_ds = last_hidden_state_ds[:, ::horizon]
             targets_ds = targets[:, ::horizon]
 
-        p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
-            last_hidden_state_ds, targets_ds
-        )  # (B, T-H)
-
-        norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(
-            last_hidden_state_ds, horizon=horizon
+        p_tilde, p_tilde_scale_factors, norm_const, norm_const_scale_factors = (
+            self.model_head.evaluate_at_points_and_get_norm_consts(
+                last_hidden_state_ds, targets_ds
+            )
         )  # (B, T-H)
 
         # Health checks

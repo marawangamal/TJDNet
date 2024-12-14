@@ -72,7 +72,6 @@ def get_candidates(
     return new_candidates
 
 
-@line_profiler.profile
 def beam_search(
     expand_fn: Callable,  # Function that takes List[Tuple[seq, score]] and returns List[Tuple[seq, score]]
     initial_beam: List[Tuple[List, float]],

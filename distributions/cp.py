@@ -55,7 +55,6 @@ class CPDist(BaseDistribution):
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
 
-    @line_profiler.profile
     def generate(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
     ) -> torch.Tensor:
@@ -184,3 +183,42 @@ class CPDist(BaseDistribution):
                 norm_consts.reshape(batch_size, seq_len),  # (B, T)
                 [],
             )
+
+    def evaluate_at_points_and_get_norm_consts(
+        self,
+        last_hidden_state: torch.Tensor,
+        points: torch.Tensor,
+        **kwargs,
+    ):
+        """Evaluate the distribution at the given points and get the normalization constants.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
+
+        Returns:
+            tuple:
+                - torch.Tensor: Unormalized distribution `p_tilde` at the points of shape (B, T)
+                - list: Scale factors for `p_tilde`
+                - torch.Tensor: Normalization constants `z` of shape (B, T)
+                - list: Scale factors for `z`
+        """
+        # Get indexed distribution
+        batch_size, seq_len, _ = last_hidden_state.size()
+        horizon = points.size(-1)
+        params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
+        p_tilde = select_from_cp_tensor(
+            params.reshape(batch_size * seq_len, self.rank, horizon, self.vocab_size),
+            points.reshape(batch_size * seq_len, horizon),
+        )
+        norm_consts = sum_cp_tensor(
+            cp_params=params.reshape(
+                batch_size * seq_len, self.rank, horizon, self.vocab_size
+            ),
+        )
+        return (
+            p_tilde.reshape(batch_size, seq_len),
+            [],
+            norm_consts.reshape(batch_size, seq_len),
+            [],
+        )

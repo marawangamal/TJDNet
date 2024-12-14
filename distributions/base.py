@@ -1,6 +1,6 @@
 from typing import List, Tuple
 import torch
-import torch.autograd.profiler as profiler
+import line_profiler
 
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
@@ -89,13 +89,12 @@ class BaseDist(BaseDistribution):
         batch_size, seq_len, _ = last_hidden_state.size()
 
         # (B, T, R*H*V) => (B, T)
-        with profiler.record_function("select_from_base_tensor"):
-            p_tilde_select = torch.gather(
-                p_tilde.reshape(batch_size * seq_len, self.vocab_size),
-                dim=1,
-                index=points.reshape(batch_size * seq_len, self.horizon),
-            )  # (B*T, 1)
-            return p_tilde_select.reshape(batch_size, seq_len), []  # (B*T)
+        p_tilde_select = torch.gather(
+            p_tilde.reshape(batch_size * seq_len, self.vocab_size),
+            dim=1,
+            index=points.reshape(batch_size * seq_len, self.horizon),
+        )  # (B*T, 1)
+        return p_tilde_select.reshape(batch_size, seq_len), []  # (B*T)
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
@@ -113,6 +112,45 @@ class BaseDist(BaseDistribution):
         p_tilde = self.positivity_func(self.param_func(last_hidden_state))  # (B, T, V)
         norm_consts = torch.sum(p_tilde, dim=-1).reshape(-1)  # (B*T)
         return (
+            norm_consts.reshape(batch_size, seq_len),
+            [],
+        )
+
+    def evaluate_at_points_and_get_norm_consts(
+        self,
+        last_hidden_state: torch.Tensor,
+        points: torch.Tensor,
+        **kwargs,
+    ):
+        """Evaluate the distribution at the given points.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, 1)
+            is_normalized (bool, optional): Whether the points are normalized. Defaults to False.
+
+        Returns:
+            tuple:
+                - torch.Tensor: Unormalized distribution `p_tilde` at the points of shape (B, T)
+                - list: Scale factors for `p_tilde`
+                - torch.Tensor: Normalization constants `z` of shape (B, T)
+                - list: Scale factors for `z`
+        """
+        # Get indexed distribution
+        assert points.size(-1) == 1, "Only 1D points are supported"
+        p_tilde = self._get_params(last_hidden_state)  # (B, T, V)
+        batch_size, seq_len, _ = last_hidden_state.size()
+
+        # (B, T, R*H*V) => (B, T)
+        p_tilde_select = torch.gather(
+            p_tilde.reshape(batch_size * seq_len, self.vocab_size),
+            dim=1,
+            index=points.reshape(batch_size * seq_len, self.horizon),
+        )  # (B*T, 1)
+        norm_consts = torch.sum(p_tilde, dim=-1).reshape(-1)  # (B*T)
+        return (
+            p_tilde_select.reshape(batch_size, seq_len),
+            [],
             norm_consts.reshape(batch_size, seq_len),
             [],
         )

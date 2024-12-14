@@ -1,6 +1,6 @@
 from typing import List, Optional, Tuple
 import torch
-import torch.autograd.profiler as profiler
+import line_profiler
 
 from distributions._base import BaseDistribution
 from tensorops.common import sample_from_tensor_dist
@@ -34,9 +34,8 @@ class UMPSDist(BaseDistribution):
         self.param_func = torch.nn.Linear(n_embd, self.tensor_train_size)
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
-        return self.positivity_func(
-            self.param_func(last_hidden_state)
-        )  # (B, T, R + R + RVR)
+        params_tilde = self.param_func(last_hidden_state)
+        return self.positivity_func(params_tilde)  # (B, T, R + R + RVR)
 
     def get_umps_params(
         self,
@@ -178,3 +177,55 @@ class UMPSDist(BaseDistribution):
         return z.reshape(batch_size, seq_len), [
             s.reshape(batch_size, seq_len) for s in scale_factors
         ]
+
+    def evaluate_at_points_and_get_norm_consts(
+        self,
+        last_hidden_state: torch.Tensor,
+        points: torch.Tensor,
+        **kwargs,
+    ):
+        """Evaluate the distribution at the given points and get the normalization constants.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
+
+        Returns:
+            tuple:
+                - torch.Tensor: Unormalized distribution `p_tilde` at the points of shape (B, T)
+                - list: Scale factors for `p_tilde`
+                - torch.Tensor: Normalization constants `z` of shape (B, T)
+                - list: Scale factors for `z`
+        """
+        batch_size, seq_len, _ = last_hidden_state.shape
+        horizon = self._get_horizon(points.size(-1))
+
+        alpha, core, beta = self.get_umps_params(
+            last_hidden_state
+        )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
+        p_tilde, p_scale_factors = select_from_umps_tensor(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len,
+                self.rank,
+                self.vocab_size,
+                self.rank,
+            ),
+            indices=points.reshape(batch_size * seq_len, -1),
+        )  # (batch_size, n_vocab)
+
+        z, z_scale_factors = sum_umps_tensorV2(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len, self.rank, self.vocab_size, self.rank
+            ),
+            n_core_repititions=horizon,
+        )
+        return (
+            p_tilde.reshape(batch_size, seq_len),
+            [s.reshape(batch_size, seq_len) for s in p_scale_factors],
+            z.reshape(batch_size, seq_len),
+            [s.reshape(batch_size, seq_len) for s in z_scale_factors],
+        )

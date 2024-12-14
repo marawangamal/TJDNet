@@ -215,3 +215,58 @@ class MPSDist(BaseDistribution):
         return z.reshape(batch_size, seq_len), [
             s.reshape(batch_size, seq_len) for s in scale_factors
         ]
+
+    def evaluate_at_points_and_get_norm_consts(
+        self,
+        last_hidden_state: torch.Tensor,
+        points: torch.Tensor,
+        **kwargs,
+    ):
+        """Evaluate the distribution at the given points and get the normalization constants.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
+            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
+
+        Returns:
+            tuple:
+                - torch.Tensor: Unormalized distribution `p_tilde` at the points of shape (B, T)
+                - list: Scale factors for `p_tilde`
+                - torch.Tensor: Normalization constants `z` of shape (B, T)
+                - list: Scale factors for `z`
+        """
+        batch_size, seq_len, _ = last_hidden_state.shape
+        horizon = self._get_horizon(points.size(-1))
+        alpha, core, beta = self.get_mps_params(
+            last_hidden_state,
+        )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
+        p_tilde, p_scale_factors = select_from_mps_tensor(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len,
+                self.horizon,
+                self.rank,
+                self.vocab_size,
+                self.rank,
+            )[:, :horizon],
+            indices=points.reshape(batch_size * seq_len, -1),
+        )  # (batch_size, n_vocab)
+
+        z, z_scale_factors = sum_mps_tensor(
+            alpha=alpha.reshape(batch_size * seq_len, self.rank),
+            beta=beta.reshape(batch_size * seq_len, self.rank),
+            core=core.reshape(
+                batch_size * seq_len,
+                self.horizon,
+                self.rank,
+                self.vocab_size,
+                self.rank,
+            )[:, :horizon],
+        )
+        return (
+            p_tilde.reshape(batch_size, seq_len),
+            [s.reshape(batch_size, seq_len) for s in p_scale_factors],
+            z.reshape(batch_size, seq_len),
+            [s.reshape(batch_size, seq_len) for s in z_scale_factors],
+        )
