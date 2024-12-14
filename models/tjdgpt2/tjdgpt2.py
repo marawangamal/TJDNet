@@ -36,7 +36,7 @@ class TJDGPT2(torch.nn.Module):
         is_full_rank: bool = False,
     ):
         super().__init__()
-        self.generate = self.generateV1
+        self.generate = self.generateV2
         self.model_name = model
         self.model_config = {
             "model": model,
