@@ -53,6 +53,7 @@ class TJDGPT2(TJD):
     def get_last_hidden_state(self, input_ids, attention_mask=None):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
+            attention_mask=attention_mask,
         )
         return transformer_outputs.last_hidden_state
 
