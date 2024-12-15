@@ -51,7 +51,7 @@ def get_test_samples(
     # do_sample=True,
     # top_k=50,
     max_new_tokens=128,
-    top_k=60000,
+    top_k=200,
     # temperature=0.8,
     num_beams=1,
     do_sample=True,
