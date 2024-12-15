@@ -1,5 +1,7 @@
-import argparse
 import os
+import argparse
+import subprocess
+
 
 import numpy as np
 import random
@@ -115,7 +117,7 @@ def parse_args():
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=128,
+        default=500,
         help="Maximum number of tokens to generate during evaluation.",
     )
     # Data Arguments
@@ -147,3 +149,24 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     # Set a fixed value for the hash seed
     os.environ["PYTHONHASHSEED"] = str(seed)
+
+
+def get_git_info():
+    try:
+        commit_hash = (
+            subprocess.check_output(["git", "rev-parse", "HEAD"])
+            .decode("ascii")
+            .strip()
+        )
+        # Get just the first line of the commit message
+        commit_message = (
+            subprocess.check_output(["git", "log", "-1", "--pretty=%s"])
+            .decode("ascii")
+            .strip()
+        )
+        return {"commit_hash": commit_hash, "commit_message": commit_message}
+    except:
+        return {
+            "commit_hash": "Git commit hash not available",
+            "commit_message": "Git commit message not available",
+        }

@@ -34,7 +34,7 @@ from torch.utils.data import DataLoader
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 from transformers import AutoTokenizer
 
-from helpers import parse_args, set_seed
+from helpers import get_git_info, parse_args, set_seed
 from models.tjdgpt2.tjdgpt2 import TJDGPT2
 from models.tjdgpt2.char_tokenizer import CharTokenizer
 from data.shakespeare import load_shakespeare_data
@@ -46,10 +46,15 @@ def get_test_samples(
     model,
     tokenizer,
     prompt="\n",
-    max_new_tokens=8,
-    num_beams=5,
+    # max_new_tokens=8,
+    # num_beams=5,
+    # do_sample=True,
+    # top_k=50,
+    max_new_tokens=128,
+    top_k=60000,
+    # temperature=0.8,
+    num_beams=1,
     do_sample=True,
-    top_k=50,
     horizon_eval=1,
     n_samples=1,
     print_output=True,
@@ -106,13 +111,14 @@ def train(
     lr=2e-5,
     warmup_steps=100,
     n_eval_samples=3,
-    max_new_tokens=8,
+    max_new_tokens=128,
     eval_before_training=True,
     save_dir="checkpoints",
     model_config={},
     horizon_eval=1,
     grad_clip_val=None,
     use_loss_scale=False,
+    wandb_run=None,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -129,15 +135,8 @@ def train(
 
     epochs_range = range(num_epochs + 1) if eval_before_training else range(num_epochs)
     start_time = time.time()
+    text_table = wandb.Table(columns=["epoch", "eval/nll", "text"])
     for epoch in epochs_range:
-        get_test_samples(
-            model,
-            tokenizer,
-            max_new_tokens=max_new_tokens,
-            horizon_eval=horizon_eval,
-            n_samples=n_eval_samples,
-            print_output=True,
-        )
         train_loss_meter = AverageMeter()  # Create new meter each epoch
         train_nll_meter = AverageMeter()
         model.train()
@@ -199,10 +198,24 @@ def train(
         wandb.log({"eval/loss": eval_loss, "train/epoch": epoch})
         wandb.log({"eval/nll": eval_nll, "train/epoch": epoch})
 
+        sample = get_test_samples(
+            model,
+            tokenizer,
+            max_new_tokens=max_new_tokens,
+            horizon_eval=horizon_eval,
+            print_output=True,
+        )
+        text_table.add_data(epoch, eval_nll, sample)
+
+    if wandb_run is not None:
+        print("Number of rows in table:", len(text_table.data))
+        wandb_run.log({"training_samples": text_table})
+
 
 if __name__ == "__main__":
 
     args = parse_args()
+    git_info = get_git_info()
     set_seed(args.seed)
 
     # Configuration
@@ -255,9 +268,9 @@ if __name__ == "__main__":
     }
     model = TJDGPT2(**model_config)
 
-    wandb.init(
-        project="tjdnet-shakepeare-dev",
-        config=vars(args),
+    wandb_run = wandb.init(
+        project="tjdnet-shakepeare-debug",
+        config={**vars(args), **git_info},
         name=exp_name,
     )
 
@@ -274,14 +287,8 @@ if __name__ == "__main__":
         horizon_eval=args.horizon_eval,
         grad_clip_val=args.grad_clip_val,
         use_loss_scale=args.scale_loss,
+        wandb_run=wandb_run,
     )
 
     # Generate a test sample
-    print(f"\nTest sample:")
-    get_test_samples(
-        model,
-        tokenizer,
-        max_new_tokens=args.max_new_tokens,
-        horizon_eval=args.horizon_eval,
-        print_output=True,
-    )
+    final_sample = get_test_samples(model, tokenizer, print_output=False)
