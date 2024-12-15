@@ -219,7 +219,7 @@ def main():
 
     # Initialize models
     models = {
-        k: TJDGPT2(**model_config, model=k, horizon=h).to(args.device)
+        k: TJDGPT2(**model_config, model_head=k, horizon=h).to(args.device)
         for k, h in [
             ("base", 1),
             ("cp", args.horizon),

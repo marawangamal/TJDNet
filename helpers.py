@@ -9,6 +9,7 @@ import random
 import torch
 
 
+# TODO: change horizon, horizon_eval to train_horizon, eval_horizon and eval_horizon should default to train_horizon if not specified
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
     # Training arguments
@@ -38,7 +39,7 @@ def parse_args():
     )
     # Model arguments
     parser.add_argument(
-        "--model",
+        "--model_head",
         type=str,
         default="mps",
         help="Type of factorization to use for the model.",

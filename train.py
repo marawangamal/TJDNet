@@ -249,7 +249,7 @@ if __name__ == "__main__":
 
     # Model
     model_config = {
-        "model": args.model,
+        "model_head": args.model_head,
         "vocab_size": (
             len(tokenizer.get_vocab())
             if hasattr(tokenizer, "get_vocab")
