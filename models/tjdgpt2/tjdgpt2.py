@@ -288,7 +288,8 @@ class TJDGPT2(torch.nn.Module):
         )  # (B, T-H)
 
         # Train loss
-        nll = loss[:, ::horizon]  # batch and seq mean of negative log likelihood
+        # NLL computation requires only each horizon-th element
+        nll = loss if use_memory_efficient_loss else loss[:, ::horizon]
         reduct_fn = {
             "mean": torch.mean,
             "sum": torch.sum,
