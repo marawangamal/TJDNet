@@ -1,4 +1,4 @@
-from models.tjdgpt2.tjd import TJD
+from models._tjd import TJD
 
 from transformers import (
     GPT2Config,

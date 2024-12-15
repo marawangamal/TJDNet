@@ -33,8 +33,8 @@ from transformers import AutoTokenizer
 from transformers import Trainer, TrainingArguments
 
 from helpers import parse_args, set_seed
-from models.tjdgpt2.tjdgpt2 import TJDGPT2
-from models.tjdgpt2.char_tokenizer import CharTokenizer
+from models.tjdgpt2 import TJDGPT2
+from ctokenizers.char_tokenizer import CharTokenizer
 from data.shakespeare import load_shakespeare_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
