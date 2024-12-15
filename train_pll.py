@@ -23,164 +23,21 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 """
 
-from math import e
 from typing import Dict, Any
 import os.path as osp
 import os
-import numpy as np
-import random
-import argparse
 import wandb
 
-import torch
-from transformers import DataCollatorForLanguageModeling, get_scheduler
+from transformers import DataCollatorForLanguageModeling
 from transformers import AutoTokenizer
 from transformers import Trainer, TrainingArguments
 
-from data.shakespeare import load_shakespeare_data
-from data.wikitext import load_wikitext_data
+from helpers import parse_args, set_seed
 from models.tjdgpt2.tjdgpt2 import TJDGPT2
 from models.tjdgpt2.char_tokenizer import CharTokenizer
+from data.shakespeare import load_shakespeare_data
+from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
-    parser.add_argument(
-        "--epochs", type=int, default=10, help="Number of training epochs."
-    )
-    parser.add_argument(
-        "--lr", type=float, default=1e-3, help="Learning rate for training."
-    )
-    parser.add_argument(
-        "--warmup_steps",
-        type=int,
-        default=100,
-        help="Number of warmup steps for learning rate scheduler.",
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=8,
-        help="Batch size for training and evaluation.",
-    )
-    parser.add_argument(
-        "--grad_clip_val",
-        type=float,
-        default=None,
-        help="Gradient clipping value for training.",
-    )
-    parser.add_argument(
-        "--scale_loss",
-        default=False,
-        action="store_true",
-        help="Whether to scale the loss during training.",
-    )
-    parser.add_argument(
-        "--seq_len",
-        type=int,
-        default=256,
-        help="Block size for model input sequences.",
-    )
-    parser.add_argument(
-        "--n_embd",
-        type=int,
-        default=384,
-        help="Dimensionality of the model embeddings.",
-    )
-    parser.add_argument(
-        "--n_layer",
-        type=int,
-        default=6,
-        help="Number of hidden layers in the transformer model.",
-    )
-    parser.add_argument(
-        "--n_head",
-        type=int,
-        default=6,
-        help="Number of attention heads in the transformer model.",
-    )
-    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="cp",
-        help="Type of factorization to use for the model.",
-        choices=[
-            "cp",
-            "mps",
-            "umps",
-            "full",
-            "base",
-        ],
-    )
-    parser.add_argument(
-        "--tokenizer_type",
-        type=str,
-        default="word",
-        help="Type of tokenizer to use for processing text.",
-        choices=["char", "word"],
-    )
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        default="shakespeare",
-        help="Type of dataset to use for training.",
-        choices=[
-            "shakespeare",
-            "wikitext",
-        ],
-    )
-    parser.add_argument(
-        "--positivity_func",
-        type=str,
-        default="exp",
-        choices=["sq", "abs", "exp"],
-        help="Positivity function to use for MPSDist.",
-    )
-
-    parser.add_argument(
-        "--rank",
-        type=int,
-        default=4,
-        help="Rank of the tensor train decomposition.",
-    )
-    parser.add_argument(
-        "--horizon",
-        type=int,
-        default=2,
-        help="Block size for model input sequences.",
-    )
-    # Evaluation only arguments
-    parser.add_argument(
-        "--horizon_eval",
-        type=int,
-        default=1,
-        help="Block size for model input sequences.",
-    )
-    parser.add_argument(
-        "--max_new_tokens",
-        type=int,
-        default=128,
-        help="Maximum number of tokens to generate during evaluation.",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42, help="Random seed for reproducibility"
-    )
-    return parser.parse_args()
-
-
-def set_seed(seed):
-    """Set random seeds for reproducibility"""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    # When running on the CuDNN backend, two further options must be set
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    # Set a fixed value for the hash seed
-    os.environ["PYTHONHASHSEED"] = str(seed)
 
 
 def get_test_samples(
@@ -188,10 +45,9 @@ def get_test_samples(
     tokenizer,
     prompt="\n",
     max_new_tokens=8,
-    # top_k=200,
-    # temperature=0.8,
-    num_beams=1,
-    do_sample=False,
+    top_k=200,
+    num_beams=5,
+    do_sample=True,
     horizon_eval=1,
     n_samples=1,
     print_output=True,
@@ -207,6 +63,7 @@ def get_test_samples(
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
             horizon=horizon_eval,
+            top_k=top_k,
         )
         sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
         if n_samples == 1:
@@ -282,9 +139,8 @@ def main():
         max_grad_norm=args.grad_clip_val,
         eval_on_start=True,
         # Logging
-        logging_strategy="steps",  # When to log: "steps", "epoch", or "no"
-        logging_steps=100,  # Log every N steps (if strategy="steps")
-        logging_first_step=True,  # Log the first step
+        logging_strategy="epoch",  # Changed from "steps" to "epoch"
+        logging_first_step=True,
         # Checkpoints
         save_strategy="no",  # Disable saving
         # Evaluation
@@ -296,7 +152,7 @@ def main():
     # Initialize wandb only on main process
     if training_args.local_rank == 0:  # main process
         wandb.init(
-            project="tjdnet-shakepeare-prod",
+            project="tjdnet-shakepeare-dev",
             name=exp_name,
         )
 

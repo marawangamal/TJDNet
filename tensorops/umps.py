@@ -4,10 +4,6 @@ import line_profiler
 from tensorops.common import get_breakpoints, mps_to_tensor
 
 
-# TODO: Try with gather
-# TODO: try this -> core_select.contiguous()
-# TODO: try torch.bmm
-# Make contiguous
 def select_from_umps_tensor(
     alpha: torch.Tensor,
     beta: torch.Tensor,
@@ -25,24 +21,24 @@ def select_from_umps_tensor(
     Returns:
         torch.Tensor: Selected elements of shape (B,)
     """
-    batch_size, rank_size, vocab_size, _ = core.shape
+    batch_size, rank_size, _, _ = core.shape
     result = alpha
     scale_factors = []
     for t in range(indices.shape[1]):
-        core_reshape = core.permute(
-            0,
-            1,
-            3,
-            2,
-        ).reshape(-1, vocab_size)
         indices_repeated = (
             indices[:, t]
             .reshape(-1, 1, 1, 1)
-            .repeat(1, rank_size, rank_size, 1)
-            .reshape(-1, 1)
+            .repeat(
+                1,
+                rank_size,
+                1,
+                rank_size,
+            )
         )
         core_select = torch.gather(
-            core_reshape, 1, indices_repeated
+            core,
+            dim=2,
+            index=indices_repeated,
         )  # (BRR, D) -> (BRR, 1)
         core_select = core_select.contiguous()
         result_raw = torch.einsum(
@@ -55,7 +51,6 @@ def select_from_umps_tensor(
     return result, scale_factors
 
 
-# @line_profiler.profile
 def sum_umps_tensorV2(
     alpha: torch.Tensor,
     beta: torch.Tensor,

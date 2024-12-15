@@ -154,6 +154,9 @@ def mps_to_tensor(
         alpha (torch.Tensor): Alpha tensor of shape (R)
         beta (torch.Tensor): Beta tensor of shape (R)
         core (torch.Tensor): Core tensor of shape (H, R, D, R)
+
+    Returns:
+        torch.Tensor: Tensor representation of shape (D,) * H
     """
     full_shape = [core.size(2)] * core.size(0)
     result = torch.einsum("r, rdj -> dj", alpha, core[0])

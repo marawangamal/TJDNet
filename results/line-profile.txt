@@ -1,227 +1,179 @@
-kernprof -lv scripts/model_latency_benchmark.py --seq_len 256 --batch_size 8 --mode train --model cp --horizon 4 --rank 8
-Total time: 2.594 s
-File: /Users/marawangamal/Documents/github/TJDNet/distributions/cp.py
-Function: _get_pos_params at line 46
+BASE
+Total time: 0.962661 s
+File: /Users/marawangamal/Documents/github/TJDNet/models/tjdgpt2/tjdgpt2.py
+Function: forward at line 223
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   223                                               @line_profiler.profile
+   224                                               def forward(
+   225                                                   self,
+   226                                                   input_ids: torch.Tensor,
+   227                                                   labels: torch.Tensor,
+   228                                                   horizon: Optional[int] = None,
+   229                                                   reduce="mean",
+   230                                                   use_memory_efficient_loss: bool = False,
+   231                                                   **kwargs,
+   232                                               ) -> Dict[str, torch.Tensor]:
+   233                                                   """Forward pass of the model.
+   234                                           
+   235                                                   Args:
+   236                                                       input_ids (torch.Tensor): Tensor of shape (B, T)
+   237                                                       labels (torch.Tensor): Tensor of shape (B, T)
+   238                                                       horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+   239                                           
+   240                                                   Note:
+   241                                                       The horizon applied in the forward pass is the minimum of the model level horizon and the horizon passed as an argument.
+   242                                           
+   243                                                   Returns:
+   244                                                       torch.Tensor: Loss value.
+   245                                                   """
+   246                                           
+   247                                                   # Sequence length must be greater than horizon
+   248         2          1.0      0.5      0.0          assert (
+   249         2          4.0      2.0      0.0              input_ids.size(1) > self.horizon
+   250                                                   ), "Sequence length must be greater than horizon"
+   251                                           
+   252         2          2.0      1.0      0.0          batch_size, _ = input_ids.size()
+   253         2          4.0      2.0      0.0          horizon = self._get_horizon(horizon)
+   254                                           
+   255         2     579238.0 289619.0     60.2          last_hidden_state = self._get_last_hidden_state(input_ids)
+   256         4       1763.0    440.8      0.2          targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
+   257         2          0.0      0.0      0.0              batch_size, -1, horizon
+   258                                                   )  # (B, T-H, H)
+   259                                           
+   260         2          2.0      1.0      0.0          assert targets.size(1) >= horizon, "Invalid targets"
+   261                                           
+   262         2        156.0     78.0      0.0          last_hidden_state_ds = last_hidden_state[:, :-horizon]  # (B, T-H, D)
+   263         2          0.0      0.0      0.0          targets_ds = targets  # (B, T-H, H)
+   264         2          0.0      0.0      0.0          if use_memory_efficient_loss:
+   265                                                       # Downsample hidden states and targets
+   266                                                       last_hidden_state_ds = last_hidden_state_ds[:, ::horizon]
+   267                                                       targets_ds = targets[:, ::horizon]
+   268                                           
+   269         4     192091.0  48022.8     20.0          p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
+   270         2          0.0      0.0      0.0              last_hidden_state_ds, targets_ds
+   271                                                   )  # (B, T-H)
+   272                                           
+   273         4     184731.0  46182.8     19.2          norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(
+   274         2          0.0      0.0      0.0              last_hidden_state_ds, horizon=horizon
+   275                                                   )  # (B, T-H)
+   276                                           
+   277                                                   # Health checks
+   278                                                   # 1. Ensure no NaNs
+   279         2       1098.0    549.0      0.1          assert not torch.isnan(p_tilde).any(), "p_tilde NaN"
+   280         2         11.0      5.5      0.0          assert not torch.isnan(norm_const).any(), "norm_const NaN"
+   281                                                   # 2. Ensure p_tilde < norm_const (if no scale factors)
+   282         2          3.0      1.5      0.0          if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
+   283         2       1110.0    555.0      0.1              assert (p_tilde < norm_const).all(), "p_tilde < norm_const"
+   284                                           
+   285         2          0.0      0.0      0.0          loss = (
+   286         8       1743.0    217.9      0.2              -torch.log(p_tilde + self.eps)
+   287         2          8.0      4.0      0.0              + torch.log(norm_const)
+   288                                                       # Contraction Stability Scale Factors
+   289         2          6.0      3.0      0.0              - sum([torch.log(z) for z in p_tilde_scale_factors])
+   290         2          2.0      1.0      0.0              + sum([torch.log(z) for z in norm_const_scale_factors])
+   291                                                   )  # (B, T-H)
+   292                                           
+   293                                                   # Train loss
+   294         2         29.0     14.5      0.0          nll = loss[:, ::horizon]  # batch and seq mean of negative log likelihood
+   295         4          4.0      1.0      0.0          reduct_fn = {
+   296         2          3.0      1.5      0.0              "mean": torch.mean,
+   297         2          1.0      0.5      0.0              "sum": torch.sum,
+   298         2          0.0      0.0      0.0              "none": lambda x: x,
+   299         2          1.0      0.5      0.0          }[reduce]
+   300         2          1.0      0.5      0.0          return {
+   301         2        592.0    296.0      0.1              "loss": reduct_fn(loss.sum(dim=-1)),
+   302         2         17.0      8.5      0.0              "nll": reduct_fn(nll.sum(dim=-1)),
+   303         2         40.0     20.0      0.0              "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
+
+
+Total time: 1.92557 s
+File: /Users/marawangamal/Documents/github/TJDNet/models/tjdgpt2/tjdgpt2.py
+Function: forward at line 223
+
+CP
 
 Line #      Hits         Time  Per Hit   % Time  Line Contents
 ==============================================================
-    46                                               @line_profiler.profile
-    47                                               def _get_pos_params(
-    48                                                   self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None
-    49                                               ):
-    50       220        109.0      0.5      0.0          batch_size, seq_len, _ = last_hidden_state.size()
-    51                                                   # params = self.positivity_func(self.param_func(last_hidden_state))
-    52       220     672860.0   3058.5     25.9          params = self.param_func(last_hidden_state)
-    53       220    1915184.0   8705.4     73.8          params = self.positivity_func(params)
-    54       440       2266.0      5.2      0.1          params_reshaped = params.reshape(
-    55       220        312.0      1.4      0.0              batch_size, seq_len, self.rank, self.horizon, self.vocab_size
-    56                                                   )
-    57       220         92.0      0.4      0.0          if horizon is not None:
-    58       220       3180.0     14.5      0.1              return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
-    59                                                   return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
-
-
-kernprof -lv scripts/model_latency_benchmark.py --seq_len 256 --batch_size 8 --mode train --model mps --horizon 4 --rank 8
-Total time: 23.0134 s
-File: /Users/marawangamal/Documents/github/TJDNet/distributions/mps.py
-Function: _get_pos_params at line 40
-
-Line #      Hits         Time  Per Hit   % Time  Line Contents
-==============================================================
-    40                                               @line_profiler.profile
-    41                                               def _get_pos_params(self, last_hidden_state: torch.Tensor):
-    42       220        267.0      1.2      0.0          batch_size, seq_len, _ = last_hidden_state.shape
-    43                                                   # core = self.positivity_func(self.param_func_core(last_hidden_state)).reshape(
-    44                                                   #     batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
-    45                                                   # )  # (B, T, HRVR)
-    46       220    6939789.0  31544.5     30.2          core = self.param_func_core(last_hidden_state)
-    47       220   16055166.0  72978.0     69.8          core = self.positivity_func(core)
-    48       440       3602.0      8.2      0.0          core = core.reshape(
-    49       220        421.0      1.9      0.0              batch_size, seq_len, self.horizon, self.rank, self.vocab_size, self.rank
-    50                                                   )
-    51       440        873.0      2.0      0.0          alpha = (
-    52       660       8737.0     13.2      0.0              self.positivity_func(self.alpha)
-    53       220         68.0      0.3      0.0              .reshape(1, 1, self.rank)
-    54       220         36.0      0.2      0.0              .repeat(batch_size, seq_len, 1)
-    55       220        531.0      2.4      0.0          ).to(last_hidden_state.device)
-    56       440        161.0      0.4      0.0          beta = (
-    57       660       3418.0      5.2      0.0              self.positivity_func(self.beta)
-    58       220         35.0      0.2      0.0              .reshape(1, 1, self.rank)
-    59       220         22.0      0.1      0.0              .repeat(batch_size, seq_len, 1)
-    60       220         56.0      0.3      0.0          ).to(last_hidden_state.device)
-    61       220        129.0      0.6      0.0          return (
-    62       220         30.0      0.1      0.0              alpha,  # (B, T, R)
-    63       220         30.0      0.1      0.0              core,  # (B, T, H, R, V, R)
-    64       220         37.0      0.2      0.0              beta,  # (B, T, R)
-    65                                                   )
-
-
-
-
-
-
-
-
-
-** evaluate_at_points **
-
-Total time: 1.40632 s
-File: /Users/marawangamal/Documents/github/TJDNet/distributions/cp.py
-Function: evaluate_at_points at line 107
-
-Line #      Hits         Time  Per Hit   % Time  Line Contents
-==============================================================
-   109                                               @line_profiler.profile
-   110                                               def evaluate_at_points(
-   111                                                   self,
-   112                                                   last_hidden_state: torch.Tensor,
-   113                                                   points: torch.Tensor,
-   114                                                   **kwargs,
-   115                                               ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-   116                                                   """Evaluate the distribution at the given points.
-   117                                           
-   118                                                   Args:
-   119                                                       last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-   120                                                       points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
-   121                                                       horizon (int, optional): Number of steps to consider. Defaults to model horizon.
-   122                                           
-   123                                                   Returns:
-   124                                                       Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B, H) and scale_tensors (empty list)
-   125                                                   """
-   126                                                   # Get indexed distribution
-   127       110        117.0      1.1      0.0          batch_size, seq_len, _ = last_hidden_state.size()
-   128       110         49.0      0.4      0.0          horizon = points.size(-1)
-   129       110    1325919.0  12053.8     94.3          params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-   130                                                   # (B, T, R, H, V) => (B, T)
-   131       110       4283.0     38.9      0.3          with profiler.record_function("select_from_cp_tensor"):
-   132       220      73091.0    332.2      5.2              p_tilde = select_from_cp_tensor(
-   133       220        284.0      1.3      0.0                  params.reshape(
-   134       110         89.0      0.8      0.0                      batch_size * seq_len, self.rank, horizon, self.vocab_size
-   135                                                           ),
-   136       110        181.0      1.6      0.0                  points.reshape(batch_size * seq_len, horizon),
-   137                                                       )
-   138       110       2304.0     20.9      0.2              return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
-
-
-
-Total time: 13.5226 s
-File: /Users/marawangamal/Documents/github/TJDNet/distributions/mps.py
-Function: evaluate_at_points at line 99
-
-Line #      Hits         Time  Per Hit   % Time  Line Contents
-==============================================================
-    99                                               @line_profiler.profile
-   100                                               def evaluate_at_points(
-   101                                                   self,
-   102                                                   last_hidden_state: torch.Tensor,
-   103                                                   points: torch.Tensor,
-   104                                                   **kwargs,
-   105                                               ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-   106                                                   """Evaluate the distribution at the given points.
-   107                                           
-   108                                                   Args:
-   109                                                       last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-   110                                                       points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
-   111                                                       horizon (int, optional): Number of steps to consider. Defaults to model horizon.
-   112                                           
-   113                                                   Returns:
-   114                                                       Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B*H) and scale_tensors (empty list)
-   115                                                   """
-   116       110        100.0      0.9      0.0          batch_size, seq_len, _ = last_hidden_state.shape
-   117       110        254.0      2.3      0.0          horizon = self._get_horizon(points.size(-1))
-   118       220   11525868.0  52390.3     85.2          alpha, core, beta = self._get_pos_params(
-   119       110         19.0      0.2      0.0              last_hidden_state
-   120                                                   )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
-   121       220    1993054.0   9059.3     14.7          p_tilde, scale_factors = select_from_mps_tensor(
-   122       110        190.0      1.7      0.0              alpha=alpha.reshape(batch_size * seq_len, self.rank),
-   123       110        109.0      1.0      0.0              beta=beta.reshape(batch_size * seq_len, self.rank),
-   124       330       1347.0      4.1      0.0              core=core.reshape(
-   125       110         20.0      0.2      0.0                  batch_size * seq_len,
-   126       110         20.0      0.2      0.0                  self.horizon,
-   127       110         12.0      0.1      0.0                  self.rank,
-   128       110         19.0      0.2      0.0                  self.vocab_size,
-   129       110         17.0      0.2      0.0                  self.rank,
-   130       110         73.0      0.7      0.0              )[:, :horizon],
-   131       110        179.0      1.6      0.0              indices=points.reshape(batch_size * seq_len, -1),
-   132                                                   )  # (batch_size, n_vocab)
-   133       220       1301.0      5.9      0.0          return p_tilde.reshape(batch_size, seq_len), [
-   134       110         13.0      0.1      0.0              s.reshape(batch_size, seq_len) for s in scale_factors
-   135                                                   ]
-
-
-
-
-** get_norm_consts **
-
-
-Total time: 1.58947 s
-File: /Users/marawangamal/Documents/github/TJDNet/distributions/cp.py
-Function: get_norm_consts at line 140
-
-Line #      Hits         Time  Per Hit   % Time  Line Contents
-==============================================================
-   140                                               @line_profiler.profile
-   141                                               def get_norm_consts(
-   142                                                   self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
-   143                                               ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-   144                                                   """Get the normalization constants for the BT distributions.
-   145                                           
-   146                                                   Args:
-   147                                                       last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-   148                                           
-   149                                                   Returns:
-   150                                                       Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
-   151                                                   """
-   152       110        133.0      1.2      0.0          batch_size, seq_len, _ = last_hidden_state.size()
-   153       110        200.0      1.8      0.0          horizon = self._get_horizon(horizon)
-   154                                                   # Get indexed distribution
-   155       110    1258634.0  11442.1     79.2          params = self._get_pos_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-   156       110       3590.0     32.6      0.2          with profiler.record_function("normalize_cp_tensor"):
-   157       220     323427.0   1470.1     20.3              norm_consts = sum_cp_tensor(
-   158       220        314.0      1.4      0.0                  cp_params=params.reshape(
-   159       110         73.0      0.7      0.0                      batch_size * seq_len, self.rank, horizon, self.vocab_size
-   160                                                           ),
-   161                                                       )
-   162       110       2465.0     22.4      0.2              return (
-   163       110        572.0      5.2      0.0                  norm_consts.reshape(batch_size, seq_len),  # (B, T)
-   164       110         63.0      0.6      0.0                  [],
-   165                                                       )
-
-
-Total time: 11.8337 s
-File: /Users/marawangamal/Documents/github/TJDNet/distributions/mps.py
-Function: get_norm_consts at line 137
-
-Line #      Hits         Time  Per Hit   % Time  Line Contents
-==============================================================
-   137                                               @line_profiler.profile
-   138                                               def get_norm_consts(
-   139                                                   self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
-   140                                               ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-   141                                                   """Get the normalization constants for the BT distributions.
-   142                                           
-   143                                                   Args:
-   144                                                       last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-   145                                           
-   146                                                   Returns:
-   147                                                       Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
-   148                                                   """
-   149       110        240.0      2.2      0.0          horizon = self._get_horizon(horizon)
-   150       220   11227807.0  51035.5     94.9          alpha, core, beta = self._get_pos_params(
-   151       110         21.0      0.2      0.0              last_hidden_state
-   152                                                   )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
-   153       110        226.0      2.1      0.0          batch_size, seq_len, _ = last_hidden_state.shape
-   154       220     600826.0   2731.0      5.1          z, scale_factors = sum_mps_tensor(
-   155       110        200.0      1.8      0.0              alpha=alpha.reshape(batch_size * seq_len, self.rank),
-   156       110        102.0      0.9      0.0              beta=beta.reshape(batch_size * seq_len, self.rank),
-   157       330       1352.0      4.1      0.0              core=core.reshape(
-   158       110         19.0      0.2      0.0                  batch_size * seq_len,
-   159       110         30.0      0.3      0.0                  self.horizon,
-   160       110         16.0      0.1      0.0                  self.rank,
-   161       110         16.0      0.1      0.0                  self.vocab_size,
-   162       110         11.0      0.1      0.0                  self.rank,
-   163       110         51.0      0.5      0.0              )[:, :horizon],
-   164                                                   )
-   165       220       2745.0     12.5      0.0          return z.reshape(batch_size, seq_len), [
-   166       110         25.0      0.2      0.0              s.reshape(batch_size, seq_len) for s in scale_factors
-   167                                                   ]
+   223                                               @line_profiler.profile
+   224                                               def forward(
+   225                                                   self,
+   226                                                   input_ids: torch.Tensor,
+   227                                                   labels: torch.Tensor,
+   228                                                   horizon: Optional[int] = None,
+   229                                                   reduce="mean",
+   230                                                   use_memory_efficient_loss: bool = False,
+   231                                                   **kwargs,
+   232                                               ) -> Dict[str, torch.Tensor]:
+   233                                                   """Forward pass of the model.
+   234                                           
+   235                                                   Args:
+   236                                                       input_ids (torch.Tensor): Tensor of shape (B, T)
+   237                                                       labels (torch.Tensor): Tensor of shape (B, T)
+   238                                                       horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+   239                                           
+   240                                                   Note:
+   241                                                       The horizon applied in the forward pass is the minimum of the model level horizon and the horizon passed as an argument.
+   242                                           
+   243                                                   Returns:
+   244                                                       torch.Tensor: Loss value.
+   245                                                   """
+   246                                           
+   247                                                   # Sequence length must be greater than horizon
+   248         2          0.0      0.0      0.0          assert (
+   249         2         10.0      5.0      0.0              input_ids.size(1) > self.horizon
+   250                                                   ), "Sequence length must be greater than horizon"
+   251                                           
+   252         2          2.0      1.0      0.0          batch_size, _ = input_ids.size()
+   253         2         16.0      8.0      0.0          horizon = self._get_horizon(horizon)
+   254                                           
+   255         2     457729.0 228864.5     23.8          last_hidden_state = self._get_last_hidden_state(input_ids)
+   256         4        300.0     75.0      0.0          targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
+   257         2          0.0      0.0      0.0              batch_size, -1, horizon
+   258                                                   )  # (B, T-H, H)
+   259                                           
+   260         2          2.0      1.0      0.0          assert targets.size(1) >= horizon, "Invalid targets"
+   261                                           
+   262         2         14.0      7.0      0.0          last_hidden_state_ds = last_hidden_state[:, :-horizon]  # (B, T-H, D)
+   263         2          1.0      0.5      0.0          targets_ds = targets  # (B, T-H, H)
+   264         2          0.0      0.0      0.0          if use_memory_efficient_loss:
+   265                                                       # Downsample hidden states and targets
+   266                                                       last_hidden_state_ds = last_hidden_state_ds[:, ::horizon]
+   267                                                       targets_ds = targets[:, ::horizon]
+   268                                           
+   269         4     664416.0 166104.0     34.5          p_tilde, p_tilde_scale_factors = self.model_head.evaluate_at_points(
+   270         2          1.0      0.5      0.0              last_hidden_state_ds, targets_ds
+   271                                                   )  # (B, T-H)
+   272                                           
+   273         4     802621.0 200655.2     41.7          norm_const, norm_const_scale_factors = self.model_head.get_norm_consts(
+   274         2          1.0      0.5      0.0              last_hidden_state_ds, horizon=horizon
+   275                                                   )  # (B, T-H)
+   276                                           
+   277                                                   # Health checks
+   278                                                   # 1. Ensure no NaNs
+   279         2         91.0     45.5      0.0          assert not torch.isnan(p_tilde).any(), "p_tilde NaN"
+   280         2         10.0      5.0      0.0          assert not torch.isnan(norm_const).any(), "norm_const NaN"
+   281                                                   # 2. Ensure p_tilde < norm_const (if no scale factors)
+   282         2          2.0      1.0      0.0          if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
+   283         2         65.0     32.5      0.0              assert (p_tilde < norm_const).all(), "p_tilde < norm_const"
+   284                                           
+   285         2          0.0      0.0      0.0          loss = (
+   286         8        126.0     15.8      0.0              -torch.log(p_tilde + self.eps)
+   287         2          6.0      3.0      0.0              + torch.log(norm_const)
+   288                                                       # Contraction Stability Scale Factors
+   289         2         15.0      7.5      0.0              - sum([torch.log(z) for z in p_tilde_scale_factors])
+   290         2          2.0      1.0      0.0              + sum([torch.log(z) for z in norm_const_scale_factors])
+   291                                                   )  # (B, T-H)
+   292                                           
+   293                                                   # Train loss
+   294         2         22.0     11.0      0.0          nll = loss[:, ::horizon]  # batch and seq mean of negative log likelihood
+   295         4          3.0      0.8      0.0          reduct_fn = {
+   296         2          1.0      0.5      0.0              "mean": torch.mean,
+   297         2          1.0      0.5      0.0              "sum": torch.sum,
+   298         2          1.0      0.5      0.0              "none": lambda x: x,
+   299         2          0.0      0.0      0.0          }[reduce]
+   300         2          2.0      1.0      0.0          return {
+   301         2         51.0     25.5      0.0              "loss": reduct_fn(loss.sum(dim=-1)),
+   302         2         13.0      6.5      0.0              "nll": reduct_fn(nll.sum(dim=-1)),
+   303         2         42.0     21.0      0.0              "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
+   304                                                   }

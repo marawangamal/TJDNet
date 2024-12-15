@@ -10,12 +10,33 @@ class BaseDistribution(ABC, torch.nn.Module):
         """
         super().__init__()
         self.horizon = horizon
+        self.cache = {}
 
     def _get_horizon(self, horizon: Optional[int]):
         horizon = self.horizon if horizon is None else horizon
         if horizon > self.horizon:
             raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
         return horizon
+
+    def _get_params_from_cache(
+        self,
+        last_hidden_state: torch.Tensor,
+        use_cache: bool,
+        save_cache: bool,
+        **kwargs,
+    ) -> torch.Tensor:
+        params = None
+        if use_cache and "hidden_state" in self.cache:
+            params = self.cache["hidden_state"]
+        else:
+            params = self._get_params(last_hidden_state)
+            if save_cache:
+                self.cache["hidden_state"] = params
+        return params
+
+    @abstractmethod
+    def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
+        pass
 
     @abstractmethod
     def get_norm_consts(
@@ -50,17 +71,23 @@ class BaseDistribution(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
-    def generate(
-        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
-    ) -> torch.Tensor:
-        """
-        Generate sequences based on the distribution.
+    def get_dist(
+        self,
+        hidden_state: torch.Tensor,
+        ops: torch.Tensor,
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        """Get distribution specified by ops.
 
         Args:
-            last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
-            horizon (int): Number of steps to generate.
+            last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
+            ops (torch.Tensor): Operation codes of shape (T,) specifying:
+                -2: marginalize mode (sum reduction)
+                -1: keep mode as free index
+                [0,V): select index v in mode
 
         Returns:
-            torch.Tensor: Generated sequences of shape (B, H).
+            Tuple[torch.Tensor, List[torch.Tensor]]:
+                - Distribution specified by ops
+                - List of scale factors
         """
         pass

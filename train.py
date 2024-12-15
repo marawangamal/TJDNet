@@ -25,174 +25,36 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 import os.path as osp
 import os
-import numpy as np
-import random
-import argparse
+import time
 from tqdm import tqdm
 
 import torch
 import wandb
 from torch.utils.data import DataLoader
-from torch.nn import DataParallel
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 from transformers import AutoTokenizer
 
-from data.shakespeare import load_shakespeare_data
-from data.wikitext import load_wikitext_data
+from helpers import get_git_info, parse_args, set_seed
 from models.tjdgpt2.tjdgpt2 import TJDGPT2
 from models.tjdgpt2.char_tokenizer import CharTokenizer
-from utils import get_experiment_name
-from utils.average_meter import AverageMeter
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
-    parser.add_argument(
-        "--epochs", type=int, default=10, help="Number of training epochs."
-    )
-    parser.add_argument(
-        "--lr", type=float, default=1e-3, help="Learning rate for training."
-    )
-    parser.add_argument(
-        "--warmup_steps",
-        type=int,
-        default=100,
-        help="Number of warmup steps for learning rate scheduler.",
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=8,
-        help="Batch size for training and evaluation.",
-    )
-    parser.add_argument(
-        "--grad_clip_val",
-        type=float,
-        default=None,
-        help="Gradient clipping value for training.",
-    )
-    parser.add_argument(
-        "--scale_loss",
-        default=False,
-        action="store_true",
-        help="Whether to scale the loss during training.",
-    )
-    parser.add_argument(
-        "--seq_len",
-        type=int,
-        default=256,
-        help="Block size for model input sequences.",
-    )
-    parser.add_argument(
-        "--n_embd",
-        type=int,
-        default=384,
-        help="Dimensionality of the model embeddings.",
-    )
-    parser.add_argument(
-        "--n_layer",
-        type=int,
-        default=6,
-        help="Number of hidden layers in the transformer model.",
-    )
-    parser.add_argument(
-        "--n_head",
-        type=int,
-        default=6,
-        help="Number of attention heads in the transformer model.",
-    )
-    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="cp",
-        help="Type of factorization to use for the model.",
-        choices=[
-            "cp",
-            "mps",
-            "umps",
-            "full",
-            "base",
-        ],
-    )
-    parser.add_argument(
-        "--tokenizer_type",
-        type=str,
-        default="word",
-        help="Type of tokenizer to use for processing text.",
-        choices=["char", "word"],
-    )
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        default="shakespeare",
-        help="Type of dataset to use for training.",
-        choices=[
-            "shakespeare",
-            "wikitext",
-        ],
-    )
-    parser.add_argument(
-        "--positivity_func",
-        type=str,
-        default="exp",
-        choices=["sq", "abs", "exp"],
-        help="Positivity function to use for MPSDist.",
-    )
-
-    parser.add_argument(
-        "--rank",
-        type=int,
-        default=4,
-        help="Rank of the tensor train decomposition.",
-    )
-    parser.add_argument(
-        "--horizon",
-        type=int,
-        default=2,
-        help="Block size for model input sequences.",
-    )
-    # Evaluation only arguments
-    parser.add_argument(
-        "--horizon_eval",
-        type=int,
-        default=1,
-        help="Block size for model input sequences.",
-    )
-    parser.add_argument(
-        "--max_new_tokens",
-        type=int,
-        default=128,
-        help="Maximum number of tokens to generate during evaluation.",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42, help="Random seed for reproducibility"
-    )
-    return parser.parse_args()
-
-
-def set_seed(seed):
-    """Set random seeds for reproducibility"""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    # When running on the CuDNN backend, two further options must be set
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    # Set a fixed value for the hash seed
-    os.environ["PYTHONHASHSEED"] = str(seed)
+from data.shakespeare import load_shakespeare_data
+from data.wikitext import load_wikitext_data
+from utils import get_experiment_name, AverageMeter
 
 
 def get_test_samples(
     model,
     tokenizer,
     prompt="\n",
-    max_new_tokens=8,
-    # top_k=200,
+    # max_new_tokens=8,
+    # num_beams=5,
+    # do_sample=True,
+    # top_k=50,
+    max_new_tokens=128,
+    top_k=200,
     # temperature=0.8,
     num_beams=1,
-    do_sample=False,
+    do_sample=True,
     horizon_eval=1,
     n_samples=1,
     print_output=True,
@@ -208,6 +70,7 @@ def get_test_samples(
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
             horizon=horizon_eval,
+            top_k=top_k,
         )
         sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
         if n_samples == 1:
@@ -248,13 +111,14 @@ def train(
     lr=2e-5,
     warmup_steps=100,
     n_eval_samples=3,
-    max_new_tokens=8,
+    max_new_tokens=128,
     eval_before_training=True,
     save_dir="checkpoints",
     model_config={},
     horizon_eval=1,
     grad_clip_val=None,
     use_loss_scale=False,
+    wandb_run=None,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)  # type: ignore
     num_training_steps = num_epochs * len(train_dataloader)
@@ -269,15 +133,10 @@ def train(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
-    for epoch in range(1, num_epochs + 1):
-        get_test_samples(
-            model,
-            tokenizer,
-            max_new_tokens=max_new_tokens,
-            horizon_eval=horizon_eval,
-            n_samples=n_eval_samples,
-            print_output=True,
-        )
+    epochs_range = range(num_epochs + 1) if eval_before_training else range(num_epochs)
+    start_time = time.time()
+    text_table = wandb.Table(columns=["epoch", "eval/nll", "text"])
+    for epoch in epochs_range:
         train_loss_meter = AverageMeter()  # Create new meter each epoch
         train_nll_meter = AverageMeter()
         model.train()
@@ -300,7 +159,7 @@ def train(
             train_loss_meter.update(loss.item())
             train_nll_meter.update(nll.item())
             # Skip training first epoch if eval_before_training is True
-            if eval_before_training and epoch == 1:
+            if eval_before_training and epoch == 0:
                 continue
             scaled_loss.backward()
             if grad_clip_val is not None:
@@ -322,7 +181,7 @@ def train(
                 {
                     "state_dict": model.state_dict(),
                     "model_config": model_config,
-                    "epoch": epoch,
+                    "train/epoch": epoch,
                     "eval/nll": eval_nll,
                     "eval/loss": eval_loss,
                 },
@@ -330,18 +189,33 @@ def train(
             )
 
         # Log metrics to wandb
+        elapsed_mins = (time.time() - start_time) / 60
         print(
-            f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Eval Loss: {eval_nll:.2f}"
+            f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Elapsed: {elapsed_mins} | Eval Loss: {eval_nll:.2f}"
         )
-        wandb.log({"train/loss": train_loss_meter.avg, "epoch": epoch})
-        wandb.log({"train/nll": train_nll_meter.avg, "epoch": epoch})
-        wandb.log({"eval/loss": eval_loss, "epoch": epoch})
-        wandb.log({"eval/nll": eval_nll, "epoch": epoch})
+        wandb.log({"train/loss": train_loss_meter.avg, "train/epoch": epoch})
+        wandb.log({"train/nll": train_nll_meter.avg, "train/epoch": epoch})
+        wandb.log({"eval/loss": eval_loss, "train/epoch": epoch})
+        wandb.log({"eval/nll": eval_nll, "train/epoch": epoch})
+
+        sample = get_test_samples(
+            model,
+            tokenizer,
+            max_new_tokens=max_new_tokens,
+            horizon_eval=horizon_eval,
+            print_output=True,
+        )
+        text_table.add_data(epoch, eval_nll, sample)
+
+    if wandb_run is not None:
+        print("Number of rows in table:", len(text_table.data))
+        wandb_run.log({"training_samples": text_table})
 
 
 if __name__ == "__main__":
 
     args = parse_args()
+    git_info = get_git_info()
     set_seed(args.seed)
 
     # Configuration
@@ -394,9 +268,9 @@ if __name__ == "__main__":
     }
     model = TJDGPT2(**model_config)
 
-    wandb.init(
-        project="tjdnet-shakepeare-prod",
-        config=vars(args),
+    wandb_run = wandb.init(
+        project="tjdnet-shakepeare-debug",
+        config={**vars(args), **git_info},
         name=exp_name,
     )
 
@@ -413,8 +287,8 @@ if __name__ == "__main__":
         horizon_eval=args.horizon_eval,
         grad_clip_val=args.grad_clip_val,
         use_loss_scale=args.scale_loss,
+        wandb_run=wandb_run,
     )
 
     # Generate a test sample
-    test_sample = get_test_samples(model, tokenizer, max_new_tokens=args.max_new_tokens)
-    print(f"Test sample:\n{test_sample}")
+    final_sample = get_test_samples(model, tokenizer, print_output=False)
