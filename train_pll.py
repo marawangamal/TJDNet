@@ -111,7 +111,7 @@ def main():
 
     # Model configuration
     model_config = {
-        "model": args.model,
+        "model_head": args.model_head,
         "vocab_size": (
             len(tokenizer.get_vocab())
             if hasattr(tokenizer, "get_vocab")
@@ -127,6 +127,7 @@ def main():
         "eos_token_id": tokenizer.eos_token_id,
         "bos_token_id": tokenizer.bos_token_id,
         "pad_token_id": tokenizer.pad_token_id,
+        "freeze_base_model": args.freeze_base_model,
     }
     model = TJDGPT2(**model_config)
     training_args = TrainingArguments(

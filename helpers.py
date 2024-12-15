@@ -108,6 +108,12 @@ def parse_args():
         default=2,
         help="Block size for model input sequences.",
     )
+    parser.add_argument(
+        "--freeze_base_model",
+        default=False,
+        action="store_true",
+        help="Whether to freeze the base model during training.",
+    )
     # Evaluation arguments
     parser.add_argument(
         "--horizon_eval",

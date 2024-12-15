@@ -195,8 +195,7 @@ class TJD(ABC, torch.nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        # TODO: remove labels
-        labels: torch.Tensor,
+        attention_mask=None,
         horizon: Optional[int] = None,
         reduce="mean",
         use_memory_efficient_loss: bool = False,
@@ -230,7 +229,9 @@ class TJD(ABC, torch.nn.Module):
         batch_size, _ = input_ids.size()
         horizon = self._get_horizon(horizon)
 
-        last_hidden_state = self.get_last_hidden_state(input_ids)
+        last_hidden_state = self.get_last_hidden_state(
+            input_ids, attention_mask=attention_mask
+        )
         targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
             batch_size, -1, horizon
         )  # (B, T-H, H)

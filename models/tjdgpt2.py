@@ -21,6 +21,7 @@ class TJDGPT2(TJD):
         eos_token_id: int = 50256,
         bos_token_id: int = 50256,
         pad_token_id: int = 50256,
+        freeze_base_model: bool = False,
     ):
         super().__init__(
             n_embd,
@@ -40,6 +41,13 @@ class TJDGPT2(TJD):
                 "pad_token_id": pad_token_id,
             },
         )
+
+        # NOTE: Unfreezing atleast the last layer is required for proper training
+        if freeze_base_model:
+            for param in self.model.parameters():
+                param.requires_grad = False
+        for param in self.model.transformer.h[-1].mlp.parameters():
+            param.requires_grad = True
 
     # TODO: use attention_mask
     def get_last_hidden_state(self, input_ids, attention_mask=None):

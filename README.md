@@ -1,36 +1,69 @@
-# TJDNet: Speeding up Language Model Inference via Tensorized Joint Distribution Networks
+# Tensorized Joint Distribution (TJD) Framework
 
-Speeding up language model inference via tensorized joint distributions. This project aims to leverage tensor operations to optimize the computational efficiency of large language model inference, providing a faster and more scalable solution for real-time applications.
+This framework allows you to speed up inference by adding joint distribution heads to various language models. The framework is extensible, making it easy to integrate with custom model architectures.
 
-## Installation
-```bash
-pip install -r requirements.txt
-pip install -e .  # Install the package in editable mode
+## Overview
+
+TJD works by:
+1. Taking a base language model
+2. Adding a tractable joint distribution head
+3. Training the head and (optionally) last layer while keeping other parameters frozen
+
+## Quick Start
+
+Here's a minimal example using GPT2:
+
+```python
+from models.tjdgpt2 import TJDGPT2
+
+model = TJDGPT2(
+    model_head="mps",    # Type of TJD head
+    rank=2,              # Rank of the joint distribution
+    horizon=8,           # Horizon for joint prediction
+    freeze_base_model=True  # Freeze all except last MLP layer
+)
 ```
 
-## Training
+## Adding Custom Model
 
-```bash
-python train.py  --model base # baseline GPT2 model
-python train.py  --model mps # GPT2 with MPS tensorized joint distribution
-python train.py  --model cp # GPT2 with CP tensorized joint distribution
-```
+To add TJD support for a custom model, create a new class that inherits from the base `TJD` class. Here's how:
 
+1. Create a new file `models/tjd_your_model.py`:
 
-<!-- ## Sanity Checks
+```python
+from models._tjd import TJD
 
-These should have roughly the same loss
+class TJDYourModel(TJD):
+    def __init__(
+        self,
+        # Base Model Parameters
+        vocab_size: int = <YOUR_VOCAB_SIZE>,
+        n_embd: int = <YOUR_HIDDEN_SIZE>,
+        model_config: Dict = <YOUR_MODEL_CONFIG>,
+        # TJD Specific Parameters
+        model_head: str = "base",
+        rank: int = 2,
+        horizon: int = 8,
+        positivity_func: str = "exp",
+        freeze_base_model: bool = False,
+    ):
+        super().__init__(
+            n_embd=n_embd,
+            vocab_size=vocab_size,
+            rank=rank,
+            horizon=horizon,
+            model_head=model_head,
+            positivity_func=positivity_func,
+            model_kwargs={model_config}
+        )
 
-```bash
-python train.py --model base --rank 1 --horizon 1  // baseline model (no tensorization)
-python train.py --model mps --rank 1 --horizon 1 // mps model
-python train.py --model cp --rank 1 --horizon 1 // cp model
-``` -->
+    def get_base_model(self, **model_kwargs):
+        """Initialize your base model."""
+        return YourModel(YourConfig(**model_kwargs))
 
-<!-- ## Running Tests
-
-To ensure everything is set up correctly, you can run the unit tests:
-
-```bash
-python -m unittest discover -s __tests__
-``` -->
+    def get_last_hidden_state(self, input_ids, attention_mask=None):
+        """Get last hidden state from your model."""
+        return self.base_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
