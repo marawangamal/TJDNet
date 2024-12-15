@@ -2,6 +2,14 @@
 
 This framework allows you to speed up inference by adding joint distribution heads to various language models. The framework is extensible, making it easy to integrate with custom model architectures.
 
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+pip install -e . # to install the tjd package in editable mode
+```
+
 ## Overview
 
 TJD works by:
