@@ -28,15 +28,18 @@ import os
 import wandb
 
 from transformers import DataCollatorForLanguageModeling
-from transformers import AutoTokenizer
 from transformers import Trainer, TrainingArguments
 
-from models.tjdgpt2 import TJDGPT2
-from ctokenizers.char_tokenizer import CharTokenizer
 from data.shakespeare import load_shakespeare_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
-from helpers import get_test_samples, parse_args, set_seed
+from helpers import (
+    get_model_and_tokenizer,
+    get_test_samples,
+    parse_args,
+    save_args,
+    set_seed,
+)
 
 
 class TJDTrainer(Trainer):
@@ -59,21 +62,17 @@ def compute_metrics(eval_pred):
 
 
 def main():
-    args = parse_args()
-    set_seed(args.seed)
-
     # Configuration
+    args = parse_args()
     exp_name = get_experiment_name(vars(args))
     ckpt_dir = osp.join("checkpoints", exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
-    # Tokenizer
-    tokenizer = (
-        AutoTokenizer.from_pretrained("gpt2")
-        if args.tokenizer_type == "word"
-        else CharTokenizer(args.seq_len)
-    )
-    if args.tokenizer_type == "word":
-        tokenizer.pad_token = tokenizer.eos_token
+
+    set_seed(args.seed)
+    save_args(args, ckpt_dir)
+
+    # Model and tokenizer
+    model, tokenizer = get_model_and_tokenizer(args)
 
     # Datasets
     lm_dataset = {
@@ -82,27 +81,6 @@ def main():
     }[args.dataset](tokenizer, args.seq_len)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    # Model configuration
-    model_config = {
-        "model_head": args.model_head,
-        "vocab_size": (
-            len(tokenizer.get_vocab())
-            if hasattr(tokenizer, "get_vocab")
-            else len(tokenizer)
-        ),
-        "n_embd": args.n_embd,
-        "n_layer": args.n_layer,
-        "n_head": args.n_head,
-        "dropout": args.dropout,
-        "rank": args.rank,
-        "horizon": args.horizon,
-        "positivity_func": args.positivity_func,
-        "eos_token_id": tokenizer.eos_token_id,
-        "bos_token_id": tokenizer.bos_token_id,
-        "pad_token_id": tokenizer.pad_token_id,
-        "freeze_base_model": args.freeze_base_model,
-    }
-    model = TJDGPT2(**model_config)
     training_args = TrainingArguments(
         output_dir=ckpt_dir,
         num_train_epochs=args.epochs,
@@ -116,12 +94,16 @@ def main():
         logging_strategy="steps",  # Changed from "steps" to "epoch"
         logging_steps=100,
         logging_first_step=True,
-        # Checkpoints
-        save_strategy="no",  # Disable saving
         # Evaluation
         eval_strategy="epoch",  # Evaluate every epoch
         # Reporting
         report_to="wandb",  # Enable wandb logging
+        # Checkpoints
+        save_strategy="best",  # Save model every epoch
+        save_safetensors=False,
+        save_total_limit=1,
+        metric_for_best_model="eval_nll",
+        greater_is_better=False,
     )
 
     # Initialize wandb only on main process

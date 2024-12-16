@@ -1,3 +1,4 @@
+import json
 import os
 import argparse
 import subprocess
@@ -7,6 +8,12 @@ import numpy as np
 import random
 
 import torch
+
+from models.tjdgpt2 import TJDGPT2
+
+from transformers import AutoTokenizer
+from models.tjdgpt2 import TJDGPT2
+from ctokenizers.char_tokenizer import CharTokenizer
 
 
 # TODO: change horizon, horizon_eval to train_horizon, eval_horizon and eval_horizon should default to train_horizon if not specified
@@ -215,3 +222,55 @@ def get_test_samples(
     if print_output:
         print("\n---\n".join(samples) + "\n")
     return "\n".join(samples)
+
+
+def save_args(args, ckpt_dir):
+    # Save args
+    args_path = os.path.join(ckpt_dir, "args.json")
+    with open(args_path, "w") as f:
+        json.dump(vars(args), f, indent=2)
+
+
+def load_args(ckpt_dir):
+    args_path = os.path.join(ckpt_dir, "args.json")
+    with open(args_path, "r") as f:
+        args = json.load(f)
+    return args
+
+
+def get_tokenizer(args):
+    pass
+
+
+def get_model_and_tokenizer(args):
+    # Tokenizer
+    tokenizer = (
+        AutoTokenizer.from_pretrained("gpt2")
+        if args.tokenizer_type == "word"
+        else CharTokenizer(args.seq_len)
+    )
+    if args.tokenizer_type == "word":
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # Model configuration
+    model_config = {
+        "model_head": args.model_head,
+        "vocab_size": (
+            len(tokenizer.get_vocab())
+            if hasattr(tokenizer, "get_vocab")
+            else len(tokenizer)
+        ),
+        "n_embd": args.n_embd,
+        "n_layer": args.n_layer,
+        "n_head": args.n_head,
+        "dropout": args.dropout,
+        "rank": args.rank,
+        "horizon": args.horizon,
+        "positivity_func": args.positivity_func,
+        "eos_token_id": tokenizer.eos_token_id,
+        "bos_token_id": tokenizer.bos_token_id,
+        "pad_token_id": tokenizer.pad_token_id,
+        "freeze_base_model": args.freeze_base_model,
+    }
+    model = TJDGPT2(**model_config)
+    return model, tokenizer
