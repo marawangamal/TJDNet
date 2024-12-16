@@ -195,6 +195,8 @@ class TJD(ABC, torch.nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
+        # NOTE: needed for compatibility with Trainer
+        labels: torch.Tensor,
         attention_mask=None,
         horizon: Optional[int] = None,
         reduce="mean",

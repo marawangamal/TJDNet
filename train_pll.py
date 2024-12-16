@@ -23,7 +23,6 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 """
 
-from typing import Dict, Any
 import os.path as osp
 import os
 import wandb
@@ -32,12 +31,12 @@ from transformers import DataCollatorForLanguageModeling
 from transformers import AutoTokenizer
 from transformers import Trainer, TrainingArguments
 
-from helpers import get_test_samples, parse_args, set_seed
 from models.tjdgpt2 import TJDGPT2
 from ctokenizers.char_tokenizer import CharTokenizer
 from data.shakespeare import load_shakespeare_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
+from helpers import get_test_samples, parse_args, set_seed
 
 
 class TJDTrainer(Trainer):
