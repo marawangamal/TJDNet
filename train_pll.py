@@ -32,48 +32,12 @@ from transformers import DataCollatorForLanguageModeling
 from transformers import AutoTokenizer
 from transformers import Trainer, TrainingArguments
 
-from helpers import parse_args, set_seed
+from helpers import get_test_samples, parse_args, set_seed
 from models.tjdgpt2 import TJDGPT2
 from ctokenizers.char_tokenizer import CharTokenizer
 from data.shakespeare import load_shakespeare_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
-
-
-def get_test_samples(
-    model,
-    tokenizer,
-    prompt="\n",
-    max_new_tokens=8,
-    top_k=200,
-    num_beams=5,
-    do_sample=True,
-    horizon_eval=1,
-    n_samples=1,
-    print_output=True,
-):
-    # Inference
-    model.eval()
-    samples = []
-    for i in range(n_samples):
-        inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
-        outputs = model.generate(
-            inputs,
-            num_beams=num_beams,
-            do_sample=do_sample,
-            max_new_tokens=max_new_tokens,
-            horizon=horizon_eval,
-            top_k=top_k,
-        )
-        sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        if n_samples == 1:
-            samples.append(sample)
-        else:
-            samples.append(f"[{i+1}] {sample}")
-
-    if print_output:
-        print("\n---\n".join(samples) + "\n")
-    return "\n".join(samples)
 
 
 class TJDTrainer(Trainer):
@@ -83,6 +47,16 @@ class TJDTrainer(Trainer):
         output_dict = model(**inputs)
         loss = output_dict["loss"]
         return (loss, output_dict) if return_outputs else loss
+
+
+# Custom evaluation function
+def compute_metrics(eval_pred):
+    # Note: If return type of model forward is a dict, then the `predictions` will be tuple of all vals of keys except loss
+    # See `prediction_step` in Trainer class
+    (nll, loss_scale), labels = eval_pred
+    return {
+        "nll": nll.mean().item(),
+    }
 
 
 def main():
@@ -140,7 +114,8 @@ def main():
         max_grad_norm=args.grad_clip_val,
         eval_on_start=True,
         # Logging
-        logging_strategy="epoch",  # Changed from "steps" to "epoch"
+        logging_strategy="steps",  # Changed from "steps" to "epoch"
+        logging_steps=100,
         logging_first_step=True,
         # Checkpoints
         save_strategy="no",  # Disable saving
@@ -156,15 +131,6 @@ def main():
             project="tjdnet-shakepeare-dev",
             name=exp_name,
         )
-
-    # Custom evaluation function
-    def compute_metrics(eval_pred):
-        # Note: If return type of model forward is a dict, then the `predictions` will be tuple of all vals of keys except loss
-        # See `prediction_step` in Trainer class
-        (nll, loss_scale), labels = eval_pred
-        return {
-            "nll": nll.mean().item(),
-        }
 
     # Initialize the trainer
     trainer = TJDTrainer(

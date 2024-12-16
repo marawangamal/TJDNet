@@ -23,6 +23,7 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 """
 
+from collections import OrderedDict
 import os.path as osp
 import os
 import time
@@ -34,53 +35,13 @@ from torch.utils.data import DataLoader
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 from transformers import AutoTokenizer
 
-from helpers import get_git_info, parse_args, set_seed
+from helpers import get_git_info, get_test_samples, parse_args, set_seed
 from models.tjdgpt2 import TJDGPT2
 from ctokenizers.char_tokenizer import CharTokenizer
 from data.shakespeare import load_shakespeare_data
 from data.wikitext import load_wikitext_data
+from data.sharegpt import load_sharegpt_data
 from utils import get_experiment_name, AverageMeter
-
-
-def get_test_samples(
-    model,
-    tokenizer,
-    prompt="\n",
-    # max_new_tokens=8,
-    # num_beams=5,
-    # do_sample=True,
-    # top_k=50,
-    max_new_tokens=128,
-    top_k=200,
-    # temperature=0.8,
-    num_beams=1,
-    do_sample=True,
-    horizon_eval=1,
-    n_samples=1,
-    print_output=True,
-):
-    # Inference
-    model.eval()
-    samples = []
-    for i in range(n_samples):
-        inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
-        outputs = model.generate(
-            inputs,
-            num_beams=num_beams,
-            do_sample=do_sample,
-            max_new_tokens=max_new_tokens,
-            horizon=horizon_eval,
-            top_k=top_k,
-        )
-        sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        if n_samples == 1:
-            samples.append(sample)
-        else:
-            samples.append(f"[{i+1}] {sample}")
-
-    if print_output:
-        print("\n---\n".join(samples) + "\n")
-    return "\n".join(samples)
 
 
 def evaluate(
@@ -134,16 +95,16 @@ def train(
     model.to(device)
 
     epochs_range = range(num_epochs + 1) if eval_before_training else range(num_epochs)
-    start_time = time.time()
     text_table = wandb.Table(columns=["epoch", "eval/nll", "text"])
+    train_start_time = time.time()
     for epoch in epochs_range:
+        epoch_start_time = time.time()
         train_loss_meter = AverageMeter()  # Create new meter each epoch
         train_nll_meter = AverageMeter()
         model.train()
         progress_bar = tqdm(
             train_dataloader,
             desc=f"Epoch {epoch}",
-            bar_format="{l_bar}{bar}| [Duration: {elapsed}][{postfix}]",
         )
 
         # Training loop
@@ -167,7 +128,15 @@ def train(
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
-            progress_bar.set_postfix(loss=f"{loss.item():.3f}")
+            progress_bar.set_postfix(
+                OrderedDict(
+                    [
+                        ("epoch_time", f"{time.time() - epoch_start_time:.2f}"),
+                        ("train_time", f"{time.time() - train_start_time:.2f}"),
+                        ("loss", f"{loss.item():.3f}"),
+                    ]
+                )
+            )
 
         eval_loss, eval_nll = evaluate(
             model=model, eval_dataloader=eval_dataloader, horizon=horizon_eval
@@ -189,7 +158,7 @@ def train(
             )
 
         # Log metrics to wandb
-        elapsed_mins = (time.time() - start_time) / 60
+        elapsed_mins = (time.time() - train_start_time) / 60
         print(
             f"[Epoch {epoch + 1}] Train Loss: {train_loss_meter.avg:.2f} | Elapsed: {elapsed_mins} | Eval Loss: {eval_nll:.2f}"
         )
@@ -236,6 +205,7 @@ if __name__ == "__main__":
     lm_dataset = {
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
+        "sharegpt": load_sharegpt_data,
     }[args.dataset](tokenizer, args.seq_len)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 

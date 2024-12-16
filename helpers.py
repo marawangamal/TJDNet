@@ -136,6 +136,7 @@ def parse_args():
         choices=[
             "shakespeare",
             "wikitext",
+            "sharegpt",
         ],
     )
     # Misc arguments
@@ -177,3 +178,40 @@ def get_git_info():
             "commit_hash": "Git commit hash not available",
             "commit_message": "Git commit message not available",
         }
+
+
+def get_test_samples(
+    model,
+    tokenizer,
+    prompt="\n",
+    max_new_tokens=128,
+    top_k=200,
+    # temperature=0.8,
+    num_beams=1,
+    do_sample=True,
+    horizon_eval=1,
+    n_samples=1,
+    print_output=True,
+):
+    # Inference
+    model.eval()
+    samples = []
+    for i in range(n_samples):
+        inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
+        outputs = model.generate(
+            inputs,
+            num_beams=num_beams,
+            do_sample=do_sample,
+            max_new_tokens=max_new_tokens,
+            horizon=horizon_eval,
+            top_k=top_k,
+        )
+        sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        if n_samples == 1:
+            samples.append(sample)
+        else:
+            samples.append(f"[{i+1}] {sample}")
+
+    if print_output:
+        print("\n---\n".join(samples) + "\n")
+    return "\n".join(samples)
