@@ -20,13 +20,20 @@ python train_pll.py --model_head mps --rank 2 --horizon 2
 
 ## Evaluation
 To evaluate on HumanEval, run the following commands
-1. Generate code completetions (will be dumpled to samples.jsonl)
+
+1. Install `human-eval`
     ```
-    python evalaute.py --ckpt checkpoints/<checkpoint directory name>
+    cd eval/human-eval
+    pip install -e .
+    cd ../..
     ```
-2. Evaluate completetions
+2. Generate completetions (will be saved to samples.jsonl)
     ```
-    python human-eval/human_eval/evaluate_functional_correctness.py samples.jsonl
+    python eval/generate_completetions.py --ckpt checkpoints/<checkpoint directory name>
+    ```
+3. Evaluate completetions
+    ```
+    python eval/human-eval/human_eval/evaluate_functional_correctness.py samples.jsonl
     ```
 
 
