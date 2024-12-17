@@ -8,6 +8,7 @@ import numpy as np
 import random
 
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from models.tjdgpt2 import TJDGPT2
 
@@ -17,6 +18,7 @@ from ctokenizers.char_tokenizer import CharTokenizer
 
 
 # TODO: change horizon, horizon_eval to train_horizon, eval_horizon and eval_horizon should default to train_horizon if not specified
+# TODO: put model arch in TJDGPT2 not in args
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
     # Training arguments
@@ -45,6 +47,13 @@ def parse_args():
         help="Gradient clipping value for training.",
     )
     # Model arguments
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        default="gpt2",
+        help="Type of base model to use",
+        choices=["gpt2", "llama"],
+    )
     parser.add_argument(
         "--model_head",
         type=str,
@@ -244,11 +253,15 @@ def get_tokenizer(args):
 
 def get_model_and_tokenizer(args):
     # Tokenizer
-    tokenizer = (
-        AutoTokenizer.from_pretrained("gpt2")
-        if args.tokenizer_type == "word"
-        else CharTokenizer(args.seq_len)
-    )
+    if args.model_type == "gpt2":
+        tokenizer = (
+            AutoTokenizer.from_pretrained("gpt2")
+            if args.tokenizer_type == "word"
+            else CharTokenizer(args.seq_len)
+        )
+    else:  # llama
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+
     if args.tokenizer_type == "word":
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -272,5 +285,11 @@ def get_model_and_tokenizer(args):
         "pad_token_id": tokenizer.pad_token_id,
         "freeze_base_model": args.freeze_base_model,
     }
-    model = TJDGPT2(**model_config)
+
+    # Add LLaMA specific config
+    if args.model_type == "llama":
+        model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+    else:
+        model = TJDGPT2(**model_config)
+
     return model, tokenizer
