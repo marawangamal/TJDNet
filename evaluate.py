@@ -2,7 +2,10 @@ import os
 import os.path as osp
 import argparse
 import torch
-from helpers import get_model_and_tokenizer, load_args
+
+from human_eval.data import read_problems, write_jsonl
+
+from helpers import get_model_and_tokenizer, get_test_samples, load_args
 
 
 def parse_args():
@@ -23,7 +26,7 @@ def find_latest_checkpoint(ckpt_dir):
     return osp.join(ckpt_dir, subdirs[0])
 
 
-def main():
+def load_model():
     args = parse_args()
     # Load saved args
     saved_args = load_args(args.ckpt)
@@ -41,8 +44,39 @@ def main():
     # Load model state dict
     model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
     model.eval()
+    # print(f"Model loaded successfully from {latest_ckpt_dir}!")
+    return model, tokenizer
 
-    print(f"Model loaded successfully from {latest_ckpt_dir}!")
+
+def generate_one_completion(prompt, model, tokenizer, eval_horizon=1):
+    # UNCOMMENT THIS LINE TO GENERATE COMPLETIONS
+    # completetion = get_test_samples(
+    #     model,
+    #     tokenizer,
+    #     prompt=prompt,
+    #     max_new_tokens=500,
+    #     horizon_eval=eval_horizon,
+    # )
+    completetion = "print('hello world')"
+    return completetion
+
+
+def main():
+    model, tokenizer = load_model()
+    problems = read_problems()
+
+    num_samples_per_task = 200
+    samples = [
+        dict(
+            task_id=task_id,
+            completion=generate_one_completion(
+                problems[task_id]["prompt"], model, tokenizer
+            ),
+        )
+        for task_id in problems
+        for _ in range(num_samples_per_task)
+    ]
+    write_jsonl("samples.jsonl", samples)
 
 
 if __name__ == "__main__":
