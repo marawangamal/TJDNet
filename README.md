@@ -14,7 +14,7 @@ To install all requirements, run the following commands:
 ```bash
 pip install -r requirements.txt
 pip install -e .  # Install TJD package
-pip install -e eval/human-eval # Install HumanEval:
+pip install -e eval/human-eval # Install HumanEval
 ```
 
 ## Training
