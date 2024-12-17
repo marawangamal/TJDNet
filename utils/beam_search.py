@@ -39,9 +39,7 @@ def get_candidates(
 
         # Convert to probabilities and sample
         probs = torch.softmax(top_scores, dim=0)  # (n_beams*top_k)
-        sampled_indices = torch.multinomial(probs, num_samples=num_beams).squeeze(
-            -1
-        )  # (n_beams,)
+        sampled_indices = torch.multinomial(probs, num_samples=num_beams)  # (n_beams,)
 
         # Get selected tokens and their scores
         top_scores = torch.index_select(top_scores, 0, sampled_indices)

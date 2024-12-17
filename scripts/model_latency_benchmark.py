@@ -18,7 +18,7 @@ import time
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from models.tjdgpt2.tjdgpt2 import TJDGPT2
+from models.tjdgpt2 import TJDGPT2
 
 
 def parse_args():
@@ -219,7 +219,7 @@ def main():
 
     # Initialize models
     models = {
-        k: TJDGPT2(**model_config, model=k, horizon=h).to(args.device)
+        k: TJDGPT2(**model_config, model_head=k, horizon=h).to(args.device)
         for k, h in [
             ("base", 1),
             ("cp", args.horizon),

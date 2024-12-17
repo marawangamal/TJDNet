@@ -16,7 +16,7 @@ sys.path.insert(0, project_root)
 import argparse
 import torch
 import torch.autograd.profiler as profiler
-from models.tjdgpt2.tjdgpt2 import TJDGPT2
+from models.tjdgpt2 import TJDGPT2
 
 
 def parse_args():

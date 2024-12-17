@@ -1,105 +1,113 @@
-from typing import Dict, Optional
-import line_profiler
 import torch
-from transformers import (
-    GPT2Config,
-    GPT2LMHeadModel,
-)
+from abc import ABC, abstractmethod
+from typing import Dict, Optional
+import torch
 
 from distributions.base import BaseDist
 from distributions.cp import CPDist
 from distributions.full import FullDist
 from distributions.mps import MPSDist
 from distributions.umps import UMPSDist
-
 from tensorops.common import get_windowed_input_ids
 from utils.beam_search import beam_search, get_candidates
 
 
-# TODO: Apply loss scaling in the forward pass directly
-class TJDGPT2(torch.nn.Module):
+DIST_MAP = {
+    "full": FullDist,
+    "cp": CPDist,
+    "mps": MPSDist,
+    "umps": UMPSDist,
+    "base": BaseDist,
+}
+
+
+class TJD(ABC, torch.nn.Module):
     def __init__(
         self,
-        model: str = "gpt2",
-        vocab_size: int = 50257,
-        n_embd: int = 768,
-        n_layer: int = 12,
-        n_head: int = 12,
-        dropout: float = 0.1,
-        rank: int = 2,
+        # TODO: rename n_embd, vocab_size to embd_size, vocab_size
+        n_embd,
+        vocab_size,
+        rank: int = 1,
+        horizon: int = 1,
+        positivity_func: str = "exp",
+        model_head: str = "base",
         eps: float = 1e-9,
-        horizon: int = 8,
-        positivity_func: str = "sq",
-        eos_token_id: int = 50256,
-        bos_token_id: int = 50256,
-        pad_token_id: int = 50256,
-        is_full_rank: bool = False,
+        model_kwargs: Dict = {},
     ):
+        """Initialize the TJD model.
+
+        Args:
+            n_embd (int): Embedding size.
+            vocab_size (int): Vocabulary size.
+            rank (int, optional): Rank of the joint distribution. Defaults to 1.
+            horizon (int, optional): Horizon of the joint distribution. Defaults to 1.
+            positivity_func (str, optional): Positivity function. Defaults to "exp".
+            eps (float, optional): Epsilon value for numerical stability. Defaults to 1e-9.
+            model_head (str, optional): Language model head. Defaults to "base" (i.e., no joint distribution).
+
+        """
         super().__init__()
-        self.generate = self.generateV2
-        self.model_name = model
-        self.model_config = {
-            "model": model,
-            "vocab_size": vocab_size,
-            "n_embd": n_embd,
-            "n_layer": n_layer,
-            "n_head": n_head,
-            "dropout": dropout,
-            "rank": rank,
-            "eps": eps,
-            "horizon": horizon,
-            "positivity_func": positivity_func,
-            "eos_token_id": eos_token_id,
-            "bos_token_id": bos_token_id,
-            "pad_token_id": pad_token_id,
-            "is_full_rank": is_full_rank,
-        }
         self.rank = rank
-        self.vocab_size = vocab_size
         self.horizon = horizon
         self.eps = eps
-        self.model = GPT2LMHeadModel(
-            GPT2Config(
-                vocab_size=vocab_size,
-                n_embd=n_embd,
-                n_layer=n_layer,
-                n_head=n_head,
-                dropout=dropout,
-                eos_token_id=eos_token_id,
-                bos_token_id=bos_token_id,
-                pad_token_id=pad_token_id,
-            )
-        )
-        self.model_head = {
-            "full": FullDist,
-            "cp": CPDist,
-            "mps": MPSDist,
-            "umps": UMPSDist,
-            "base": BaseDist,
-        }[model](
+        self.model = self.get_model(**model_kwargs)
+        self.model_head = DIST_MAP[model_head](
             n_embd=n_embd,
             vocab_size=vocab_size,
             rank=rank,
             horizon=horizon,
+            positivity_func=positivity_func,
         )
+        self.vocab_size = vocab_size
+        self.n_embd = n_embd
 
     @property
     def device(self):
         return next(self.parameters()).device
 
-    def _get_last_hidden_state(self, input_ids: torch.Tensor) -> torch.Tensor:
-        transformer_outputs = self.model.transformer(
-            input_ids=input_ids,
-        )
-        return transformer_outputs.last_hidden_state
+    @abstractmethod
+    def get_model(self, **kwargs) -> torch.nn.Module:
+        """Get the torch model to be modified.
 
-    def _get_horizon(self, horizon: Optional[int]):
+        Returns:
+            torch.nn.Module: Model to be modified.
+        """
+        pass
+
+    @abstractmethod
+    def get_last_hidden_state(
+        self, input_ids: torch.Tensor, attention_mask=None
+    ) -> torch.Tensor:
+        """Get the last hidden state of the model.
+
+        Args:
+            input_ids (torch.Tensor): Input tensor of shape (B, T).
+            attention_mask ([type], optional): Attention mask of shape (B, T). Defaults to None.
+
+        Returns:
+            torch.Tensor: Last hidden state of shape (B, T, n_embd).
+        """
+        pass
+
+    # TODO: rename to get_runtime_horizon or is_valid_horizon
+    def _get_horizon(self, horizon: Optional[int]) -> int:
+        """Get the horizon value. Prevents runtime horizon exceeding the model horizon.
+
+        Args:
+            horizon (Optional[int]): Candidate horizon value.
+
+        Raises:
+            ValueError: If the horizon is greater than the model horizon.
+
+        Returns:
+            int: Horizon value.
+        """
         horizon = self.horizon if horizon is None else horizon
         if horizon > self.horizon:
             raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
         return horizon
 
-    def generateV2(
+    def generate(
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,
@@ -117,6 +125,7 @@ class TJDGPT2(torch.nn.Module):
             num_beams (int, optional): Number of beams. Defaults to 1.
             do_sample (bool, optional): Whether to sample. Defaults to False.
             horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+            top_k (int, optional): Top k sampling. Defaults to 50.
 
         Returns:
             torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
@@ -126,7 +135,7 @@ class TJDGPT2(torch.nn.Module):
         dvc = input_ids.device
         horizon = self._get_horizon(horizon)
         last_hidden_states = [
-            self._get_last_hidden_state(input_ids)[:, -1:, :]
+            self.get_last_hidden_state(input_ids)[:, -1:, :]
         ] * num_beams
 
         def expand_fn(beams):
@@ -141,7 +150,7 @@ class TJDGPT2(torch.nn.Module):
                 seqs_tensor = torch.tensor(seqs).to(dvc)
                 for sq in seqs_tensor:
                     inp = torch.cat([input_ids, sq.reshape(1, -1)], dim=1)
-                    hidden = self._get_last_hidden_state(inp)[:, -1:, :]
+                    hidden = self.get_last_hidden_state(inp)[:, -1:, :]
                     last_hidden_states.append(hidden)
 
             next_token_probs = []
@@ -152,7 +161,7 @@ class TJDGPT2(torch.nn.Module):
                     sub_seq + [-1] + [-2] * (horizon - sub_time_step - 1),
                     device=dvc,
                 )
-                # BUG: get_pos_params called many times with the same `hidden_state`
+                # NOTE: get_pos_params called many times with the same `hidden_state`
                 probs_next, _ = self.model_head.get_dist(
                     hidden_state=last_hidden_states[i_beam],
                     ops=ops_tensor,
@@ -183,47 +192,12 @@ class TJDGPT2(torch.nn.Module):
         )
         return torch.tensor(best_seq, device=dvc).reshape(1, -1)
 
-    def generateV1(
-        self,
-        input_ids: torch.Tensor,
-        max_new_tokens: int = 8,
-        num_beams=1,
-        do_sample=False,
-        horizon: Optional[int] = None,
-        **kwargs,
-    ):
-        """Generate sequences given an input tensor.
-
-        Args:
-            input_ids (torch.Tensor): Previous tokens of shape (B, T)
-            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
-            num_beams (int, optional): Number of beams. Defaults to 1.
-            do_sample (bool, optional): Whether to sample. Defaults to False.
-            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
-
-        Returns:
-            torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
-        """
-        assert input_ids.size(0) == 1, "Only batch size 1 is supported"
-        horizon = self._get_horizon(horizon)
-        batch_size, _ = input_ids.size()
-        n_passes = max(max_new_tokens // horizon, 1)
-        output_tens = torch.empty(batch_size, 0, dtype=torch.long).to(self.device)
-        input_tens = input_ids
-
-        for _ in range(n_passes):
-            last_hidden_state = self._get_last_hidden_state(input_tens)
-            sample = self.model_head.generate(
-                last_hidden_state=last_hidden_state, horizon=horizon
-            )  # (B, H)
-            output_tens = torch.cat([output_tens, sample], dim=1)
-            input_tens = torch.cat([input_tens, sample], dim=1)
-        return output_tens
-
     def forward(
         self,
         input_ids: torch.Tensor,
+        # NOTE: needed for compatibility with Trainer
         labels: torch.Tensor,
+        attention_mask=None,
         horizon: Optional[int] = None,
         reduce="mean",
         use_memory_efficient_loss: bool = False,
@@ -235,12 +209,18 @@ class TJDGPT2(torch.nn.Module):
             input_ids (torch.Tensor): Tensor of shape (B, T)
             labels (torch.Tensor): Tensor of shape (B, T)
             horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+            reduce (str, optional): Reduction method. Defaults to "mean".
+            use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
 
         Note:
-            The horizon applied in the forward pass is the minimum of the model level horizon and the horizon passed as an argument.
+            horizon must be less than or equal to the model horizon specified during initialization.
 
         Returns:
-            torch.Tensor: Loss value.
+            Dict[str, torch.Tensor]: Dictionary containing:
+                - loss (torch.Tensor): Reduced loss value of shape (B,)
+                - nll (torch.Tensor): Reduced negative log likelihood of shape (B,)
+                - loss_scale (torch.Tensor): Loss scaling factor, scalar tensor of value 1/rank
+
         """
 
         # Sequence length must be greater than horizon
@@ -251,7 +231,9 @@ class TJDGPT2(torch.nn.Module):
         batch_size, _ = input_ids.size()
         horizon = self._get_horizon(horizon)
 
-        last_hidden_state = self._get_last_hidden_state(input_ids)
+        last_hidden_state = self.get_last_hidden_state(
+            input_ids, attention_mask=attention_mask
+        )
         targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
             batch_size, -1, horizon
         )  # (B, T-H, H)
