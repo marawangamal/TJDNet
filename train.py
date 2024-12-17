@@ -35,7 +35,14 @@ from torch.utils.data import DataLoader
 from transformers import DataCollatorForLanguageModeling, get_scheduler
 from transformers import AutoTokenizer
 
-from helpers import get_git_info, get_test_samples, parse_args, set_seed
+from helpers import (
+    get_git_info,
+    get_model_and_tokenizer,
+    get_test_samples,
+    parse_args,
+    save_args,
+    set_seed,
+)
 from models.tjdgpt2 import TJDGPT2
 from ctokenizers.char_tokenizer import CharTokenizer
 from data.shakespeare import load_shakespeare_data
@@ -75,7 +82,6 @@ def train(
     max_new_tokens=128,
     eval_before_training=True,
     save_dir="checkpoints",
-    model_config={},
     horizon_eval=1,
     grad_clip_val=None,
     use_loss_scale=False,
@@ -89,7 +95,6 @@ def train(
         num_warmup_steps=warmup_steps,
         num_training_steps=num_training_steps,
     )
-    best_eval_nll = float("inf")
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
@@ -141,21 +146,23 @@ def train(
         eval_loss, eval_nll = evaluate(
             model=model, eval_dataloader=eval_dataloader, horizon=horizon_eval
         )
-        best_eval_nll = min(eval_nll, best_eval_nll)
-
-        # Save model checkpoint
-        if eval_nll <= best_eval_nll:
-            print(f"Saving model checkpoint to {save_dir}")
-            torch.save(
-                {
-                    "state_dict": model.state_dict(),
-                    "model_config": model_config,
-                    "train/epoch": epoch,
-                    "eval/nll": eval_nll,
-                    "eval/loss": eval_loss,
-                },
-                osp.join(save_dir, "best_model.pth"),
-            )
+        # TODO: Align with Trainer class
+        # # Save model checkpoint
+        # if eval_nll <= best_eval_nll:
+        #     print(f"Saving model checkpoint to {save_dir}")
+        #     ckpt_dir = osp.join(save_dir, f"checkpoint-{epoch}")
+        #     os.makedirs(ckpt_dir)
+        #     torch.save(
+        #         sta
+        #     torch.save(
+        #         {
+        #             "state_dict": model.state_dict(),
+        #             "train/epoch": epoch,
+        #             "eval/nll": eval_nll,
+        #             "eval/loss": eval_loss,
+        #         },
+        #         osp.join(save_dir, f"checkpoint-{epoch}.pt"),
+        #     )
 
         # Log metrics to wandb
         elapsed_mins = (time.time() - train_start_time) / 60
@@ -183,23 +190,17 @@ def train(
 
 if __name__ == "__main__":
 
-    args = parse_args()
-    git_info = get_git_info()
-    set_seed(args.seed)
-
     # Configuration
+    args = parse_args()
     exp_name = get_experiment_name(vars(args))
     ckpt_dir = osp.join("checkpoints", exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    # Tokenizer
-    tokenizer = (
-        AutoTokenizer.from_pretrained("gpt2")
-        if args.tokenizer_type == "word"
-        else CharTokenizer(args.seq_len)
-    )
-    if args.tokenizer_type == "word":
-        tokenizer.pad_token = tokenizer.eos_token
+    set_seed(args.seed)
+    save_args(args, ckpt_dir)
+
+    # Model and tokenizer
+    model, tokenizer = get_model_and_tokenizer(args)
 
     # Datasets
     lm_dataset = {
@@ -217,31 +218,9 @@ if __name__ == "__main__":
         lm_dataset["test"], batch_size=args.batch_size, collate_fn=data_collator  # type: ignore
     )
 
-    # Model
-    model_config = {
-        "model_head": args.model_head,
-        "vocab_size": (
-            len(tokenizer.get_vocab())
-            if hasattr(tokenizer, "get_vocab")
-            else len(tokenizer)
-        ),
-        "n_embd": args.n_embd,
-        "n_layer": args.n_layer,
-        "n_head": args.n_head,
-        "dropout": args.dropout,
-        "rank": args.rank,
-        "horizon": args.horizon,
-        "positivity_func": args.positivity_func,
-        "eos_token_id": tokenizer.eos_token_id,
-        "bos_token_id": tokenizer.bos_token_id,
-        "pad_token_id": tokenizer.pad_token_id,
-        "freeze_base_model": args.freeze_base_model,
-    }
-    model = TJDGPT2(**model_config)
-
     wandb_run = wandb.init(
         project="tjdnet-shakepeare-debug",
-        config={**vars(args), **git_info},
+        config={**vars(args), **get_git_info()},
         name=exp_name,
     )
 
@@ -254,7 +233,6 @@ if __name__ == "__main__":
         warmup_steps=args.warmup_steps,
         max_new_tokens=args.max_new_tokens,
         save_dir=ckpt_dir,
-        model_config=model_config,
         horizon_eval=args.horizon_eval,
         grad_clip_val=args.grad_clip_val,
         use_loss_scale=args.scale_loss,
