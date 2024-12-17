@@ -1,6 +1,6 @@
-# Tensorized Joint Distribution (TJD) Framework
+# TJDNet: Speeding up Language Model Inference via Tensorized Joint Distribution Networks
 
-This framework allows you to speed up inference by adding joint distribution heads to various language models. The framework is extensible, making it easy to integrate with custom model architectures.
+Speeding up language model inference via tensorized joint distributions. This codebase implements TJDNet for GPT and LLAMA models but can be easily extended to other models.
 
 
 ## Installation
@@ -19,16 +19,15 @@ TJD works by:
 
 ## Quick Start
 
-Here's a minimal example using GPT2:
+Here's a minimal example using TJDNet with GPT2:
 
 ```python
 from models.tjdgpt2 import TJDGPT2
 
 model = TJDGPT2(
-    model_head="mps",    # Type of TJD head
+    model_head="mps",    # Type of TJDNet head
     rank=2,              # Rank of the joint distribution
     horizon=8,           # Horizon for joint prediction
-    freeze_base_model=True  # Freeze all except last MLP layer
 )
 ```
 
@@ -53,7 +52,6 @@ class TJDYourModel(TJD):
         rank: int = 2,
         horizon: int = 8,
         positivity_func: str = "exp",
-        freeze_base_model: bool = False,
     ):
         super().__init__(
             n_embd=n_embd,
@@ -67,7 +65,7 @@ class TJDYourModel(TJD):
 
     def get_base_model(self, **model_kwargs):
         """Initialize your base model."""
-        return YourModel(YourConfig(**model_kwargs))
+        pass
 
     def get_last_hidden_state(self, input_ids, attention_mask=None):
         """Get last hidden state from your model."""
