@@ -43,7 +43,7 @@ To evaluate on HumanEval, run the following commands
 
 2. Visualize a code completion sample
     ```
-    python visualize.py samples.jsonl
+    python eval/visualize.py samples.jsonl
     ```
 
 
