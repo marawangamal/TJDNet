@@ -2,14 +2,19 @@
 
 Speeding up language model inference via tensorized joint distributions. This codebase implements TJDNet for GPT and LLAMA models but can be easily extended to other models.
 
-
 ## Requirements
-
 - Python 3.9
+- PyTorch
+- transformers
+- human-eval
 
+## Installation
+
+To install all requirements, run the following commands:
 ```bash
 pip install -r requirements.txt
-pip install -e . # to install the tjd package in editable mode
+pip install -e .  # Install TJD package
+pip install -e eval/human-eval # Install HumanEval:
 ```
 
 ## Training
@@ -21,19 +26,24 @@ python train_pll.py --model_head mps --rank 2 --horizon 2
 ## Evaluation
 To evaluate on HumanEval, run the following commands
 
-1. Install `human-eval`
+1. Generate completetions (will be saved to samples.jsonl)
     ```
-    cd eval/human-eval
-    pip install -e .
-    cd ../..
+    python eval/generate_completions.py --ckpt checkpoints/<checkpoint directory name>
     ```
-2. Generate completetions (will be saved to samples.jsonl)
-    ```
-    python eval/generate_completetions.py --ckpt checkpoints/<checkpoint directory name>
-    ```
-3. Evaluate completetions
+2. Evaluate completetions
     ```
     python eval/human-eval/human_eval/evaluate_functional_correctness.py samples.jsonl
+    ```
+
+## Visualization
+1. Generate completetions (will be saved to samples.jsonl)
+    ```
+    python eval/generate_completions.py --dev --ckpt checkpoints/<checkpoint directory name>
+    ```
+
+2. Visualize a code completion sample
+    ```
+    python visualize.py samples.jsonl
     ```
 
 
