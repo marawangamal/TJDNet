@@ -99,12 +99,21 @@ def main():
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
+    # trainer.save_model(ckpt_dir)  # Save initialized model
 
-    # Train the model
-    trainer.train()
+    # # Train the model
+    # trainer.train()
 
     # Generate a test sample
-    test_sample = get_test_samples(model, tokenizer, max_new_tokens=args.max_new_tokens)
+    test_sample = get_test_samples(
+        model,
+        tokenizer,
+        max_new_tokens=args.max_new_tokens,
+        prompt="What is the meaning of life?",
+    )
+    # test_sample = generate_from_llama(
+    #     model, tokenizer, prompt="What is the meaning of life?"
+    # )
     print(f"Test sample:\n{test_sample}")
 
 

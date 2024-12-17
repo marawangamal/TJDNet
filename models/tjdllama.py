@@ -1,32 +1,19 @@
-# # LLAM
-# model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
-
-# clas
+from transformers import AutoModelForCausalLM
 
 from models._tjd import TJD
 
-from transformers import (
-    GPT2Config,
-    GPT2LMHeadModel,
-)
 
-
-class TJDGPT2(TJD):
+class TJDLLAMA(TJD):
     def __init__(
         self,
         model_head: str = "base",
-        vocab_size: int = 50257,
-        n_embd: int = 768,
-        n_layer: int = 12,
-        n_head: int = 12,
-        dropout: float = 0.1,
+        vocab_size: int = 32000,
+        n_embd: int = 5120,
         rank: int = 2,
         horizon: int = 8,
         positivity_func: str = "exp",
-        eos_token_id: int = 50256,
-        bos_token_id: int = 50256,
-        pad_token_id: int = 50256,
         freeze_base_model: bool = False,
+        **kwargs,
     ):
         super().__init__(
             n_embd,
@@ -35,16 +22,6 @@ class TJDGPT2(TJD):
             horizon=horizon,
             model_head=model_head,
             positivity_func=positivity_func,
-            model_kwargs={
-                "vocab_size": vocab_size,
-                "n_embd": n_embd,
-                "n_layer": n_layer,
-                "n_head": n_head,
-                "dropout": dropout,
-                "eos_token_id": eos_token_id,
-                "bos_token_id": bos_token_id,
-                "pad_token_id": pad_token_id,
-            },
         )
 
         # NOTE: Unfreezing atleast the last layer is required for proper training
@@ -63,4 +40,4 @@ class TJDGPT2(TJD):
         return transformer_outputs.last_hidden_state
 
     def get_model(self, **model_kwargs):
-        return GPT2LMHeadModel(GPT2Config(**model_kwargs))
+        return AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf")

@@ -14,7 +14,11 @@ from tqdm import tqdm
 import torch
 from human_eval.data import read_problems, write_jsonl
 
-from helpers import get_model_and_tokenizer, get_test_samples, load_args
+from helpers import (
+    get_model_and_tokenizer,
+    get_test_samples,
+    load_args,
+)
 
 
 def parse_args():
@@ -30,33 +34,40 @@ def parse_args():
 
 def find_latest_checkpoint(ckpt_dir):
     """Find the latest checkpoint subdirectory in the given directory."""
-    subdirs = [d for d in os.listdir(ckpt_dir) if d.startswith("checkpoint-")]
-    if not subdirs:
-        raise FileNotFoundError(f"No checkpoint directories found in {ckpt_dir}.")
-    # Sort subdirectories by the step number (e.g., "checkpoint-5000")
-    subdirs.sort(key=lambda x: int(x.split("-")[-1]), reverse=True)
-    return osp.join(ckpt_dir, subdirs[0])
+    try:
+        subdirs = [d for d in os.listdir(ckpt_dir) if d.startswith("checkpoint-")]
+        if not subdirs:
+            raise FileNotFoundError(f"No checkpoint directories found in {ckpt_dir}.")
+        # Sort subdirectories by the step number (e.g., "checkpoint-5000")
+        subdirs.sort(key=lambda x: int(x.split("-")[-1]), reverse=True)
+        return osp.join(ckpt_dir, subdirs[0])
+    except FileNotFoundError as e:
+        return None
 
 
 def load_model(ckpt_dir):
     saved_args = load_args(ckpt_dir)
-    latest_ckpt_dir = find_latest_checkpoint(ckpt_dir)
-    ckpt_path = osp.join(latest_ckpt_dir, "pytorch_model.bin")
-
-    if not osp.exists(ckpt_path):
-        raise FileNotFoundError(f"Checkpoint file not found at {ckpt_path}")
-
-    # Determine device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # Model and tokenizer
     model, tokenizer = get_model_and_tokenizer(argparse.Namespace(**saved_args))
+    latest_ckpt_dir = find_latest_checkpoint(ckpt_dir)
+    if latest_ckpt_dir is not None:
+        ckpt_path = osp.join(latest_ckpt_dir, "pytorch_model.bin")
 
-    # Load model state dict and move to device
-    model.load_state_dict(torch.load(ckpt_path, map_location=device))
-    model = model.to(device)
+        if not osp.exists(ckpt_path):
+            raise FileNotFoundError(f"Checkpoint file not found at {ckpt_path}")
+
+        # Determine device
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # Model and tokenizer
+
+        # Load model state dict and move to device
+        model.load_state_dict(torch.load(ckpt_path, map_location=device))
+        model = model.to(device)
+
+        print(f"Loaded model from {ckpt_path}")
+    else:
+        print(f"No checkpoint found in {ckpt_dir}. Using a fresh model.")
     model.eval()
-
     return model, tokenizer
 
 
@@ -66,9 +77,6 @@ def generate_one_completion(prompt, model, tokenizer, eval_horizon=1):
         model,
         tokenizer,
         prompt=prompt,
-        max_new_tokens=500,
-        horizon_eval=eval_horizon,
-        print_output=False,
     )
     return completetion
 
