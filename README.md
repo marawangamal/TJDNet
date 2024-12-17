@@ -20,7 +20,7 @@ pip install -e eval/human-eval # Install HumanEval
 ## Training
 To train the MPS model in the paper, run this command (best checkpoint will be saved under `checkpoints`)
 ```bash 
-python train_pll.py --model_head mps --rank 2 --horizon 2
+python train.py --model_head mps --rank 2 --horizon 2
 ```
 
 ## Evaluation
