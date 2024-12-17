@@ -31,6 +31,7 @@ from transformers import DataCollatorForLanguageModeling
 from transformers import Trainer, TrainingArguments
 
 from data.shakespeare import load_shakespeare_data
+from data.sharegpt import load_sharegpt_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
 from helpers import (
@@ -78,6 +79,7 @@ def main():
     lm_dataset = {
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
+        "sharegpt": load_sharegpt_data,
     }[args.dataset](tokenizer, args.seq_len)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
@@ -109,7 +111,7 @@ def main():
     # Initialize wandb only on main process
     if training_args.local_rank == 0:  # main process
         wandb.init(
-            project="tjdnet-shakepeare-dev",
+            project="tjdnet-sharegpt-dev",
             name=exp_name,
         )
 

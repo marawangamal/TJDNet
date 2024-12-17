@@ -15,10 +15,10 @@ def parse_conversation(example):
     return {"text": text}
 
 
-def load_sharegpt_data(tokenizer, input_seq_len, test_size=0.2):
+def load_sharegpt_data(tokenizer, input_seq_len, test_size=0.2, max_num_samples=5000):
     dataset = load_dataset("Aeala/ShareGPT_Vicuna_unfiltered", split="train")
     # Limit to first 100 examples for testing
-    # dataset = dataset.select(np.arange(max_num_samples))
+    dataset = dataset.select(range(max_num_samples))
     dataset = dataset.map(parse_conversation, remove_columns=dataset.column_names)
     dataset = dataset.map(
         lambda x: tokenizer(x["text"], add_special_tokens=False),
