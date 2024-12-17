@@ -22,6 +22,9 @@ def parse_args():
     parser.add_argument(
         "--ckpt", type=str, required=True, help="Path to checkpoint directory"
     )
+    parser.add_argument(
+        "--dev", action="store_true", help="Run in quick development mode"
+    )
     return parser.parse_args()
 
 
@@ -35,10 +38,9 @@ def find_latest_checkpoint(ckpt_dir):
     return osp.join(ckpt_dir, subdirs[0])
 
 
-def load_model():
-    args = parse_args()
-    saved_args = load_args(args.ckpt)
-    latest_ckpt_dir = find_latest_checkpoint(args.ckpt)
+def load_model(ckpt_dir):
+    saved_args = load_args(ckpt_dir)
+    latest_ckpt_dir = find_latest_checkpoint(ckpt_dir)
     ckpt_path = osp.join(latest_ckpt_dir, "pytorch_model.bin")
 
     if not osp.exists(ckpt_path):
@@ -72,10 +74,18 @@ def generate_one_completion(prompt, model, tokenizer, eval_horizon=1):
 
 
 def main():
-    model, tokenizer = load_model()
+    args = parse_args()
+    model, tokenizer = load_model(ckpt_dir=args.ckpt)
     problems = read_problems()
 
-    num_samples_per_task = 200
+    # Limit problems and samples for development mode
+    if args.dev:
+        print("\nRunning in development mode: limiting problems and samples...")
+        problems = dict(list(problems.items())[:2])  # Limit to 2 problems
+        num_samples_per_task = 2  # Limit to 2 samples per task
+    else:
+        num_samples_per_task = 200
+
     samples = []
 
     # Use tqdm for the outer loop to track progress across problems
@@ -87,6 +97,7 @@ def main():
             samples.append(
                 dict(
                     task_id=task_id,
+                    prompt=problems[task_id]["prompt"],
                     completion=generate_one_completion(
                         problems[task_id]["prompt"], model, tokenizer
                     ),
