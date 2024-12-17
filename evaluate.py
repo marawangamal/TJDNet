@@ -1,3 +1,11 @@
+"""
+Generates code completions for HumanEval problems and saves them to samples.jsonl.
+
+Usage:
+1. Generate: python evaluate.py --ckpt /path/to/checkpoint
+2. Evaluate: python human-eval/human_eval/evaluate_functional_correctness.py samples.jsonl
+"""
+
 import os
 import os.path as osp
 import argparse
