@@ -33,6 +33,7 @@ class TJD(ABC, torch.nn.Module):
         model_head: str = "base",
         eps: float = 1e-9,
         model_kwargs: Dict = {},
+        model_head_module=None,
     ):
         """Initialize the TJD model.
 
@@ -60,6 +61,9 @@ class TJD(ABC, torch.nn.Module):
         )
         self.vocab_size = vocab_size
         self.n_embd = n_embd
+
+    def init_model_head_params(self, params: torch.Tensor) -> None:
+        self.model_head.init_params(params)
 
     @property
     def param_dict(self):

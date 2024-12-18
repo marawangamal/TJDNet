@@ -82,10 +82,9 @@ def main():
         warmup_steps=args.warmup_steps,
         learning_rate=args.lr,
         max_grad_norm=args.grad_clip_val,
-        # eval_on_start=True,
+        eval_on_start=True,
         # Logging
-        logging_strategy="steps",  # Changed from "steps" to "epoch"
-        logging_steps=100,
+        logging_strategy="epoch",  # Changed from "steps" to "epoch"
         logging_first_step=True,
         # Evaluation
         eval_strategy="epoch",  # Evaluate every epoch
@@ -101,7 +100,7 @@ def main():
         # bf16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
-        optim="adafactor",  # Use Adafactor optimizer
+        # optim="adafactor",  # Use Adafactor optimizer
     )
 
     # Initialize wandb only on main process
@@ -122,7 +121,9 @@ def main():
     )
 
     # Train the model
-    trainer.train()
+    # trainer.train()
+    # Save the model
+    trainer.save_model(ckpt_dir)
 
     # Generate a test sample
     test_sample = get_test_samples(

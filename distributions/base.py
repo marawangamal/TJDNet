@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import torch
 import line_profiler
 
@@ -34,6 +34,20 @@ class BaseDist(BaseDistribution):
             "abs": lambda x: torch.abs(x),
             "exp": torch.exp,
         }[positivity_func]
+
+    def init_params(self, params: torch.Tensor) -> None:
+        """Initialize the parameters of `param_func` with a given tensor.
+
+        Args:
+            params (torch.Tensor): A tensor of shape (vocab_size, n_embd)
+        """
+        assert params.shape == (self.vocab_size, self.param_func.in_features), (
+            f"Expected params of shape {(self.param_func.out_features, self.param_func.in_features)}, "
+            f"but got {params.shape}"
+        )
+        with torch.no_grad():
+            self.param_func.weight.copy_(params)  # Set the weights
+            self.param_func.bias.zero_()  # Optionally reset biases to zero
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         return self.positivity_func(self.param_func(last_hidden_state))
