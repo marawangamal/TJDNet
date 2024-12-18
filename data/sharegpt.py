@@ -1,7 +1,7 @@
 # sharegpt.py
 # TODO: Don't use group texts, instead use padding and attention mask
 
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 
 from data.common import group_texts
 
@@ -16,10 +16,22 @@ def parse_conversation(example):
 
 
 # TODO: add max_num_samples to args
-def load_sharegpt_data(tokenizer, input_seq_len, test_size=0.2, max_num_samples=1000):
-    dataset = load_dataset("Aeala/ShareGPT_Vicuna_unfiltered", split="train")
-    # Limit to first 100 examples for testing
-    dataset = dataset.select(range(max_num_samples))
+def load_sharegpt_data(tokenizer, input_seq_len, test_size=0.2, max_num_samples=100):
+    # Load only the needed number of samples by using streaming and taking first max_num_samples
+
+    # dataset = load_dataset("Aeala/ShareGPT_Vicuna_unfiltered", split="train")
+    # # Limit to first 100 examples for testing
+    # dataset = dataset.select(range(max_num_samples))
+
+    dataset = load_dataset(
+        "Aeala/ShareGPT_Vicuna_unfiltered", split="train", streaming=True
+    )
+    # Take only the required number of samples
+    dataset = dataset.take(max_num_samples)
+    # Convert streaming dataset to regular dataset
+    dataset = Dataset.from_generator(lambda: dataset)
+
+    # Process the selected samples
     dataset = dataset.map(parse_conversation, remove_columns=dataset.column_names)
     dataset = dataset.map(
         lambda x: tokenizer(x["text"], add_special_tokens=False),

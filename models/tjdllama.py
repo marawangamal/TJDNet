@@ -1,3 +1,5 @@
+import os
+import torch
 from transformers import AutoModelForCausalLM
 
 from models._tjd import TJD
@@ -23,23 +25,29 @@ class TJDLLAMA(TJD):
             model_head=model_head,
             positivity_func=positivity_func,
         )
-
-        # NOTE: Unfreezing atleast the last layer is required for proper training
-        if freeze_base_model:
-            for param in self.model.parameters():
-                param.requires_grad = False
-        # for param in self.model.model.layers[-1].parameters():
-        #     param.requires_grad = True
-        # for param in self.model.model.norm.parameters():
-        #     param.requires_grad = True
+        self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
 
     # TODO: use attention_mask
     def get_last_hidden_state(self, input_ids, attention_mask=None):
-        transformer_outputs = self.model.model(
+        transformer_outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
-        return transformer_outputs.last_hidden_state
+        last_hidden_state = transformer_outputs.last_hidden_state
+        del transformer_outputs
+        torch.cuda.empty_cache()
+        return last_hidden_state
 
     def get_model(self, **model_kwargs):
-        return AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+        model = AutoModelForCausalLM.from_pretrained(
+            "meta-llama/Llama-2-7b-chat-hf",
+            low_cpu_mem_usage=True,
+        )
+        transformer_model = model.model
+        del model
+        torch.cuda.empty_cache()
+
+        # Set model to not require gradients
+        for param in transformer_model.parameters():
+            param.requires_grad = False
+        return transformer_model

@@ -62,6 +62,22 @@ class TJD(ABC, torch.nn.Module):
         self.n_embd = n_embd
 
     @property
+    def param_dict(self):
+        n_total_params = sum(p.numel() for p in self.parameters())
+        n_trainable_params = sum(
+            p.numel() for p in self.parameters() if p.requires_grad
+        )
+
+        # Get human readable format (in millions)
+        n_trainable_params = f"{n_trainable_params / 1e6:.2f}M"
+        n_total_params = f"{n_total_params / 1e6:.2f}M"
+
+        return {
+            "Trainable Params (M)": n_trainable_params,
+            "Total Params (M)": n_total_params,
+        }
+
+    @property
     def device(self):
         return next(self.parameters()).device
 
@@ -259,7 +275,11 @@ class TJD(ABC, torch.nn.Module):
         assert not torch.isnan(norm_const).any(), "norm_const NaN"
         # 2. Ensure p_tilde < norm_const (if no scale factors)
         if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
-            assert (p_tilde < norm_const).all(), "p_tilde < norm_const"
+            if (p_tilde > norm_const).any():
+                print("p_tilde >= norm_const")
+                print("p_tilde:", p_tilde)
+                print("norm_const:", norm_const)
+            assert (p_tilde <= norm_const).all(), "p_tilde <= norm_const"
 
         loss = (
             -torch.log(p_tilde + self.eps)

@@ -1,4 +1,15 @@
+"""
+
+SLURM command:
+    salloc --gres=gpu:a100l:2 --mem=64G
+
+Resources:
+    - https://huggingface.co/docs/transformers/en/perf_train_gpu_many#data-parallelism--pipeline-parallelism
+    -
+"""
+
 # python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
+
 import os.path as osp
 import os
 import wandb
@@ -50,6 +61,10 @@ def main():
 
     # Model and tokenizer
     model, tokenizer = get_model_and_tokenizer(args)
+    params_dict = model.param_dict
+    # Print dict key value pairs
+    print("Model parameters:")
+    print("\n".join([f"{k}: {v}" for k, v in params_dict.items()]))
 
     # Datasets
     lm_dataset = {
@@ -67,7 +82,7 @@ def main():
         warmup_steps=args.warmup_steps,
         learning_rate=args.lr,
         max_grad_norm=args.grad_clip_val,
-        eval_on_start=True,
+        # eval_on_start=True,
         # Logging
         logging_strategy="steps",  # Changed from "steps" to "epoch"
         logging_steps=100,
@@ -82,6 +97,11 @@ def main():
         save_total_limit=1,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
+        # Memory optimization
+        # bf16=True,  # Enable bfloat16 mixed precision
+        # gradient_checkpointing=True,
+        # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
+        optim="adafactor",  # Use Adafactor optimizer
     )
 
     # Initialize wandb only on main process
