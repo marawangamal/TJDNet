@@ -16,7 +16,7 @@ def parse_conversation(example):
 
 
 # TODO: add max_num_samples to args
-def load_sharegpt_data(tokenizer, input_seq_len, test_size=0.2, max_num_samples=20000):
+def load_sharegpt_data(tokenizer, input_seq_len, test_size=0.2, max_num_samples=1000):
     dataset = load_dataset("Aeala/ShareGPT_Vicuna_unfiltered", split="train")
     # Limit to first 100 examples for testing
     dataset = dataset.select(range(max_num_samples))

@@ -322,10 +322,12 @@ def get_model_and_tokenizer(args):
             if args.tokenizer_type == "word"
             else CharTokenizer(args.seq_len)
         )
-        if args.tokenizer_type == "word":
-            tokenizer.pad_token = tokenizer.eos_token
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+
+    # TODO: avoid this
+    if args.tokenizer_type == "word" or args.model_type == "llama":
+        tokenizer.pad_token = tokenizer.eos_token
 
     # Model configuration
     model_config = {
@@ -349,7 +351,8 @@ def get_model_and_tokenizer(args):
 
     # Add LLaMA specific config
     if args.model_type == "llama":
-        model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+        # model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+        model = TJDLLAMA(**model_config)
     else:
         model = TJDGPT2(**model_config)
 

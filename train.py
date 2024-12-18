@@ -1,3 +1,4 @@
+# python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
 import os.path as osp
 import os
 import wandb
@@ -99,10 +100,9 @@ def main():
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
-    # trainer.save_model(ckpt_dir)  # Save initialized model
 
-    # # Train the model
-    # trainer.train()
+    # Train the model
+    trainer.train()
 
     # Generate a test sample
     test_sample = get_test_samples(
@@ -111,9 +111,6 @@ def main():
         max_new_tokens=args.max_new_tokens,
         prompt="What is the meaning of life?",
     )
-    # test_sample = generate_from_llama(
-    #     model, tokenizer, prompt="What is the meaning of life?"
-    # )
     print(f"Test sample:\n{test_sample}")
 
 

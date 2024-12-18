@@ -8,11 +8,11 @@ class TJDLLAMA(TJD):
         self,
         model_head: str = "base",
         vocab_size: int = 32000,
-        n_embd: int = 5120,
+        n_embd: int = 4096,
         rank: int = 2,
         horizon: int = 8,
         positivity_func: str = "exp",
-        freeze_base_model: bool = False,
+        freeze_base_model: bool = True,
         **kwargs,
     ):
         super().__init__(
@@ -28,12 +28,14 @@ class TJDLLAMA(TJD):
         if freeze_base_model:
             for param in self.model.parameters():
                 param.requires_grad = False
-        for param in self.model.transformer.h[-1].mlp.parameters():
-            param.requires_grad = True
+        # for param in self.model.model.layers[-1].parameters():
+        #     param.requires_grad = True
+        # for param in self.model.model.norm.parameters():
+        #     param.requires_grad = True
 
     # TODO: use attention_mask
     def get_last_hidden_state(self, input_ids, attention_mask=None):
-        transformer_outputs = self.model.transformer(
+        transformer_outputs = self.model.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
