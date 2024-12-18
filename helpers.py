@@ -8,15 +8,18 @@ import numpy as np
 import random
 
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from models.tjdgpt2 import TJDGPT2
 
 from transformers import AutoTokenizer
 from models.tjdgpt2 import TJDGPT2
 from ctokenizers.char_tokenizer import CharTokenizer
+from models.tjdllama import TJDLLAMA
 
 
 # TODO: change horizon, horizon_eval to train_horizon, eval_horizon and eval_horizon should default to train_horizon if not specified
+# TODO: put model arch in TJDGPT2 not in args
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
     # Training arguments
@@ -45,6 +48,13 @@ def parse_args():
         help="Gradient clipping value for training.",
     )
     # Model arguments
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        default="gpt2",
+        help="Type of base model to use",
+        choices=["gpt2", "llama"],
+    )
     parser.add_argument(
         "--model_head",
         type=str,
@@ -187,34 +197,96 @@ def get_git_info():
         }
 
 
+# def generate_from_llama(
+#     model,
+#     tokenizer,
+#     prompt,
+#     max_new_tokens=128,
+#     temperature=0.7,
+#     top_p=0.9,
+#     top_k=50,
+#     num_return_sequences=1,
+#     do_sample=True,
+#     repetition_penalty=1.1,
+# ):
+#     """Generate text from LLAMA model.
+
+#     Args:
+#         model: The LLAMA model
+#         tokenizer: The LLAMA tokenizer
+#         prompt: Input text to generate from
+#         max_new_tokens: Maximum number of new tokens to generate
+#         temperature: Sampling temperature (higher = more random)
+#         top_p: Nucleus sampling parameter
+#         top_k: Number of highest probability tokens to keep
+#         num_return_sequences: Number of sequences to generate
+#         do_sample: Whether to sample or use greedy decoding
+#         repetition_penalty: Penalty for repeating tokens
+
+#     Returns:
+#         list: Generated text sequences
+#     """
+#     # Encode the prompt
+#     inputs = tokenizer(prompt, return_tensors="pt")
+
+#     # Move to same device as model
+#     inputs = {k: v.to(model.device) for k, v in inputs.items()}
+
+#     # Generate
+#     outputs = model.generate(
+#         **inputs,
+#         max_new_tokens=max_new_tokens,
+#         temperature=temperature,
+#         top_p=top_p,
+#         top_k=top_k,
+#         num_return_sequences=num_return_sequences,
+#         do_sample=do_sample,
+#         pad_token_id=tokenizer.pad_token_id,
+#         eos_token_id=tokenizer.eos_token_id,
+#         repetition_penalty=repetition_penalty,
+#     )
+
+#     # Decode and return generated sequences
+#     generated_texts = [
+#         tokenizer.decode(output, skip_special_tokens=True) for output in outputs
+#     ]
+
+#     return generated_texts if num_return_sequences > 1 else generated_texts[0]
+
+
 def get_test_samples(
     model,
     tokenizer,
-    prompt="\n",
+    prompt,
     max_new_tokens=128,
-    top_k=200,
-    # temperature=0.8,
-    num_beams=1,
+    temperature=0.7,
+    top_p=0.9,
+    top_k=50,
     do_sample=True,
-    horizon_eval=1,
-    n_samples=1,
-    print_output=True,
+    repetition_penalty=1.1,
+    num_beams=1,
+    num_samples=1,
+    print_output=False,
 ):
     # Inference
     model.eval()
     samples = []
-    for i in range(n_samples):
+    for i in range(num_samples):
         inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
         outputs = model.generate(
             inputs,
-            num_beams=num_beams,
-            do_sample=do_sample,
             max_new_tokens=max_new_tokens,
-            horizon=horizon_eval,
+            temperature=temperature,
+            top_p=top_p,
             top_k=top_k,
+            do_sample=do_sample,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            repetition_penalty=repetition_penalty,
+            num_beams=num_beams,
         )
         sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        if n_samples == 1:
+        if num_samples == 1:
             samples.append(sample)
         else:
             samples.append(f"[{i+1}] {sample}")
@@ -244,12 +316,17 @@ def get_tokenizer(args):
 
 def get_model_and_tokenizer(args):
     # Tokenizer
-    tokenizer = (
-        AutoTokenizer.from_pretrained("gpt2")
-        if args.tokenizer_type == "word"
-        else CharTokenizer(args.seq_len)
-    )
-    if args.tokenizer_type == "word":
+    if args.model_type == "gpt2":
+        tokenizer = (
+            AutoTokenizer.from_pretrained("gpt2")
+            if args.tokenizer_type == "word"
+            else CharTokenizer(args.seq_len)
+        )
+    else:  # llama
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+
+    # TODO: avoid this
+    if args.tokenizer_type == "word" or args.model_type == "llama":
         tokenizer.pad_token = tokenizer.eos_token
 
     # Model configuration
@@ -260,7 +337,6 @@ def get_model_and_tokenizer(args):
             if hasattr(tokenizer, "get_vocab")
             else len(tokenizer)
         ),
-        "n_embd": args.n_embd,
         "n_layer": args.n_layer,
         "n_head": args.n_head,
         "dropout": args.dropout,
@@ -272,5 +348,12 @@ def get_model_and_tokenizer(args):
         "pad_token_id": tokenizer.pad_token_id,
         "freeze_base_model": args.freeze_base_model,
     }
-    model = TJDGPT2(**model_config)
+
+    # Add LLaMA specific config
+    if args.model_type == "llama":
+        # model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+        model = TJDLLAMA(**model_config)
+    else:
+        model = TJDGPT2(**model_config)
+
     return model, tokenizer
