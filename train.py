@@ -121,7 +121,8 @@ def main():
     )
 
     # Train the model
-    # trainer.train()
+    trainer.train()
+
     # Save the model
     trainer.save_model(ckpt_dir)
 
