@@ -1,4 +1,6 @@
 from typing import Literal
+
+import torch
 from models._tjd import TJD
 
 from transformers import (
@@ -41,13 +43,15 @@ class TJDGPT2(TJD):
         for param in self.model.transformer.h[-1].mlp.parameters():
             param.requires_grad = True
 
-    # TODO: use attention_mask
     def get_last_hidden_state(self, input_ids, attention_mask=None):
         transformer_outputs = self.model.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
-        return transformer_outputs.last_hidden_state
+        last_hidden_state = transformer_outputs.last_hidden_state
+        del transformer_outputs
+        torch.cuda.empty_cache()
+        return last_hidden_state
 
     def get_model(self, **model_kwargs):
         return GPT2LMHeadModel(GPT2Config(**model_kwargs))

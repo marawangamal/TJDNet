@@ -33,7 +33,6 @@ class TJD(ABC, torch.nn.Module):
         model_head: str = "base",
         eps: float = 1e-9,
         model_kwargs: Dict = {},
-        model_head_module=None,
         init_method: Literal["random", "pretrained"] = "pretrained",
         freeze_base_model: bool = False,
     ):
@@ -123,12 +122,6 @@ class TJD(ABC, torch.nn.Module):
         """
         pass
 
-    def get_pretrained_lm_head_weights(self) -> torch.Tensor:
-        """Get the language model head weights. Used for initializing the model head."""
-        raise NotImplementedError(
-            "get_pretrained_lm_head_weights must be implemented for pretrained init"
-        )
-
     @abstractmethod
     def get_last_hidden_state(
         self, input_ids: torch.Tensor, attention_mask=None
@@ -143,6 +136,12 @@ class TJD(ABC, torch.nn.Module):
             torch.Tensor: Last hidden state of shape (B, T, n_embd).
         """
         pass
+
+    def get_pretrained_lm_head_weights(self) -> torch.Tensor:
+        """Get the language model head weights. Used for initializing the model head."""
+        raise NotImplementedError(
+            "get_pretrained_lm_head_weights must be implemented for pretrained init"
+        )
 
     def freeze_base_model(self):
         """Freeze the base model."""
