@@ -33,7 +33,7 @@ class TJD(ABC, torch.nn.Module):
         model_head: str = "base",
         eps: float = 1e-9,
         model_kwargs: Dict = {},
-        init_method: Literal["random", "pretrained"] = "pretrained",
+        init_method: Literal["random", "pretrained"] = "random",
         freeze_base_model: bool = False,
     ):
         """Initialize the TJD model.

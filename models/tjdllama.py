@@ -15,7 +15,7 @@ class TJDLLAMA(TJD):
         rank: int = 2,
         horizon: int = 8,
         positivity_func: str = "exp",
-        init_method: Literal["random", "pretrained"] = "pretrained",
+        init_method: Literal["random", "pretrained"] = "random",
         freeze_base_model: bool = True,
         **kwargs,
     ):

@@ -105,8 +105,11 @@ def parse_args():
     parser.add_argument(
         "--init_method",
         type=str,
-        default="pretrained",
-        choices=["pretrained", "p", "random", "r"],
+        default="random",
+        choices=[
+            "pretrained",
+            "random",
+        ],
         help="Initialization method for model head - pretrained (p) or random (r)",
     )
     parser.add_argument(
@@ -268,7 +271,7 @@ def get_model_and_tokenizer(args):
         "dropout": args.dropout,
         "rank": args.rank,
         "horizon": args.horizon,
-        # "init_method": args.init_method,
+        "init_method": args.init_method,
         "freeze_base_model": args.freeze_base_model,
         "positivity_func": args.positivity_func,
     }
