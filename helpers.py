@@ -268,12 +268,9 @@ def get_model_and_tokenizer(args):
         "dropout": args.dropout,
         "rank": args.rank,
         "horizon": args.horizon,
-        "init_method": args.init_method,
+        # "init_method": args.init_method,
         "freeze_base_model": args.freeze_base_model,
         "positivity_func": args.positivity_func,
-        "eos_token_id": tokenizer.eos_token_id,
-        "bos_token_id": tokenizer.bos_token_id,
-        "pad_token_id": tokenizer.pad_token_id,
     }
 
     # Add LLaMA specific config

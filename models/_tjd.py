@@ -66,27 +66,15 @@ class TJD(ABC, torch.nn.Module):
 
         # Initialize model and weights
         if init_method == "pretrained":
-            model = self.get_pretrained_model()
-            self.init_model_head_params(self.get_pretrained_weights(model))
-            del model
+            weights = self.get_pretrained_lm_head_weights()
+            self.model_head.init_params(weights)
 
         # Handle model freezing
         if freeze_base_model:
             self.freeze_base_model()
 
-    def init_model_head_params(
-        self, init_method: Literal["random", "pretrained"] = "pretrained"
-    ):
-        """Initialize model head parameters."""
-        if init_method == "pretrained":
-            if not hasattr(self, "get_pretrained_lm_head_weights"):
-                raise NotImplementedError(
-                    "get_pretrained_weights must be implemented for pretrained init"
-                )
-            model = self.get_model()
-            weights = self.get_pretrained_lm_head_weights(model)
-            del model
-            self.model_head.init_params(weights)
+        # For compatibility with Trainer
+        self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
 
     @property
     def param_dict(self):
@@ -135,10 +123,11 @@ class TJD(ABC, torch.nn.Module):
         """
         pass
 
-    @abstractmethod
-    def get_pretrained_lm_head_weights(self, model: torch.nn.Module) -> torch.Tensor:
+    def get_pretrained_lm_head_weights(self) -> torch.Tensor:
         """Get the language model head weights. Used for initializing the model head."""
-        pass
+        raise NotImplementedError(
+            "get_pretrained_lm_head_weights must be implemented for pretrained init"
+        )
 
     @abstractmethod
     def get_last_hidden_state(
