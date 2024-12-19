@@ -1,6 +1,6 @@
 import torch
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 import torch
 
 from distributions.base import BaseDist
@@ -34,6 +34,8 @@ class TJD(ABC, torch.nn.Module):
         eps: float = 1e-9,
         model_kwargs: Dict = {},
         model_head_module=None,
+        init_method: Literal["random", "pretrained"] = "pretrained",
+        freeze_base_model: bool = False,
     ):
         """Initialize the TJD model.
 
@@ -62,9 +64,29 @@ class TJD(ABC, torch.nn.Module):
         self.vocab_size = vocab_size
         self.n_embd = n_embd
 
-    # TODO: make more standard
-    def init_model_head_params(self, params: torch.Tensor) -> None:
-        self.model_head.init_params(params)
+        # Initialize model and weights
+        if init_method == "pretrained":
+            model = self.get_pretrained_model()
+            self.init_model_head_params(self.get_pretrained_weights(model))
+            del model
+
+        # Handle model freezing
+        if freeze_base_model:
+            self.freeze_base_model()
+
+    def init_model_head_params(
+        self, init_method: Literal["random", "pretrained"] = "pretrained"
+    ):
+        """Initialize model head parameters."""
+        if init_method == "pretrained":
+            if not hasattr(self, "get_pretrained_lm_head_weights"):
+                raise NotImplementedError(
+                    "get_pretrained_weights must be implemented for pretrained init"
+                )
+            model = self.get_model()
+            weights = self.get_pretrained_lm_head_weights(model)
+            del model
+            self.model_head.init_params(weights)
 
     @property
     def param_dict(self):
@@ -86,30 +108,6 @@ class TJD(ABC, torch.nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    @abstractmethod
-    def get_model(self, **kwargs) -> torch.nn.Module:
-        """Get the torch model to be modified.
-
-        Returns:
-            torch.nn.Module: Model to be modified.
-        """
-        pass
-
-    @abstractmethod
-    def get_last_hidden_state(
-        self, input_ids: torch.Tensor, attention_mask=None
-    ) -> torch.Tensor:
-        """Get the last hidden state of the model.
-
-        Args:
-            input_ids (torch.Tensor): Input tensor of shape (B, T).
-            attention_mask ([type], optional): Attention mask of shape (B, T). Defaults to None.
-
-        Returns:
-            torch.Tensor: Last hidden state of shape (B, T, n_embd).
-        """
-        pass
-
     # TODO: rename to get_runtime_horizon or is_valid_horizon
     def _get_horizon(self, horizon: Optional[int]) -> int:
         """Get the horizon value. Prevents runtime horizon exceeding the model horizon.
@@ -127,6 +125,40 @@ class TJD(ABC, torch.nn.Module):
         if horizon > self.horizon:
             raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
         return horizon
+
+    @abstractmethod
+    def get_model(self, **kwargs) -> torch.nn.Module:
+        """Get the torch model to be modified.
+
+        Returns:
+            torch.nn.Module: Model to be modified.
+        """
+        pass
+
+    @abstractmethod
+    def get_pretrained_lm_head_weights(self, model: torch.nn.Module) -> torch.Tensor:
+        """Get the language model head weights. Used for initializing the model head."""
+        pass
+
+    @abstractmethod
+    def get_last_hidden_state(
+        self, input_ids: torch.Tensor, attention_mask=None
+    ) -> torch.Tensor:
+        """Get the last hidden state of the model.
+
+        Args:
+            input_ids (torch.Tensor): Input tensor of shape (B, T).
+            attention_mask ([type], optional): Attention mask of shape (B, T). Defaults to None.
+
+        Returns:
+            torch.Tensor: Last hidden state of shape (B, T, n_embd).
+        """
+        pass
+
+    def freeze_base_model(self):
+        """Freeze the base model."""
+        for param in self.model.parameters():
+            param.requires_grad = False
 
     def generate(
         self,

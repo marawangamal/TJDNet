@@ -16,8 +16,9 @@ class TJDGPT2(TJD):
         rank: int = 2,
         horizon: int = 8,
         positivity_func: str = "exp",
-        init_method: Literal["random", "pretrained"] = "pretrained",
+        init_method: Literal["random", "pretrained"] = "random",
         freeze_base_model: bool = False,
+        **kwargs,
     ):
         super().__init__(
             n_embd,
@@ -30,11 +31,13 @@ class TJDGPT2(TJD):
                 "vocab_size": vocab_size,
                 "n_embd": n_embd,
             },
+            freeze_base_model=freeze_base_model,
+            init_method=init_method,
         )
 
-        if freeze_base_model:
-            for param in self.model.parameters():
-                param.requires_grad = False
+    def freeze_base_model(self):
+        for param in self.model.parameters():
+            param.requires_grad = False
         for param in self.model.transformer.h[-1].mlp.parameters():
             param.requires_grad = True
 
