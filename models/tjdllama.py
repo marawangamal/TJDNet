@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 import torch
 from transformers import AutoModelForCausalLM
 
@@ -14,6 +15,8 @@ class TJDLLAMA(TJD):
         rank: int = 2,
         horizon: int = 8,
         positivity_func: str = "exp",
+        # TODO: use arg for init method
+        init_method: Literal["random", "pretrained"] = "pretrained",
         freeze_base_model: bool = True,
         **kwargs,
     ):
@@ -28,14 +31,19 @@ class TJDLLAMA(TJD):
         self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
 
         # Init model head
-        model = AutoModelForCausalLM.from_pretrained(
-            "meta-llama/Llama-2-7b-chat-hf",
-            low_cpu_mem_usage=True,
-        )
-        self.init_model_head_params(model.lm_head.weight)
+        if init_method == "pretrained":
+            model = AutoModelForCausalLM.from_pretrained(
+                "meta-llama/Llama-2-7b-chat-hf",
+                low_cpu_mem_usage=True,
+            )
+            self.init_model_head_params(model.lm_head.weight)
+            del model
+
         # Set model to not require gradients
-        for param in self.parameters():
-            param.requires_grad = False
+        # BUG: Unfreezing atleast the last layer in `self.model`` is required for proper training
+        if freeze_base_model:
+            for param in self.model.parameters():
+                param.requires_grad = False
 
     # TODO: use attention_mask
     def get_last_hidden_state(self, input_ids, attention_mask=None):

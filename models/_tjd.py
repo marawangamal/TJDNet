@@ -62,6 +62,7 @@ class TJD(ABC, torch.nn.Module):
         self.vocab_size = vocab_size
         self.n_embd = n_embd
 
+    # TODO: make more standard
     def init_model_head_params(self, params: torch.Tensor) -> None:
         self.model_head.init_params(params)
 

@@ -1,3 +1,4 @@
+from typing import Literal
 from models._tjd import TJD
 
 from transformers import (
@@ -12,15 +13,10 @@ class TJDGPT2(TJD):
         model_head: str = "base",
         vocab_size: int = 50257,
         n_embd: int = 768,
-        n_layer: int = 6,
-        n_head: int = 6,
-        dropout: float = 0.1,
         rank: int = 2,
         horizon: int = 8,
         positivity_func: str = "exp",
-        eos_token_id: int = 50256,
-        bos_token_id: int = 50256,
-        pad_token_id: int = 50256,
+        init_method: Literal["random", "pretrained"] = "pretrained",
         freeze_base_model: bool = False,
     ):
         super().__init__(
@@ -33,16 +29,9 @@ class TJDGPT2(TJD):
             model_kwargs={
                 "vocab_size": vocab_size,
                 "n_embd": n_embd,
-                "n_layer": n_layer,
-                "n_head": n_head,
-                "dropout": dropout,
-                "eos_token_id": eos_token_id,
-                "bos_token_id": bos_token_id,
-                "pad_token_id": pad_token_id,
             },
         )
 
-        # NOTE: Unfreezing atleast the last layer is required for proper training
         if freeze_base_model:
             for param in self.model.parameters():
                 param.requires_grad = False

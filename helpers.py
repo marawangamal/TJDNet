@@ -103,6 +103,13 @@ def parse_args():
         help="Block size for model input sequences.",
     )
     parser.add_argument(
+        "--init_method",
+        type=str,
+        default="pretrained",
+        choices=["pretrained", "p", "random", "r"],
+        help="Initialization method for model head - pretrained (p) or random (r)",
+    )
+    parser.add_argument(
         "--freeze_base_model",
         default=False,
         action="store_true",
@@ -172,63 +179,6 @@ def get_git_info():
             "commit_hash": "Git commit hash not available",
             "commit_message": "Git commit message not available",
         }
-
-
-# def generate_from_llama(
-#     model,
-#     tokenizer,
-#     prompt,
-#     max_new_tokens=128,
-#     temperature=0.7,
-#     top_p=0.9,
-#     top_k=50,
-#     num_return_sequences=1,
-#     do_sample=True,
-#     repetition_penalty=1.1,
-# ):
-#     """Generate text from LLAMA model.
-
-#     Args:
-#         model: The LLAMA model
-#         tokenizer: The LLAMA tokenizer
-#         prompt: Input text to generate from
-#         max_new_tokens: Maximum number of new tokens to generate
-#         temperature: Sampling temperature (higher = more random)
-#         top_p: Nucleus sampling parameter
-#         top_k: Number of highest probability tokens to keep
-#         num_return_sequences: Number of sequences to generate
-#         do_sample: Whether to sample or use greedy decoding
-#         repetition_penalty: Penalty for repeating tokens
-
-#     Returns:
-#         list: Generated text sequences
-#     """
-#     # Encode the prompt
-#     inputs = tokenizer(prompt, return_tensors="pt")
-
-#     # Move to same device as model
-#     inputs = {k: v.to(model.device) for k, v in inputs.items()}
-
-#     # Generate
-#     outputs = model.generate(
-#         **inputs,
-#         max_new_tokens=max_new_tokens,
-#         temperature=temperature,
-#         top_p=top_p,
-#         top_k=top_k,
-#         num_return_sequences=num_return_sequences,
-#         do_sample=do_sample,
-#         pad_token_id=tokenizer.pad_token_id,
-#         eos_token_id=tokenizer.eos_token_id,
-#         repetition_penalty=repetition_penalty,
-#     )
-
-#     # Decode and return generated sequences
-#     generated_texts = [
-#         tokenizer.decode(output, skip_special_tokens=True) for output in outputs
-#     ]
-
-#     return generated_texts if num_return_sequences > 1 else generated_texts[0]
 
 
 # TODO: add eval_horizon
@@ -318,11 +268,12 @@ def get_model_and_tokenizer(args):
         "dropout": args.dropout,
         "rank": args.rank,
         "horizon": args.horizon,
+        "init_method": args.init_method,
+        "freeze_base_model": args.freeze_base_model,
         "positivity_func": args.positivity_func,
         "eos_token_id": tokenizer.eos_token_id,
         "bos_token_id": tokenizer.bos_token_id,
         "pad_token_id": tokenizer.pad_token_id,
-        "freeze_base_model": args.freeze_base_model,
     }
 
     # Add LLaMA specific config

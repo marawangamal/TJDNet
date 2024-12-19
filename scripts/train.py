@@ -207,7 +207,6 @@ if __name__ == "__main__":
         save_dir=ckpt_dir,
         horizon_eval=args.horizon_eval,
         grad_clip_val=args.grad_clip_val,
-        use_loss_scale=args.scale_loss,
         wandb_run=wandb_run,
     )
 
