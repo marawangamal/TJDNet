@@ -1,6 +1,6 @@
 import torch
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 import torch
 
 from distributions.base import BaseDist
@@ -33,6 +33,8 @@ class TJD(ABC, torch.nn.Module):
         model_head: str = "base",
         eps: float = 1e-9,
         model_kwargs: Dict = {},
+        init_method: Literal["random", "pretrained"] = "random",
+        freeze_base_model: bool = False,
     ):
         """Initialize the TJD model.
 
@@ -61,9 +63,55 @@ class TJD(ABC, torch.nn.Module):
         self.vocab_size = vocab_size
         self.n_embd = n_embd
 
+        # Initialize model and weights
+        if init_method == "pretrained":
+            weights = self.get_pretrained_lm_head_weights()
+            self.model_head.init_params(weights)
+
+        # Handle model freezing
+        if freeze_base_model:
+            self.freeze_base_model()
+
+        # For compatibility with Trainer
+        self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
+
+    @property
+    def param_dict(self):
+        n_total_params = sum(p.numel() for p in self.parameters())
+        n_trainable_params = sum(
+            p.numel() for p in self.parameters() if p.requires_grad
+        )
+
+        # Get human readable format (in millions)
+        n_trainable_params = f"{n_trainable_params / 1e6:.2f}M"
+        n_total_params = f"{n_total_params / 1e6:.2f}M"
+
+        return {
+            "Trainable Params (M)": n_trainable_params,
+            "Total Params (M)": n_total_params,
+        }
+
     @property
     def device(self):
         return next(self.parameters()).device
+
+    # TODO: rename to get_runtime_horizon or is_valid_horizon
+    def _get_horizon(self, horizon: Optional[int]) -> int:
+        """Get the horizon value. Prevents runtime horizon exceeding the model horizon.
+
+        Args:
+            horizon (Optional[int]): Candidate horizon value.
+
+        Raises:
+            ValueError: If the horizon is greater than the model horizon.
+
+        Returns:
+            int: Horizon value.
+        """
+        horizon = self.horizon if horizon is None else horizon
+        if horizon > self.horizon:
+            raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
+        return horizon
 
     @abstractmethod
     def get_model(self, **kwargs) -> torch.nn.Module:
@@ -89,23 +137,16 @@ class TJD(ABC, torch.nn.Module):
         """
         pass
 
-    # TODO: rename to get_runtime_horizon or is_valid_horizon
-    def _get_horizon(self, horizon: Optional[int]) -> int:
-        """Get the horizon value. Prevents runtime horizon exceeding the model horizon.
+    def get_pretrained_lm_head_weights(self) -> torch.Tensor:
+        """Get the language model head weights. Used for initializing the model head."""
+        raise NotImplementedError(
+            "get_pretrained_lm_head_weights must be implemented for pretrained init"
+        )
 
-        Args:
-            horizon (Optional[int]): Candidate horizon value.
-
-        Raises:
-            ValueError: If the horizon is greater than the model horizon.
-
-        Returns:
-            int: Horizon value.
-        """
-        horizon = self.horizon if horizon is None else horizon
-        if horizon > self.horizon:
-            raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
-        return horizon
+    def freeze_base_model(self):
+        """Freeze the base model."""
+        for param in self.model.parameters():
+            param.requires_grad = False
 
     def generate(
         self,
@@ -259,7 +300,11 @@ class TJD(ABC, torch.nn.Module):
         assert not torch.isnan(norm_const).any(), "norm_const NaN"
         # 2. Ensure p_tilde < norm_const (if no scale factors)
         if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
-            assert (p_tilde < norm_const).all(), "p_tilde < norm_const"
+            if (p_tilde > norm_const).any():
+                print("p_tilde >= norm_const")
+                print("p_tilde:", p_tilde)
+                print("norm_const:", norm_const)
+            assert (p_tilde <= norm_const).all(), "p_tilde <= norm_const"
 
         loss = (
             -torch.log(p_tilde + self.eps)

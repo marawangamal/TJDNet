@@ -1,4 +1,25 @@
+"""
+Hardware Requirements (for Llama-based models):
+    - GPUs: 4x NVIDIA A100 80GB GPUs 
+    - CPU RAM: 128GB minimum
+    - Storage: Recommend 1TB+ SSD for dataset and checkpoints
+
+    Note: GPT-2 based models require significantly less resources
+
+Recommended SLURM allocation (for Llama):
+    salloc --gres=gpu:a100l:4 --mem=128G --cpus-per-task=32
+
+Usage:
+    - Uses PyTorch Distributed Data Parallel (DDP) for multi-GPU training
+    - Automatic mixed precision (AMP) enabled for memory efficiency
+    - Gradient checkpointing available for large models
+    
+References:
+    - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
+"""
+
 # python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
+
 import os.path as osp
 import os
 import wandb
@@ -50,6 +71,10 @@ def main():
 
     # Model and tokenizer
     model, tokenizer = get_model_and_tokenizer(args)
+    params_dict = model.param_dict
+    # Print dict key value pairs
+    print("Model parameters:")
+    print("\n".join([f"{k}: {v}" for k, v in params_dict.items()]))
 
     # Datasets
     lm_dataset = {
@@ -67,13 +92,14 @@ def main():
         warmup_steps=args.warmup_steps,
         learning_rate=args.lr,
         max_grad_norm=args.grad_clip_val,
-        eval_on_start=True,
+        # eval_on_start=True,
         # Logging
-        logging_strategy="steps",  # Changed from "steps" to "epoch"
-        logging_steps=100,
+        logging_strategy=args.logging_strategy,
+        logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        eval_strategy="epoch",  # Evaluate every epoch
+        eval_strategy=args.eval_strategy,
+        eval_steps=args.eval_steps,
         # Reporting
         report_to="wandb",  # Enable wandb logging
         # Checkpoints
@@ -82,6 +108,11 @@ def main():
         save_total_limit=1,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
+        # Memory optimization
+        # bf16=True,  # Enable bfloat16 mixed precision
+        # gradient_checkpointing=True,
+        # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
+        # optim="adafactor",  # Use Adafactor optimizer
     )
 
     # Initialize wandb only on main process
@@ -103,6 +134,9 @@ def main():
 
     # Train the model
     trainer.train()
+
+    # Save the model
+    trainer.save_model(ckpt_dir)
 
     # Generate a test sample
     test_sample = get_test_samples(

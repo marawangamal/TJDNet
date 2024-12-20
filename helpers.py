@@ -20,6 +20,7 @@ from models.tjdllama import TJDLLAMA
 
 # TODO: change horizon, horizon_eval to train_horizon, eval_horizon and eval_horizon should default to train_horizon if not specified
 # TODO: put model arch in TJDGPT2 not in args
+# TODO: add init method to args
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
     # Training arguments
@@ -33,7 +34,7 @@ def parse_args():
         help="Batch size for training and evaluation.",
     )
     parser.add_argument(
-        "--lr", type=float, default=1e-3, help="Learning rate for training."
+        "--lr", type=float, default=1e-4, help="Learning rate for training."
     )
     parser.add_argument(
         "--warmup_steps",
@@ -44,7 +45,7 @@ def parse_args():
     parser.add_argument(
         "--grad_clip_val",
         type=float,
-        default=None,
+        default=1.0,
         help="Gradient clipping value for training.",
     )
     # Model arguments
@@ -76,34 +77,10 @@ def parse_args():
         choices=["char", "word"],
     )
     parser.add_argument(
-        "--scale_loss",
-        default=False,
-        action="store_true",
-        help="Whether to scale the loss during training.",
-    )
-    parser.add_argument(
         "--seq_len",
         type=int,
         default=256,
         help="Block size for model input sequences.",
-    )
-    parser.add_argument(
-        "--n_embd",
-        type=int,
-        default=384,
-        help="Dimensionality of the model embeddings.",
-    )
-    parser.add_argument(
-        "--n_layer",
-        type=int,
-        default=6,
-        help="Number of hidden layers in the transformer model.",
-    )
-    parser.add_argument(
-        "--n_head",
-        type=int,
-        default=6,
-        help="Number of attention heads in the transformer model.",
     )
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
     parser.add_argument(
@@ -124,6 +101,16 @@ def parse_args():
         type=int,
         default=2,
         help="Block size for model input sequences.",
+    )
+    parser.add_argument(
+        "--init_method",
+        type=str,
+        default="random",
+        choices=[
+            "pretrained",
+            "random",
+        ],
+        help="Initialization method for model head - pretrained (p) or random (r)",
     )
     parser.add_argument(
         "--freeze_base_model",
@@ -159,6 +146,33 @@ def parse_args():
     # Misc arguments
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility"
+    )
+    # Trainer arguments
+    parser.add_argument(
+        "--logging_strategy",
+        type=str,
+        default="steps",
+        choices=["steps", "epoch"],
+        help="Logging strategy for the trainer.",
+    )
+    parser.add_argument(
+        "--logging_steps",
+        type=int,
+        default=100,
+        help="Logging frequency for the trainer.",
+    )
+    parser.add_argument(
+        "--eval_strategy",
+        type=str,
+        default="steps",
+        choices=["steps", "epoch"],
+        help="Evaluation strategy for the trainer.",
+    )
+    parser.add_argument(
+        "--eval_steps",
+        type=int,
+        default=200,
+        help="Evaluation frequency for the trainer.",
     )
     return parser.parse_args()
 
@@ -197,67 +211,11 @@ def get_git_info():
         }
 
 
-# def generate_from_llama(
-#     model,
-#     tokenizer,
-#     prompt,
-#     max_new_tokens=128,
-#     temperature=0.7,
-#     top_p=0.9,
-#     top_k=50,
-#     num_return_sequences=1,
-#     do_sample=True,
-#     repetition_penalty=1.1,
-# ):
-#     """Generate text from LLAMA model.
-
-#     Args:
-#         model: The LLAMA model
-#         tokenizer: The LLAMA tokenizer
-#         prompt: Input text to generate from
-#         max_new_tokens: Maximum number of new tokens to generate
-#         temperature: Sampling temperature (higher = more random)
-#         top_p: Nucleus sampling parameter
-#         top_k: Number of highest probability tokens to keep
-#         num_return_sequences: Number of sequences to generate
-#         do_sample: Whether to sample or use greedy decoding
-#         repetition_penalty: Penalty for repeating tokens
-
-#     Returns:
-#         list: Generated text sequences
-#     """
-#     # Encode the prompt
-#     inputs = tokenizer(prompt, return_tensors="pt")
-
-#     # Move to same device as model
-#     inputs = {k: v.to(model.device) for k, v in inputs.items()}
-
-#     # Generate
-#     outputs = model.generate(
-#         **inputs,
-#         max_new_tokens=max_new_tokens,
-#         temperature=temperature,
-#         top_p=top_p,
-#         top_k=top_k,
-#         num_return_sequences=num_return_sequences,
-#         do_sample=do_sample,
-#         pad_token_id=tokenizer.pad_token_id,
-#         eos_token_id=tokenizer.eos_token_id,
-#         repetition_penalty=repetition_penalty,
-#     )
-
-#     # Decode and return generated sequences
-#     generated_texts = [
-#         tokenizer.decode(output, skip_special_tokens=True) for output in outputs
-#     ]
-
-#     return generated_texts if num_return_sequences > 1 else generated_texts[0]
-
-
+# TODO: add eval_horizon
 def get_test_samples(
     model,
     tokenizer,
-    prompt,
+    prompt="\n",
     max_new_tokens=128,
     temperature=0.7,
     top_p=0.9,
@@ -337,16 +295,12 @@ def get_model_and_tokenizer(args):
             if hasattr(tokenizer, "get_vocab")
             else len(tokenizer)
         ),
-        "n_layer": args.n_layer,
-        "n_head": args.n_head,
         "dropout": args.dropout,
         "rank": args.rank,
         "horizon": args.horizon,
-        "positivity_func": args.positivity_func,
-        "eos_token_id": tokenizer.eos_token_id,
-        "bos_token_id": tokenizer.bos_token_id,
-        "pad_token_id": tokenizer.pad_token_id,
+        "init_method": args.init_method,
         "freeze_base_model": args.freeze_base_model,
+        "positivity_func": args.positivity_func,
     }
 
     # Add LLaMA specific config

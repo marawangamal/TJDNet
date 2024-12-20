@@ -1,9 +1,7 @@
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 import torch
-import line_profiler
 
 from distributions._base import BaseDistribution
-from tensorops.common import sample_from_tensor_dist
 from tensorops.umps import (
     sample_from_umps_tensor,
     select_from_umps_tensor,
@@ -20,6 +18,7 @@ class UMPSDist(BaseDistribution):
         rank: int,
         horizon: int,
         positivity_func: str = "exp",
+        hidden_dim: int = 256,
     ):
         super().__init__(horizon)
         self.rank = rank
@@ -31,7 +30,11 @@ class UMPSDist(BaseDistribution):
             "exp": torch.exp,
         }[positivity_func]
         self.tensor_train_size = rank + (rank * vocab_size * rank) + rank
-        self.param_func = torch.nn.Linear(n_embd, self.tensor_train_size)
+        self.param_func_core = torch.nn.Sequential(
+            torch.nn.Linear(n_embd, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_dim, self.tensor_train_size),
+        )
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
         params_tilde = self.param_func(last_hidden_state)
