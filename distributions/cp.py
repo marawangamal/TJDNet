@@ -21,6 +21,7 @@ class CPDist(BaseDistribution):
         rank: int,
         horizon: int,
         positivity_func: str = "exp",
+        hidden_dim: int = 256,
     ):
         """CP Distribution
 
@@ -31,7 +32,6 @@ class CPDist(BaseDistribution):
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
         super().__init__(horizon)
-        self.param_func = torch.nn.Linear(n_embd, rank * horizon * vocab_size)
         self.horizon = horizon
         self.vocab_size = vocab_size
         self.rank = rank
@@ -41,6 +41,12 @@ class CPDist(BaseDistribution):
             "exp": torch.exp,
         }[positivity_func]
         self.cache = {}
+        # Replace single linear layer with two-layer MLP
+        self.param_func_core = torch.nn.Sequential(
+            torch.nn.Linear(n_embd, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_dim, rank * horizon * vocab_size),
+        )
 
     def _get_params(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
