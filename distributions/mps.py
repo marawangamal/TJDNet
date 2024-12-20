@@ -2,7 +2,6 @@ from typing import List, Tuple
 import torch
 
 from distributions._base import BaseDistribution
-from tensorops.common import sample_from_tensor_dist
 from tensorops.mps import (
     sample_from_mps_tensorV1,
     select_from_mps_tensor,

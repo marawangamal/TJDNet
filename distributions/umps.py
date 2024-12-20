@@ -1,9 +1,7 @@
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 import torch
-import line_profiler
 
 from distributions._base import BaseDistribution
-from tensorops.common import sample_from_tensor_dist
 from tensorops.umps import (
     sample_from_umps_tensor,
     select_from_umps_tensor,

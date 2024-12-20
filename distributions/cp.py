@@ -1,5 +1,4 @@
 from typing import List, Tuple
-import line_profiler
 from git import Optional
 import torch
 import torch.autograd.profiler as profiler
