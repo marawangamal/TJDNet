@@ -147,6 +147,33 @@ def parse_args():
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility"
     )
+    # Trainer arguments
+    parser.add_argument(
+        "--logging_strategy",
+        type=str,
+        default="steps",
+        choices=["steps", "epoch"],
+        help="Logging strategy for the trainer.",
+    )
+    parser.add_argument(
+        "--logging_steps",
+        type=int,
+        default=100,
+        help="Logging frequency for the trainer.",
+    )
+    parser.add_argument(
+        "--eval_strategy",
+        type=str,
+        default="steps",
+        choices=["steps", "epoch"],
+        help="Evaluation strategy for the trainer.",
+    )
+    parser.add_argument(
+        "--eval_steps",
+        type=int,
+        default=200,
+        help="Evaluation frequency for the trainer.",
+    )
     return parser.parse_args()
 
 
