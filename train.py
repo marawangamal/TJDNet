@@ -1,11 +1,21 @@
 """
+Hardware Requirements (for Llama-based models):
+    - GPUs: 4x NVIDIA A100 80GB GPUs 
+    - CPU RAM: 128GB minimum
+    - Storage: Recommend 1TB+ SSD for dataset and checkpoints
 
-SLURM command:
-    salloc --gres=gpu:a100l:2 --mem=64G
+    Note: GPT-2 based models require significantly less resources
 
-Resources:
-    - https://huggingface.co/docs/transformers/en/perf_train_gpu_many#data-parallelism--pipeline-parallelism
-    -
+Recommended SLURM allocation (for Llama):
+    salloc --gres=gpu:a100l:4 --mem=128G --cpus-per-task=32
+
+Usage:
+    - Uses PyTorch Distributed Data Parallel (DDP) for multi-GPU training
+    - Automatic mixed precision (AMP) enabled for memory efficiency
+    - Gradient checkpointing available for large models
+    
+References:
+    - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
 """
 
 # python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
