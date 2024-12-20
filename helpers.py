@@ -174,6 +174,12 @@ def parse_args():
         default=200,
         help="Evaluation frequency for the trainer.",
     )
+    parser.add_argument(
+        "--max_num_samples",
+        type=int,
+        default=68000,
+        help="Maximum number of samples to load from the dataset.",
+    )
     return parser.parse_args()
 
 

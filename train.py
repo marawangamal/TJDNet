@@ -24,8 +24,13 @@ import os.path as osp
 import os
 import wandb
 
-from transformers import DataCollatorForLanguageModeling
-from transformers import Trainer, TrainingArguments
+from transformers import (
+    DataCollatorForLanguageModeling,
+    Trainer,
+    TrainingArguments,
+    TrainerCallback,
+)
+
 
 from data.shakespeare import load_shakespeare_data
 from data.sharegpt import load_sharegpt_data
@@ -47,6 +52,36 @@ class TJDTrainer(Trainer):
         output_dict = model(**inputs)
         loss = output_dict["loss"]
         return (loss, output_dict) if return_outputs else loss
+
+
+class GenerationCallback(TrainerCallback):
+    def __init__(self, model, tokenizer, generate_every=1000, max_new_tokens=100):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.generate_every = generate_every
+        self.max_new_tokens = max_new_tokens
+        self.prompts = [
+            "What is the meaning of life?",
+            "Human: Hi, how are you today?\n\nAssistant:",
+            "Human: Can you help me with a math problem?\n\nAssistant:",
+        ]
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step % self.generate_every == 0:
+            print("\n=== Generation Sample at step", state.global_step, "===")
+            # Temporarily set model to eval mode
+            self.model.eval()
+            for prompt in self.prompts:
+                sample = get_test_samples(
+                    self.model,
+                    self.tokenizer,
+                    max_new_tokens=self.max_new_tokens,
+                    prompt=prompt,
+                )
+                print(f"\nPrompt: {prompt}\nOutput: {sample}\n")
+            # Set model back to train mode
+            self.model.train()
+            print("=" * 50 + "\n")
 
 
 # Custom evaluation function
@@ -81,7 +116,7 @@ def main():
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
         "sharegpt": load_sharegpt_data,
-    }[args.dataset](tokenizer, args.seq_len)
+    }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     training_args = TrainingArguments(
@@ -122,6 +157,14 @@ def main():
             name=exp_name,
         )
 
+    # In your main function, add this before initializing the trainer:
+    generation_callback = GenerationCallback(
+        model=model,
+        tokenizer=tokenizer,
+        generate_every=args.logging_steps,  # or any other frequency you want
+        max_new_tokens=args.max_new_tokens,
+    )
+
     # Initialize the trainer
     trainer = TJDTrainer(
         model=model,
@@ -130,6 +173,7 @@ def main():
         eval_dataset=lm_dataset["test"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
+        callbacks=[generation_callback],  # Add this line
     )
 
     # Train the model

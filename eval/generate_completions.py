@@ -29,6 +29,13 @@ def parse_args():
     parser.add_argument(
         "--dev", action="store_true", help="Run in quick development mode"
     )
+    parser.add_argument(
+        "-m",
+        "--max_new_tokens",
+        type=int,
+        default=256,
+        help="Maximum number of tokens to generate for each completion",
+    )
     return parser.parse_args()
 
 
@@ -71,12 +78,15 @@ def load_model(ckpt_dir):
     return model, tokenizer
 
 
-def generate_one_completion(prompt, model, tokenizer, eval_horizon=1):
+def generate_one_completion(
+    prompt, model, tokenizer, eval_horizon=1, max_new_tokens=256
+):
     # UNCOMMENT THIS LINE TO GENERATE COMPLETIONS
     completetion = get_test_samples(
         model,
         tokenizer,
         prompt=prompt,
+        max_new_tokens=max_new_tokens,
     )
     return completetion
 
@@ -107,7 +117,10 @@ def main():
                     task_id=task_id,
                     prompt=problems[task_id]["prompt"],
                     completion=generate_one_completion(
-                        problems[task_id]["prompt"], model, tokenizer
+                        problems[task_id]["prompt"],
+                        model,
+                        tokenizer,
+                        max_new_tokens=args.max_new_tokens,
                     ),
                 )
             )

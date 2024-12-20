@@ -23,7 +23,7 @@ from datasets import load_dataset
 from data.common import group_texts
 
 
-def load_shakespeare_data(tokenizer, input_seq_len, test_size=0.2):
+def load_shakespeare_data(tokenizer, input_seq_len, test_size=0.2, **kwargs):
     dataset = load_dataset("tiny_shakespeare", split="train")
     dataset = dataset.map(
         lambda x: tokenizer(x["text"], add_special_tokens=False),
