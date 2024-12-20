@@ -82,16 +82,20 @@ def main():
         warmup_steps=args.warmup_steps,
         learning_rate=args.lr,
         max_grad_norm=args.grad_clip_val,
-        eval_on_start=True,
+        # eval_on_start=True,
         # Logging
-        logging_strategy="epoch",  # Changed from "steps" to "epoch"
+        # logging_strategy="epoch",  # Changed from "steps" to "epoch"
+        logging_strategy="steps",
+        logging_steps=10,
         logging_first_step=True,
         # Evaluation
-        eval_strategy="epoch",  # Evaluate every epoch
+        eval_strategy="steps",
+        eval_steps=200,
         # Reporting
         report_to="wandb",  # Enable wandb logging
         # Checkpoints
         save_strategy="best",  # Save model every epoch
+        save_steps=1000,
         save_safetensors=False,
         save_total_limit=1,
         metric_for_best_model="eval_nll",

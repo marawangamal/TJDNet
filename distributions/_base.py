@@ -34,6 +34,9 @@ class BaseDistribution(ABC, torch.nn.Module):
                 self.cache["hidden_state"] = params
         return params
 
+    def init_params(self, params: torch.Tensor) -> None:
+        raise NotImplementedError("init_params method must be implemented")
+
     @abstractmethod
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         pass
