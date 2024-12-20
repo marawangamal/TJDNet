@@ -14,6 +14,8 @@ from tqdm import tqdm
 import torch
 from human_eval.data import read_problems, write_jsonl
 
+from data.shakespeare import ChatTemplateShakespeare
+from data.sharegpt import ChatTemplateShareGPT
 from helpers import (
     get_model_and_tokenizer,
     get_test_samples,
@@ -33,7 +35,7 @@ def parse_args():
         "-m",
         "--max_new_tokens",
         type=int,
-        default=256,
+        default=128,
         help="Maximum number of tokens to generate for each completion",
     )
     return parser.parse_args()
@@ -56,26 +58,32 @@ def load_model(ckpt_dir):
     saved_args = load_args(ckpt_dir)
     model, tokenizer = get_model_and_tokenizer(argparse.Namespace(**saved_args))
     latest_ckpt_dir = find_latest_checkpoint(ckpt_dir)
+
+    # Determine device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
     if latest_ckpt_dir is not None:
         ckpt_path = osp.join(latest_ckpt_dir, "pytorch_model.bin")
 
         if not osp.exists(ckpt_path):
             raise FileNotFoundError(f"Checkpoint file not found at {ckpt_path}")
 
-        # Determine device
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        # Model and tokenizer
-
         # Load model state dict and move to device
         model.load_state_dict(torch.load(ckpt_path, map_location=device))
-        model = model.to(device)
 
         print(f"Loaded model from {ckpt_path}")
     else:
         print(f"No checkpoint found in {ckpt_dir}. Using a fresh model.")
+    model = model.to(device)
     model.eval()
-    return model, tokenizer
+
+    chat_template = {
+        "sharegpt": ChatTemplateShareGPT,
+        "shakepeare": ChatTemplateShakespeare,
+    }[saved_args["dataset"]]
+
+    return model, tokenizer, chat_template
 
 
 def generate_one_completion(
@@ -93,7 +101,7 @@ def generate_one_completion(
 
 def main():
     args = parse_args()
-    model, tokenizer = load_model(ckpt_dir=args.ckpt)
+    model, tokenizer, chat_template = load_model(ckpt_dir=args.ckpt)
     problems = read_problems()
 
     # Limit problems and samples for development mode
@@ -112,12 +120,13 @@ def main():
         for _ in tqdm(
             range(num_samples_per_task), desc=f"Samples for {task_id}", leave=False
         ):
+            prompt = chat_template.format_prompt(problems[task_id]["prompt"])
             samples.append(
                 dict(
                     task_id=task_id,
-                    prompt=problems[task_id]["prompt"],
+                    prompt=prompt,
                     completion=generate_one_completion(
-                        problems[task_id]["prompt"],
+                        prompt,
                         model,
                         tokenizer,
                         max_new_tokens=args.max_new_tokens,

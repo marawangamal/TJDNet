@@ -1,18 +1,36 @@
 # sharegpt.py
 # TODO: Don't use group texts, instead use padding and attention mask
 
-from datasets import load_dataset, Dataset
+from datasets import load_dataset
 
 from data.common import group_texts
+
+
+class ChatTemplateShareGPT:
+    HUMAN_PREFIX = "Human: "
+    ASSISTANT_PREFIX = "Assistant: "
+    MESSAGE_END = "\n\n"
+
+    @classmethod
+    def format_turn(cls, is_assistant: bool, message: str) -> str:
+        """Format a single conversation turn."""
+        prefix = cls.ASSISTANT_PREFIX if is_assistant else cls.HUMAN_PREFIX
+        return prefix + message + cls.MESSAGE_END
+
+    @classmethod
+    def format_prompt(cls, prompt: str) -> str:
+        """Format a human prompt for model input."""
+        return cls.HUMAN_PREFIX + prompt + cls.MESSAGE_END
 
 
 def parse_conversation(example, eos_token="<|endoftext|>"):
     text = ""
     for msg in example["conversations"]:
         assert msg["from"] in ["gpt", "human"], "Invalid message sender"
-        speaker = "Assistant" if msg["from"] == "gpt" else "Human"
-        text += f"{speaker}: {msg['value']}\n\n"
-    text += eos_token  # Add EOS token at the end
+        is_assistant = msg["from"] == "gpt"
+        text += ChatTemplateShareGPT.format_turn(is_assistant, msg["value"])
+        if is_assistant:
+            text += eos_token
     return {"text": text}
 
 
@@ -57,7 +75,7 @@ if __name__ == "__main__":
     dataset = load_sharegpt_data(
         tokenizer=tokenizer,
         input_seq_len=512,
-        max_num_samples=10,
+        max_num_samples=100,
     )
 
     print(f"\nDataset sizes:")
