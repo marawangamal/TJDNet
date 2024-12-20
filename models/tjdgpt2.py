@@ -20,6 +20,7 @@ class TJDGPT2(TJD):
         positivity_func: str = "exp",
         init_method: Literal["random", "pretrained"] = "random",
         freeze_base_model: bool = False,
+        use_memory_efficient_loss: bool = False,
         **kwargs,
     ):
         super().__init__(
@@ -35,6 +36,7 @@ class TJDGPT2(TJD):
             },
             freeze_base_model=freeze_base_model,
             init_method=init_method,
+            use_memory_efficient_loss=use_memory_efficient_loss,
         )
 
     def freeze_base_model(self):

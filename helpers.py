@@ -1,26 +1,19 @@
-import json
 import os
+import json
+import random
 import argparse
 import subprocess
 
 
 import numpy as np
-import random
-
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from models.tjdgpt2 import TJDGPT2
-
 from transformers import AutoTokenizer
-from models.tjdgpt2 import TJDGPT2
+
 from ctokenizers.char_tokenizer import CharTokenizer
+from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
 
-# TODO: change horizon, horizon_eval to train_horizon, eval_horizon and eval_horizon should default to train_horizon if not specified
-# TODO: put model arch in TJDGPT2 not in args
-# TODO: add init method to args
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
     # Training arguments
@@ -117,6 +110,12 @@ def parse_args():
         default=False,
         action="store_true",
         help="Whether to freeze the base model during training.",
+    )
+    parser.add_argument(
+        "--use_memory_efficient_loss",
+        default=False,
+        action="store_true",
+        help="Whether to use a memory efficient loss function.",
     )
     # Evaluation arguments
     parser.add_argument(
@@ -307,6 +306,7 @@ def get_model_and_tokenizer(args):
         "init_method": args.init_method,
         "freeze_base_model": args.freeze_base_model,
         "positivity_func": args.positivity_func,
+        "use_memory_efficient_loss": args.use_memory_efficient_loss,
     }
 
     # Add LLaMA specific config

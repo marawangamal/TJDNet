@@ -1,5 +1,4 @@
 # sharegpt.py
-# TODO: Don't use group texts, instead use padding and attention mask
 
 from datasets import load_dataset
 

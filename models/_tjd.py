@@ -21,6 +21,7 @@ DIST_MAP = {
 }
 
 
+# TODO: use a TJDConfig class
 class TJD(ABC, torch.nn.Module):
     def __init__(
         self,
@@ -35,6 +36,7 @@ class TJD(ABC, torch.nn.Module):
         model_kwargs: Dict = {},
         init_method: Literal["random", "pretrained"] = "random",
         freeze_base_model: bool = False,
+        use_memory_efficient_loss: bool = False,
     ):
         """Initialize the TJD model.
 
@@ -44,8 +46,12 @@ class TJD(ABC, torch.nn.Module):
             rank (int, optional): Rank of the joint distribution. Defaults to 1.
             horizon (int, optional): Horizon of the joint distribution. Defaults to 1.
             positivity_func (str, optional): Positivity function. Defaults to "exp".
-            eps (float, optional): Epsilon value for numerical stability. Defaults to 1e-9.
             model_head (str, optional): Language model head. Defaults to "base" (i.e., no joint distribution).
+            eps (float, optional): Epsilon value for numerical stability. Defaults to 1e-9.
+            model_kwargs (Dict, optional): Model kwargs. Defaults to {}.
+            init_method (Literal["random", "pretrained"], optional): Initialization method. Defaults to "random".
+            freeze_base_model (bool, optional): Whether to freeze the base model. Defaults to False.
+            use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
 
         """
         super().__init__()
@@ -62,6 +68,7 @@ class TJD(ABC, torch.nn.Module):
         )
         self.vocab_size = vocab_size
         self.n_embd = n_embd
+        self.use_memory_efficient_loss = use_memory_efficient_loss
 
         # Initialize model and weights
         if init_method == "pretrained":
@@ -241,7 +248,6 @@ class TJD(ABC, torch.nn.Module):
         attention_mask=None,
         horizon: Optional[int] = None,
         reduce="mean",
-        use_memory_efficient_loss: bool = False,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass of the model.
@@ -283,7 +289,7 @@ class TJD(ABC, torch.nn.Module):
 
         last_hidden_state_ds = last_hidden_state[:, :-horizon]  # (B, T-H, D)
         targets_ds = targets  # (B, T-H, H)
-        if use_memory_efficient_loss:
+        if self.use_memory_efficient_loss:
             # Downsample hidden states and targets
             last_hidden_state_ds = last_hidden_state_ds[:, ::horizon]
             targets_ds = targets[:, ::horizon]
@@ -316,7 +322,7 @@ class TJD(ABC, torch.nn.Module):
 
         # Train loss
         # NLL computation requires only each horizon-th element
-        nll = loss if use_memory_efficient_loss else loss[:, ::horizon]
+        nll = loss if self.use_memory_efficient_loss else loss[:, ::horizon]
         reduct_fn = {
             "mean": torch.mean,
             "sum": torch.sum,
