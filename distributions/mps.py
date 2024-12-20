@@ -20,6 +20,7 @@ class MPSDist(BaseDistribution):
         rank: int,
         horizon: int,
         positivity_func: str = "exp",
+        hidden_dim: int = 256,
     ):
         super().__init__(horizon)
         self.rank = rank
@@ -33,7 +34,12 @@ class MPSDist(BaseDistribution):
         self.tensor_train_size = horizon * (rank * vocab_size * rank)
         self.alpha = torch.ones(rank) * 0.1
         self.beta = torch.ones(rank) * 0.1
-        self.param_func_core = torch.nn.Linear(n_embd, self.tensor_train_size)
+        # Replace single linear layer with two-layer MLP
+        self.param_func_core = torch.nn.Sequential(
+            torch.nn.Linear(n_embd, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_dim, self.tensor_train_size),
+        )
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
         """Get trainable parameters from the last hidden state.

@@ -7,4 +7,5 @@ checkpoints
 wandb
 
 samples*
+slurm
 sandbox_profile.sb
