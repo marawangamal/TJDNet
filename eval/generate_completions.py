@@ -12,10 +12,8 @@ import argparse
 from tqdm import tqdm
 
 import torch
-from human_eval.data import read_problems, write_jsonl
 
-from data.shakespeare import ChatTemplateShakespeare
-from data.sharegpt import ChatTemplateShareGPT
+from human_eval.data import read_problems, write_jsonl
 from helpers import (
     get_model_and_tokenizer,
     get_test_samples,
@@ -38,6 +36,12 @@ def parse_args():
         default=128,
         help="Maximum number of tokens to generate for each completion",
     )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=1,
+        help="Number of tokens to generate at each step",
+    )
     return parser.parse_args()
 
 
@@ -56,7 +60,9 @@ def find_latest_checkpoint(ckpt_dir):
 
 def load_model(ckpt_dir):
     saved_args = load_args(ckpt_dir)
-    model, tokenizer = get_model_and_tokenizer(argparse.Namespace(**saved_args))
+    model, tokenizer, chat_template = get_model_and_tokenizer(
+        argparse.Namespace(**saved_args)
+    )
     latest_ckpt_dir = find_latest_checkpoint(ckpt_dir)
 
     # Determine device
@@ -78,23 +84,16 @@ def load_model(ckpt_dir):
     model = model.to(device)
     model.eval()
 
-    chat_template = {
-        "sharegpt": ChatTemplateShareGPT,
-        "shakepeare": ChatTemplateShakespeare,
-    }[saved_args["dataset"]]
-
     return model, tokenizer, chat_template
 
 
-def generate_one_completion(
-    prompt, model, tokenizer, eval_horizon=1, max_new_tokens=256
-):
-    # UNCOMMENT THIS LINE TO GENERATE COMPLETIONS
+def generate_one_completion(prompt, model, tokenizer, max_new_tokens=256, horizon=1):
     completetion = get_test_samples(
         model,
         tokenizer,
         prompt=prompt,
         max_new_tokens=max_new_tokens,
+        horizon=horizon,
     )
     return completetion
 
@@ -130,6 +129,7 @@ def main():
                         model,
                         tokenizer,
                         max_new_tokens=args.max_new_tokens,
+                        horizon=args.horizon,
                     ),
                 )
             )

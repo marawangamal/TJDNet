@@ -150,7 +150,7 @@ def train(
             model,
             tokenizer,
             max_new_tokens=max_new_tokens,
-            horizon_eval=horizon_eval,
+            horizon=horizon_eval,
             print_output=True,
         )
         text_table.add_data(epoch, eval_nll, sample)

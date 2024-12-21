@@ -10,6 +10,8 @@ import torch
 from transformers import AutoTokenizer
 
 from ctokenizers.char_tokenizer import CharTokenizer
+from data.shakespeare import ChatTemplateShakespeare
+from data.sharegpt import ChatTemplateShareGPT
 from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
@@ -230,6 +232,7 @@ def get_test_samples(
     num_beams=1,
     num_samples=1,
     print_output=False,
+    horizon=1,
 ):
     # Inference
     model.eval()
@@ -247,6 +250,7 @@ def get_test_samples(
             eos_token_id=tokenizer.eos_token_id,
             repetition_penalty=repetition_penalty,
             num_beams=num_beams,
+            horizon=horizon,
         )
         sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
         if num_samples == 1:
@@ -316,4 +320,9 @@ def get_model_and_tokenizer(args):
     else:
         model = TJDGPT2(**model_config)
 
-    return model, tokenizer
+    chat_template = {
+        "sharegpt": ChatTemplateShareGPT,
+        "shakepeare": ChatTemplateShakespeare,
+    }[args.dataset]
+
+    return model, tokenizer, chat_template
