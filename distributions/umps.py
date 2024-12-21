@@ -30,7 +30,7 @@ class UMPSDist(BaseDistribution):
             "exp": torch.exp,
         }[positivity_func]
         self.tensor_train_size = rank + (rank * vocab_size * rank) + rank
-        self.param_func_core = torch.nn.Sequential(
+        self.param_func = torch.nn.Sequential(
             torch.nn.Linear(n_embd, hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, self.tensor_train_size),

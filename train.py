@@ -22,6 +22,7 @@ References:
 
 import os.path as osp
 import os
+import time
 import wandb
 
 from transformers import (
@@ -98,6 +99,8 @@ def main():
     # Configuration
     args = parse_args()
     exp_name = get_experiment_name(vars(args))
+    # Add timestamp to exp_name
+    exp_name += f"_{int(time.time())}"
     ckpt_dir = osp.join("checkpoints", exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
