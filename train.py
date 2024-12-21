@@ -22,16 +22,23 @@ References:
 
 import os.path as osp
 import os
+import time
 import wandb
 
-from transformers import DataCollatorForLanguageModeling
-from transformers import Trainer, TrainingArguments
+from transformers import (
+    DataCollatorForLanguageModeling,
+    Trainer,
+    TrainingArguments,
+    TrainerCallback,
+)
+
 
 from data.shakespeare import load_shakespeare_data
 from data.sharegpt import load_sharegpt_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
 from helpers import (
+    get_git_info,
     get_model_and_tokenizer,
     get_test_samples,
     parse_args,
@@ -49,6 +56,72 @@ class TJDTrainer(Trainer):
         return (loss, output_dict) if return_outputs else loss
 
 
+class GenerationCallback(TrainerCallback):
+    def __init__(
+        self,
+        model,
+        tokenizer,
+        generate_every=1000,
+        max_new_tokens=100,
+        horizon=1,
+        prompt_formatter_fn=None,  # Optional function to modify prompts
+    ):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.generate_every = generate_every
+        self.max_new_tokens = max_new_tokens
+        self.horizon = horizon
+        self.prompts = [
+            # "Hi, how are you today?",
+            # "Can you help me with a math problem?",
+            'complete the following code from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    """ Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    """',
+        ]
+        if prompt_formatter_fn is not None:
+            self.prompts = [prompt_formatter_fn(prompt) for prompt in self.prompts]
+
+    def on_step_end(self, args, state, control, **kwargs):
+
+        # Only log on main process
+        if not args.local_rank == 0:
+            return
+
+        if state.global_step % self.generate_every == 0:
+            print("\n=== Generation Sample at step", state.global_step, "===")
+            # Temporarily set model to eval mode
+            self.model.eval()
+
+            # table = wandb.Table(columns=["step", "prompt_id", "prompt", "generation"])
+
+            # Create a dictionary to store all samples
+            samples = {}
+            for i, prompt in enumerate(self.prompts):
+                sample = get_test_samples(
+                    self.model,
+                    self.tokenizer,
+                    prompt=prompt,
+                    max_new_tokens=self.max_new_tokens,
+                    horizon=self.horizon,
+                )
+                # Store in dictionary with meaningful keys
+                samples[f"prompt_{i+1}"] = prompt
+                samples[f"generation_{i+1}"] = sample
+                # Still print for console visibility
+                print(f"\nPrompt: {prompt}\nOutput: {sample}\n")
+                # table.add_data(state.global_step, i, prompt, sample)
+
+            # # Log to wandb
+            # wandb.log({"generations": table}, step=state.global_step)
+            for i, prompt in enumerate(self.prompts):
+                wandb.log(
+                    {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},
+                    step=state.global_step,
+                )
+
+            # Set model back to train mode
+            self.model.train()
+            print("=" * 50 + "\n")
+
+
 # Custom evaluation function
 def compute_metrics(eval_pred):
     # Note: If return type of model forward is a dict, then the `predictions` will be tuple of all vals of keys except loss
@@ -63,6 +136,8 @@ def main():
     # Configuration
     args = parse_args()
     exp_name = get_experiment_name(vars(args))
+    # Add timestamp to exp_name
+    exp_name += f"_{int(time.time())}"
     ckpt_dir = osp.join("checkpoints", exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
@@ -70,7 +145,7 @@ def main():
     save_args(args, ckpt_dir)
 
     # Model and tokenizer
-    model, tokenizer = get_model_and_tokenizer(args)
+    model, tokenizer, chat_template = get_model_and_tokenizer(args)
     params_dict = model.param_dict
     # Print dict key value pairs
     print("Model parameters:")
@@ -81,7 +156,7 @@ def main():
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
         "sharegpt": load_sharegpt_data,
-    }[args.dataset](tokenizer, args.seq_len)
+    }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     training_args = TrainingArguments(
@@ -115,12 +190,25 @@ def main():
         # optim="adafactor",  # Use Adafactor optimizer
     )
 
-    # Initialize wandb only on main process
     if training_args.local_rank == 0:  # main process
+        git_info = get_git_info()
+        project_name = (
+            "tjdnet-prod" if git_info.get("branch") == "main" else "tjdnet-dev"
+        )
         wandb.init(
-            project="tjdnet-sharegpt-dev",
+            project=project_name,
             name=exp_name,
         )
+
+    # In your main function, add this before initializing the trainer:
+    generation_callback = GenerationCallback(
+        model=model,
+        tokenizer=tokenizer,
+        generate_every=args.eval_steps,  # or any other frequency you want
+        max_new_tokens=args.max_new_tokens,
+        horizon=args.horizon_eval,
+        prompt_formatter_fn=chat_template.format_prompt,
+    )
 
     # Initialize the trainer
     trainer = TJDTrainer(
@@ -130,6 +218,7 @@ def main():
         eval_dataset=lm_dataset["test"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
+        callbacks=[generation_callback],  # Add this line
     )
 
     # Train the model

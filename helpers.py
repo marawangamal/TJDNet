@@ -1,26 +1,21 @@
-import json
 import os
+import json
+import random
 import argparse
 import subprocess
 
 
 import numpy as np
-import random
-
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from models.tjdgpt2 import TJDGPT2
-
 from transformers import AutoTokenizer
-from models.tjdgpt2 import TJDGPT2
+
 from ctokenizers.char_tokenizer import CharTokenizer
+from data.shakespeare import ChatTemplateShakespeare
+from data.sharegpt import ChatTemplateShareGPT
+from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
 
-# TODO: change horizon, horizon_eval to train_horizon, eval_horizon and eval_horizon should default to train_horizon if not specified
-# TODO: put model arch in TJDGPT2 not in args
-# TODO: add init method to args
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
     # Training arguments
@@ -118,6 +113,12 @@ def parse_args():
         action="store_true",
         help="Whether to freeze the base model during training.",
     )
+    parser.add_argument(
+        "--use_memory_efficient_loss",
+        default=False,
+        action="store_true",
+        help="Whether to use a memory efficient loss function.",
+    )
     # Evaluation arguments
     parser.add_argument(
         "--horizon_eval",
@@ -174,6 +175,12 @@ def parse_args():
         default=200,
         help="Evaluation frequency for the trainer.",
     )
+    parser.add_argument(
+        "--max_num_samples",
+        type=int,
+        default=68000,
+        help="Maximum number of samples to load from the dataset.",
+    )
     return parser.parse_args()
 
 
@@ -225,6 +232,7 @@ def get_test_samples(
     num_beams=1,
     num_samples=1,
     print_output=False,
+    horizon=1,
 ):
     # Inference
     model.eval()
@@ -242,6 +250,7 @@ def get_test_samples(
             eos_token_id=tokenizer.eos_token_id,
             repetition_penalty=repetition_penalty,
             num_beams=num_beams,
+            horizon=horizon,
         )
         sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
         if num_samples == 1:
@@ -301,6 +310,7 @@ def get_model_and_tokenizer(args):
         "init_method": args.init_method,
         "freeze_base_model": args.freeze_base_model,
         "positivity_func": args.positivity_func,
+        "use_memory_efficient_loss": args.use_memory_efficient_loss,
     }
 
     # Add LLaMA specific config
@@ -310,4 +320,9 @@ def get_model_and_tokenizer(args):
     else:
         model = TJDGPT2(**model_config)
 
-    return model, tokenizer
+    chat_template = {
+        "sharegpt": ChatTemplateShareGPT,
+        "shakepeare": ChatTemplateShakespeare,
+    }[args.dataset]
+
+    return model, tokenizer, chat_template

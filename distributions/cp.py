@@ -41,7 +41,7 @@ class CPDist(BaseDistribution):
         }[positivity_func]
         self.cache = {}
         # Replace single linear layer with two-layer MLP
-        self.param_func_core = torch.nn.Sequential(
+        self.param_func = torch.nn.Sequential(
             torch.nn.Linear(n_embd, hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, rank * horizon * vocab_size),
