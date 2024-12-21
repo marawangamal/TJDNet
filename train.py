@@ -34,10 +34,11 @@ from transformers import (
 
 
 from data.shakespeare import load_shakespeare_data
-from data.sharegpt import ChatTemplateShareGPT, load_sharegpt_data
+from data.sharegpt import load_sharegpt_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
 from helpers import (
+    get_git_info,
     get_model_and_tokenizer,
     get_test_samples,
     parse_args,
@@ -189,10 +190,13 @@ def main():
         # optim="adafactor",  # Use Adafactor optimizer
     )
 
-    # Initialize wandb only on main process
     if training_args.local_rank == 0:  # main process
+        git_info = get_git_info()
+        project_name = (
+            "tjdnet-prod" if git_info.get("branch") == "main" else "tjdnet-dev"
+        )
         wandb.init(
-            project="tjdnet-sharegpt-dev",
+            project=project_name,
             name=exp_name,
         )
 
