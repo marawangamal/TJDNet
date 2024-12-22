@@ -20,7 +20,9 @@ class CPDist(BaseDistribution):
         rank: int,
         horizon: int,
         positivity_func: str = "exp",
+        use_nonlinearity: bool = True,
         hidden_dim: int = 256,
+        **kwargs,
     ):
         """CP Distribution
 
@@ -41,10 +43,18 @@ class CPDist(BaseDistribution):
         }[positivity_func]
         self.cache = {}
         # Replace single linear layer with two-layer MLP
-        self.param_func = torch.nn.Sequential(
-            torch.nn.Linear(n_embd, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, rank * horizon * vocab_size),
+
+        self.param_func = (
+            torch.nn.Sequential(
+                torch.nn.Linear(n_embd, hidden_dim),
+                torch.nn.ReLU(),
+                torch.nn.Linear(hidden_dim, rank * horizon * vocab_size),
+            )
+            if use_nonlinearity
+            else torch.nn.Sequential(
+                torch.nn.Linear(n_embd, hidden_dim),
+                torch.nn.Linear(hidden_dim, rank * horizon * vocab_size),
+            )
         )
 
     def _get_params(

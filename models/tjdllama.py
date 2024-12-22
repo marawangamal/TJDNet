@@ -18,6 +18,8 @@ class TJDLLAMA(TJD):
         init_method: Literal["random", "pretrained"] = "random",
         freeze_base_model: bool = True,
         use_memory_efficient_loss: bool = False,
+        hidden_dim: int = 256,
+        use_nonlinearity: bool = False,
         **kwargs,
     ):
         super().__init__(
@@ -30,6 +32,8 @@ class TJDLLAMA(TJD):
             freeze_base_model=freeze_base_model,
             init_method=init_method,
             use_memory_efficient_loss=use_memory_efficient_loss,
+            hidden_dim=hidden_dim,
+            use_nonlinearity=use_nonlinearity,
         )
         self.pretrained_weights = None
 

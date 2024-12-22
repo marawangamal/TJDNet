@@ -37,6 +37,8 @@ class TJD(ABC, torch.nn.Module):
         init_method: Literal["random", "pretrained"] = "random",
         freeze_base_model: bool = False,
         use_memory_efficient_loss: bool = False,
+        hidden_dim: int = 256,
+        use_nonlinearity: bool = False,
     ):
         """Initialize the TJD model.
 
@@ -65,6 +67,8 @@ class TJD(ABC, torch.nn.Module):
             rank=rank,
             horizon=horizon,
             positivity_func=positivity_func,
+            hidden_dim=hidden_dim,
+            use_nonlinearity=use_nonlinearity,
         )
         self.vocab_size = vocab_size
         self.n_embd = n_embd

@@ -19,6 +19,7 @@ class UMPSDist(BaseDistribution):
         horizon: int,
         positivity_func: str = "exp",
         hidden_dim: int = 256,
+        **kwargs,
     ):
         super().__init__(horizon)
         self.rank = rank

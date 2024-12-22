@@ -167,7 +167,7 @@ def main():
         warmup_steps=args.warmup_steps,
         learning_rate=args.lr,
         max_grad_norm=args.grad_clip_val,
-        # eval_on_start=True,
+        eval_on_start=True,
         # Logging
         logging_strategy=args.logging_strategy,
         logging_steps=args.logging_steps,

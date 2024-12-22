@@ -65,6 +65,18 @@ def parse_args():
         ],
     )
     parser.add_argument(
+        "--hidden_dim",
+        type=int,
+        default=256,
+        help="Hidden size of model head.",
+    )
+    parser.add_argument(
+        "--use_nonlinearity",
+        default=False,
+        action="store_true",
+        help="Whether to use a nonlinearity in the model head.",
+    )
+    parser.add_argument(
         "--tokenizer_type",
         type=str,
         default="word",
@@ -321,6 +333,8 @@ def get_model_and_tokenizer(args):
         "freeze_base_model": args.freeze_base_model,
         "positivity_func": args.positivity_func,
         "use_memory_efficient_loss": args.use_memory_efficient_loss,
+        "hidden_dim": args.hidden_dim,
+        "use_nonlinearity": args.use_nonlinearity,
     }
 
     # Add LLaMA specific config
