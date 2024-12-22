@@ -204,17 +204,27 @@ def get_git_info():
             .decode("ascii")
             .strip()
         )
-        # Get just the first line of the commit message
         commit_message = (
             subprocess.check_output(["git", "log", "-1", "--pretty=%s"])
             .decode("ascii")
             .strip()
         )
-        return {"commit_hash": commit_hash, "commit_message": commit_message}
+        # Add this line to get the current branch name
+        branch = (
+            subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            .decode("ascii")
+            .strip()
+        )
+        return {
+            "commit_hash": commit_hash,
+            "commit_message": commit_message,
+            "branch": branch,
+        }
     except:
         return {
             "commit_hash": "Git commit hash not available",
             "commit_message": "Git commit message not available",
+            "branch": "unknown",
         }
 
 
