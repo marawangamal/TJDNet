@@ -40,12 +40,6 @@ class TJDGPT2(TJD):
         )
         self.pretrained_weights = None
 
-    def freeze_base_model(self):
-        for param in self.model.parameters():
-            param.requires_grad = False
-        for param in self.model.h[-1].mlp.parameters():
-            param.requires_grad = True
-
     def get_last_hidden_state(self, input_ids, attention_mask=None):
         transformer_outputs = self.model(
             input_ids=input_ids,
