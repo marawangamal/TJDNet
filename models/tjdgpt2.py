@@ -38,15 +38,16 @@ class TJDGPT2(TJD):
             init_method=init_method,
             use_memory_efficient_loss=use_memory_efficient_loss,
         )
+        self.pretrained_weights = None
 
     def freeze_base_model(self):
         for param in self.model.parameters():
             param.requires_grad = False
-        for param in self.model.transformer.h[-1].mlp.parameters():
+        for param in self.model.h[-1].mlp.parameters():
             param.requires_grad = True
 
     def get_last_hidden_state(self, input_ids, attention_mask=None):
-        transformer_outputs = self.model.transformer(
+        transformer_outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
@@ -55,5 +56,15 @@ class TJDGPT2(TJD):
         torch.cuda.empty_cache()
         return last_hidden_state
 
+    def get_pretrained_lm_head_weights(self):
+        if self.pretrained_weights is None:
+            raise ValueError("Pretrained weights not loaded.")
+        return self.pretrained_weights
+
     def get_model(self, **model_kwargs):
-        return GPT2LMHeadModel(GPT2Config(**model_kwargs))
+        model = GPT2LMHeadModel(GPT2Config(**model_kwargs))
+        transformer_model = model.transformer
+        self.pretrained_weights = model.lm_head.weight
+        del model
+        torch.cuda.empty_cache()
+        return transformer_model

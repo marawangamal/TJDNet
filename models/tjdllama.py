@@ -31,15 +31,7 @@ class TJDLLAMA(TJD):
             init_method=init_method,
             use_memory_efficient_loss=use_memory_efficient_loss,
         )
-
-    def get_pretrained_lm_head_weights(self):
-        model = AutoModelForCausalLM.from_pretrained(
-            "meta-llama/Llama-2-7b-chat-hf",
-            low_cpu_mem_usage=True,
-        )
-        weights = model.lm_head.weight
-        del model
-        return weights
+        self.pretrained_weights = None
 
     def get_last_hidden_state(self, input_ids, attention_mask=None):
         transformer_outputs = self.model(
@@ -51,12 +43,18 @@ class TJDLLAMA(TJD):
         torch.cuda.empty_cache()
         return last_hidden_state
 
+    def get_pretrained_lm_head_weights(self):
+        if self.pretrained_weights is None:
+            raise ValueError("Pretrained weights not loaded.")
+        return self.pretrained_weights
+
     def get_model(self, **model_kwargs):
         model = AutoModelForCausalLM.from_pretrained(
             "meta-llama/Llama-2-7b-chat-hf",
             low_cpu_mem_usage=True,
         )
         transformer_model = model.model
+        self.pretrained_weights = model.lm_head.weight
         del model
         torch.cuda.empty_cache()
         return transformer_model
