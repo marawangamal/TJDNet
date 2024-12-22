@@ -325,14 +325,13 @@ def get_model_and_tokenizer(args):
 
     # Add LLaMA specific config
     if args.model_type == "llama":
-        # model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
         model = TJDLLAMA(**model_config)
     else:
         model = TJDGPT2(**model_config)
 
     chat_template = {
         "sharegpt": ChatTemplateShareGPT,
-        "shakepeare": ChatTemplateShakespeare,
+        "shakespeare": ChatTemplateShakespeare,
     }[args.dataset]
 
     return model, tokenizer, chat_template
