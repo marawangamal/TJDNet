@@ -82,21 +82,10 @@ if __name__ == "__main__":
     print(f"Test: {len(dataset['test'])} sequences")
     print(f"EOS token: {tokenizer.eos_token}")
 
-    # Sanity check get specific batch and decode
-    batch_idx = 2
+    # Find an example with EOS token
+    for batch_idx, example in enumerate(dataset["train"]):
+        if tokenizer.eos_token in example["input_ids"]:
+            break
     print(f"\n{batch_idx}nd batch:")
-
-    # Get the specific batch
-    train_batches = list(iter(dataset["train"]))
-    batch = train_batches[batch_idx]
-
-    # Print raw decoded text
-    decoded_text = tokenizer.decode(batch["input_ids"])
-    print(
-        "EOS token found in decoded text"
-        if tokenizer.eos_token in decoded_text
-        else "EOS token not found in decoded text"
-    )
-
-    print("\nRaw decoded text:")
-    print(tokenizer.decode(batch["input_ids"]))
+    decoded_text = tokenizer.decode(example["input_ids"])
+    print(decoded_text)

@@ -274,7 +274,7 @@ def get_test_samples(
             num_beams=num_beams,
             horizon=horizon,
         )
-        sample = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        sample = tokenizer.decode(outputs[0])
         if num_samples == 1:
             samples.append(sample)
         else:
