@@ -1,13 +1,32 @@
 from dataclasses import dataclass
-import torch
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, List
+
+import torch
 
 from distributions.tpnet import TensorParamNet, TensorParamNetConfig
 
 
 @dataclass
 class BaseDistConfig:
+    """Configuration for base distribution models.
+
+    This class defines the core parameters shared across different tensor network
+    distribution implementations (CP, MPS, etc.).
+
+    Attributes:
+        # Core Distribution Parameters
+        vocab_size (int): Size of the vocabulary for token generation.
+        horizon (int): Number of future tokens to predict.
+        rank (int): Rank of the tensor decomposition.
+            - Higher rank allows modeling more complex token dependencies
+            - But increases computation and memory requirements
+
+        # Network Architecture
+        param_net (TensorParamNetConfig): Configuration for the parameter network
+            that transforms embeddings into distribution parameters.
+    """
+
     vocab_size: int
     horizon: int
     rank: int
@@ -16,9 +35,7 @@ class BaseDistConfig:
 
 class BaseDistribution(ABC, torch.nn.Module):
     def __init__(self, config: BaseDistConfig):
-        """
-        Abstract base class for distributions compatible with TJDGPT2.
-        """
+        """Abstract base class for distributions compatible with TJDGPT2."""
         super().__init__()
         self.vocab_size = config.vocab_size
         self.horizon = config.horizon
@@ -59,8 +76,7 @@ class BaseDistribution(ABC, torch.nn.Module):
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """
-        Compute the normalization constant for the distribution.
+        """Compute the normalization constant for the distribution.
 
         Args:
             last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
@@ -75,8 +91,7 @@ class BaseDistribution(ABC, torch.nn.Module):
     def evaluate_at_points(
         self, last_hidden_state: torch.Tensor, points: torch.Tensor, **kwargs
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """
-        Evaluate the distribution at the given points.
+        """Evaluate the distribution at the given points.
 
         Args:
             last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).

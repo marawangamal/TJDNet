@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-import torch
 from abc import ABC, abstractmethod
 from typing import Dict, Literal, Optional
+
 import torch
 
 from distributions._base import BaseDistConfig
@@ -25,49 +25,79 @@ DIST_MAP = {
 
 @dataclass
 class TJDConfig:
-    """Configuration for tensor parameter network.
+    """Configuration for Joint Distribution Transformer model.
 
     Attributes:
-        eps (float, optional): Epsilon value for numerical stability. Defaults to 1e-9.
-        model_head (str, optional): Language model head. Defaults to "base" (i.e., no joint distribution).
-        init_method (Literal["random", "pretrained"], optional): Initialization method. Defaults to "random".
-        freeze_base_model (bool, optional): Whether to freeze the base model. Defaults to False.
-        use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
-        base_dist (BaseDistConfig): Base distribution configuration.
+        base_dist (BaseDistConfig): Base distribution configuration containing core parameters
+            like vocabulary size, embedding dimension, and distribution parameters.
 
+        # Model Architecture
+        model_head (str): Language model head type. Options:
+            - "base": No joint distribution (default)
+            - "cp": CP tensor decomposition
+            - "mps": MPS tensor decomposition
+        model_kwargs (Dict): Additional arguments passed to the base model.
+
+        # Training Configuration
+        init_method (Literal["random", "pretrained"]): Model initialization method.
+            - "random": Initialize weights randomly (default)
+            - "pretrained": Load pretrained weights
+        freeze_base_model (bool): If True, freezes the base model parameters.
+        use_memory_efficient_loss (bool): If True, uses memory-efficient loss computation.
+
+        # Numerical Parameters
+        eps (float): Small value for numerical stability in computations.
     """
 
+    # Core configuration
     base_dist: BaseDistConfig
-    model_kwargs: Dict = {}
-    eps: float = 1e-9
+
+    # Model architecture
     model_head: str = "base"
+    model_kwargs: Dict = {}
+
+    # Training configuration
     init_method: Literal["random", "pretrained"] = "random"
     freeze_base_model: bool = False
     use_memory_efficient_loss: bool = False
 
+    # Numerical parameters
+    eps: float = 1e-9
+
 
 class TJD(ABC, torch.nn.Module):
+    """Joint Distribution Transformer model."""
+
     def __init__(self, config: TJDConfig, **kwargs):
+        """Initialize the TJD model.
+
+        Args:
+            config (TJDConfig): Complete model configuration.
+            **kwargs: Additional keyword arguments.
+        """
         super().__init__()
+
+        # Initialize core parameters
         self.rank = config.base_dist.rank
         self.horizon = config.base_dist.horizon
-        self.eps = config.eps
-        self.model = self.get_model(**config.model_kwargs)
-        self.model_head = DIST_MAP[config.model_head](config.base_dist)
         self.vocab_size = config.base_dist.vocab_size
         self.n_embd = config.base_dist.param_net.in_dim
+        self.eps = config.eps
+
+        # Set up model components
+        self.model = self.get_model(**config.model_kwargs)
+        self.model_head = DIST_MAP[config.model_head](config.base_dist)
         self.use_memory_efficient_loss = config.use_memory_efficient_loss
 
-        # Initialize model and weights
+        # Handle model initialization
         if config.init_method == "pretrained":
             weights = self.get_pretrained_lm_head_weights()
             self.model_head.init_params(weights)
 
-        # Handle model freezing
         if config.freeze_base_model:
             self.freeze_base_model()
 
-        # For compatibility with Trainer
+        # Trainer compatibility
         self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
 
     @property
