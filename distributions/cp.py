@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import List, Tuple
 from git import Optional
 import torch
