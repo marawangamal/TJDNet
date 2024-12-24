@@ -1,16 +1,30 @@
+from dataclasses import dataclass
 import torch
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, List
 
+from distributions.tpnet import TensorParamNet, TensorParamNetConfig
+
+
+@dataclass
+class BaseDistConfig:
+    vocab_size: int
+    horizon: int
+    rank: int
+    param_net: TensorParamNetConfig
+
 
 class BaseDistribution(ABC, torch.nn.Module):
-    def __init__(self, horizon: int):
+    def __init__(self, config: BaseDistConfig):
         """
         Abstract base class for distributions compatible with TJDGPT2.
         """
         super().__init__()
-        self.horizon = horizon
+        self.vocab_size = config.vocab_size
+        self.horizon = config.horizon
+        self.rank = config.rank
         self.cache = {}
+        self.param_func = TensorParamNet(config.param_net)
 
     def _get_horizon(self, horizon: Optional[int]):
         horizon = self.horizon if horizon is None else horizon

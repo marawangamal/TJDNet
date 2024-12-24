@@ -1,9 +1,10 @@
+from dataclasses import dataclass
 from typing import List, Tuple
 from git import Optional
 import torch
 import torch.autograd.profiler as profiler
 
-from distributions._base import BaseDistribution
+from distributions._base import BaseDistConfig, BaseDistribution
 from tensorops.cp import (
     sample_from_cp_tensor,
     select_from_cp_tensor,
@@ -13,17 +14,7 @@ from tensorops.cp import (
 
 
 class CPDist(BaseDistribution):
-    def __init__(
-        self,
-        n_embd: int,
-        vocab_size,
-        rank: int,
-        horizon: int,
-        positivity_func: str = "exp",
-        use_nonlinearity: bool = True,
-        hidden_dim: int = 256,
-        **kwargs,
-    ):
+    def __init__(self, config: BaseDistConfig, **kwargs):
         """CP Distribution
 
         Args:
@@ -32,30 +23,7 @@ class CPDist(BaseDistribution):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__(horizon)
-        self.horizon = horizon
-        self.vocab_size = vocab_size
-        self.rank = rank
-        self.positivity_func: torch.nn.Module = {
-            "sq": lambda x: x**2,
-            "abs": lambda x: torch.abs(x),
-            "exp": torch.exp,
-        }[positivity_func]
-        self.cache = {}
-        # Replace single linear layer with two-layer MLP
-
-        self.param_func = (
-            torch.nn.Sequential(
-                torch.nn.Linear(n_embd, hidden_dim),
-                torch.nn.ReLU(),
-                torch.nn.Linear(hidden_dim, rank * horizon * vocab_size),
-            )
-            if use_nonlinearity
-            else torch.nn.Sequential(
-                torch.nn.Linear(n_embd, hidden_dim),
-                torch.nn.Linear(hidden_dim, rank * horizon * vocab_size),
-            )
-        )
+        super().__init__(config)
 
     def _get_params(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs

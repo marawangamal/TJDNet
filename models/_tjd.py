@@ -1,8 +1,10 @@
+from dataclasses import dataclass
 import torch
 from abc import ABC, abstractmethod
 from typing import Dict, Literal, Optional
 import torch
 
+from distributions._base import BaseDistConfig
 from distributions.base import BaseDist
 from distributions.cp import CPDist
 from distributions.full import FullDist
@@ -21,66 +23,48 @@ DIST_MAP = {
 }
 
 
-# TODO: use a TJDConfig class
+@dataclass
+class TJDConfig:
+    """Configuration for tensor parameter network.
+
+    Attributes:
+        eps (float, optional): Epsilon value for numerical stability. Defaults to 1e-9.
+        model_head (str, optional): Language model head. Defaults to "base" (i.e., no joint distribution).
+        init_method (Literal["random", "pretrained"], optional): Initialization method. Defaults to "random".
+        freeze_base_model (bool, optional): Whether to freeze the base model. Defaults to False.
+        use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
+        base_dist (BaseDistConfig): Base distribution configuration.
+
+    """
+
+    base_dist: BaseDistConfig
+    model_kwargs: Dict = {}
+    eps: float = 1e-9
+    model_head: str = "base"
+    init_method: Literal["random", "pretrained"] = "random"
+    freeze_base_model: bool = False
+    use_memory_efficient_loss: bool = False
+
+
 class TJD(ABC, torch.nn.Module):
-    def __init__(
-        self,
-        # TODO: rename n_embd, vocab_size to embd_size, vocab_size
-        n_embd,
-        vocab_size,
-        rank: int = 1,
-        horizon: int = 1,
-        positivity_func: str = "exp",
-        model_head: str = "base",
-        eps: float = 1e-9,
-        model_kwargs: Dict = {},
-        init_method: Literal["random", "pretrained"] = "random",
-        freeze_base_model: bool = False,
-        use_memory_efficient_loss: bool = False,
-        hidden_dim: int = 256,
-        use_nonlinearity: bool = False,
-    ):
-        """Initialize the TJD model.
-
-        Args:
-            n_embd (int): Embedding size.
-            vocab_size (int): Vocabulary size.
-            rank (int, optional): Rank of the joint distribution. Defaults to 1.
-            horizon (int, optional): Horizon of the joint distribution. Defaults to 1.
-            positivity_func (str, optional): Positivity function. Defaults to "exp".
-            model_head (str, optional): Language model head. Defaults to "base" (i.e., no joint distribution).
-            eps (float, optional): Epsilon value for numerical stability. Defaults to 1e-9.
-            model_kwargs (Dict, optional): Model kwargs. Defaults to {}.
-            init_method (Literal["random", "pretrained"], optional): Initialization method. Defaults to "random".
-            freeze_base_model (bool, optional): Whether to freeze the base model. Defaults to False.
-            use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
-
-        """
+    def __init__(self, config: TJDConfig, **kwargs):
         super().__init__()
-        self.rank = rank
-        self.horizon = horizon
-        self.eps = eps
-        self.model = self.get_model(**model_kwargs)
-        self.model_head = DIST_MAP[model_head](
-            n_embd=n_embd,
-            vocab_size=vocab_size,
-            rank=rank,
-            horizon=horizon,
-            positivity_func=positivity_func,
-            hidden_dim=hidden_dim,
-            use_nonlinearity=use_nonlinearity,
-        )
-        self.vocab_size = vocab_size
-        self.n_embd = n_embd
-        self.use_memory_efficient_loss = use_memory_efficient_loss
+        self.rank = config.base_dist.rank
+        self.horizon = config.base_dist.horizon
+        self.eps = config.eps
+        self.model = self.get_model(**config.model_kwargs)
+        self.model_head = DIST_MAP[config.model_head](config.base_dist)
+        self.vocab_size = config.base_dist.vocab_size
+        self.n_embd = config.base_dist.param_net.in_dim
+        self.use_memory_efficient_loss = config.use_memory_efficient_loss
 
         # Initialize model and weights
-        if init_method == "pretrained":
+        if config.init_method == "pretrained":
             weights = self.get_pretrained_lm_head_weights()
             self.model_head.init_params(weights)
 
         # Handle model freezing
-        if freeze_base_model:
+        if config.freeze_base_model:
             self.freeze_base_model()
 
         # For compatibility with Trainer
