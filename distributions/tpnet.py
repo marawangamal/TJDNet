@@ -20,9 +20,9 @@ class TensorParamNetConfig:
         use_layer_norm: Whether to use layer normalization
     """
 
-    in_dim: int
-    hidden_dim: int
-    out_dim: int
+    in_dim: int = 768
+    hidden_dim: int = 512
+    out_dim: int = 1
     num_layers: int = 2
     activation: Optional[str] = "relu"
     positivity_func: Literal["sq", "abs", "exp"] = "exp"

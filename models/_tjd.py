@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from typing import Dict, Literal, Optional
 
@@ -54,7 +54,7 @@ class TJDConfig:
 
     # Model architecture
     model_head: str = "base"
-    model_kwargs: Dict = {}
+    model_kwargs: Dict = field(default_factory=dict)
 
     # Training configuration
     init_method: Literal["random", "pretrained"] = "random"

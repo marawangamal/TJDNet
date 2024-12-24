@@ -23,6 +23,7 @@ class CPDist(BaseDistribution):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
+        config.param_net.out_dim = config.rank * config.horizon * config.vocab_size
         super().__init__(config)
 
     def _get_params(
@@ -30,7 +31,6 @@ class CPDist(BaseDistribution):
     ):
         batch_size, seq_len, _ = last_hidden_state.size()
         params = self.param_func(last_hidden_state)
-        params = self.positivity_func(params)
         params_reshaped = params.reshape(
             batch_size, seq_len, self.rank, self.horizon, self.vocab_size
         )

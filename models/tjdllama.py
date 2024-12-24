@@ -6,6 +6,8 @@ from models._tjd import TJD, TJDConfig
 
 class TJDLLAMA(TJD):
     def __init__(self, config: TJDConfig, **kwargs):
+        config.base_dist.param_net.in_dim = 4096
+        config.base_dist.vocab_size = 32000
         super().__init__(config)
         self.pretrained_weights = None
 

@@ -4,14 +4,16 @@ import random
 import argparse
 import subprocess
 
-
-import numpy as np
 import torch
+import numpy as np
 from transformers import AutoTokenizer
 
 from ctokenizers.char_tokenizer import CharTokenizer
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
+from distributions._base import BaseDistConfig
+from distributions.tpnet import TensorParamNetConfig
+from models._tjd import TJDConfig
 from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
@@ -27,6 +29,12 @@ def parse_args():
         type=int,
         default=8,
         help="Batch size for training and evaluation.",
+    )
+    parser.add_argument(
+        "--seq_len",
+        type=int,
+        default=256,
+        help="Block size for model input sequences.",
     )
     parser.add_argument(
         "--lr", type=float, default=1e-4, help="Learning rate for training."
@@ -70,32 +78,22 @@ def parse_args():
         default=256,
         help="Hidden size of model head.",
     )
+
     parser.add_argument(
-        "--use_nonlinearity",
+        "--num_layers", type=int, default=2, help="Number of layers in the model head."
+    )
+    parser.add_argument(
+        "--activation",
+        type=str,
+        default="relu",
+        help="Activation function to use in the model head.",
+    )
+    # use_layer_norm
+    parser.add_argument(
+        "--use_layer_norm",
         default=False,
         action="store_true",
-        help="Whether to use a nonlinearity in the model head.",
-    )
-    parser.add_argument(
-        "--tokenizer_type",
-        type=str,
-        default="word",
-        help="Type of tokenizer to use for processing text.",
-        choices=["char", "word"],
-    )
-    parser.add_argument(
-        "--seq_len",
-        type=int,
-        default=256,
-        help="Block size for model input sequences.",
-    )
-    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
-    parser.add_argument(
-        "--positivity_func",
-        type=str,
-        default="exp",
-        choices=["sq", "abs", "exp"],
-        help="Positivity function to use for MPSDist.",
+        help="Whether to use layer normalization in the model head.",
     )
     parser.add_argument(
         "--rank",
@@ -108,6 +106,14 @@ def parse_args():
         type=int,
         default=2,
         help="Block size for model input sequences.",
+    )
+    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
+    parser.add_argument(
+        "--positivity_func",
+        type=str,
+        default="exp",
+        choices=["sq", "abs", "exp"],
+        help="Positivity function to use for MPSDist.",
     )
     parser.add_argument(
         "--init_method",
@@ -155,6 +161,14 @@ def parse_args():
             "wikitext",
             "sharegpt",
         ],
+    )
+    # Tokenizer arguments
+    parser.add_argument(
+        "--tokenizer_type",
+        type=str,
+        default="word",
+        help="Type of tokenizer to use for processing text.",
+        choices=["char", "word"],
     )
     # Misc arguments
     parser.add_argument(
@@ -318,30 +332,33 @@ def get_model_and_tokenizer(args):
     if args.tokenizer_type == "word" or args.model_type == "llama":
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Model configuration
-    model_config = {
-        "model_head": args.model_head,
-        "vocab_size": (
-            len(tokenizer.get_vocab())
-            if hasattr(tokenizer, "get_vocab")
-            else len(tokenizer)
+    model_config = TJDConfig(
+        base_dist=BaseDistConfig(
+            vocab_size=(
+                len(tokenizer) if hasattr(tokenizer, "get_vocab") else len(tokenizer)
+            ),
+            horizon=args.horizon,
+            rank=args.rank,
+            param_net=TensorParamNetConfig(
+                hidden_dim=args.hidden_dim,
+                num_layers=args.num_layers,
+                dropout=args.dropout,
+                activation=args.activation,
+                use_layer_norm=args.use_layer_norm,
+                positivity_func=args.positivity_func,
+            ),
         ),
-        "dropout": args.dropout,
-        "rank": args.rank,
-        "horizon": args.horizon,
-        "init_method": args.init_method,
-        "freeze_base_model": args.freeze_base_model,
-        "positivity_func": args.positivity_func,
-        "use_memory_efficient_loss": args.use_memory_efficient_loss,
-        "hidden_dim": args.hidden_dim,
-        "use_nonlinearity": args.use_nonlinearity,
-    }
+        model_head=args.model_head,
+        init_method=args.init_method,
+        freeze_base_model=args.freeze_base_model,
+        use_memory_efficient_loss=args.use_memory_efficient_loss,
+    )
 
     # Add LLaMA specific config
     if args.model_type == "llama":
-        model = TJDLLAMA(**model_config)
+        model = TJDLLAMA(model_config)
     else:
-        model = TJDGPT2(**model_config)
+        model = TJDGPT2(model_config)
 
     chat_template = {
         "sharegpt": ChatTemplateShareGPT,
