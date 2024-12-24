@@ -22,6 +22,7 @@ class ChatTemplateShareGPT:
         return cls.HUMAN_PREFIX + prompt + cls.MESSAGE_END
 
 
+# TODO: use just 2 turns
 def parse_conversation(example, eos_token="<|endoftext|>"):
     text = ""
     for msg in example["conversations"]:

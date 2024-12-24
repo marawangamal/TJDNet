@@ -1,40 +1,14 @@
-import os
-from typing import Literal
 import torch
 from transformers import AutoModelForCausalLM
 
-from models._tjd import TJD
+from models._tjd import TJD, TJDConfig
 
 
 class TJDLLAMA(TJD):
-    def __init__(
-        self,
-        model_head: str = "base",
-        vocab_size: int = 32000,
-        n_embd: int = 4096,
-        rank: int = 2,
-        horizon: int = 8,
-        positivity_func: str = "exp",
-        init_method: Literal["random", "pretrained"] = "random",
-        freeze_base_model: bool = True,
-        use_memory_efficient_loss: bool = False,
-        hidden_dim: int = 256,
-        use_nonlinearity: bool = False,
-        **kwargs,
-    ):
-        super().__init__(
-            n_embd,
-            vocab_size,
-            rank=rank,
-            horizon=horizon,
-            model_head=model_head,
-            positivity_func=positivity_func,
-            freeze_base_model=freeze_base_model,
-            init_method=init_method,
-            use_memory_efficient_loss=use_memory_efficient_loss,
-            hidden_dim=hidden_dim,
-            use_nonlinearity=use_nonlinearity,
-        )
+    def __init__(self, config: TJDConfig, **kwargs):
+        config.base_dist.param_net.in_dim = 4096
+        config.base_dist.vocab_size = 32000
+        super().__init__(config)
         self.pretrained_weights = None
 
     def get_last_hidden_state(self, input_ids, attention_mask=None):

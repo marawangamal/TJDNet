@@ -1,7 +1,7 @@
 from typing import List, Tuple
 import torch
 
-from distributions._base import BaseDistribution
+from distributions._base import BaseDistConfig, BaseDistribution
 from tensorops.mps import (
     sample_from_mps_tensorV1,
     select_from_mps_tensor,
@@ -12,34 +12,13 @@ from tensorops.mps import (
 
 # TODO: dont apply positivity function to alpha and beta and use 1hot instead of ones
 class MPSDist(BaseDistribution):
-    def __init__(
-        self,
-        n_embd: int,
-        vocab_size,
-        rank: int,
-        horizon: int,
-        positivity_func: str = "exp",
-        hidden_dim: int = 256,
-        **kwargs,
-    ):
-        super().__init__(horizon)
-        self.rank = rank
-        self.vocab_size = vocab_size
-        self.horizon = horizon
-        self.positivity_func: torch.nn.Module = {
-            "sq": lambda x: x**2,
-            "abs": lambda x: torch.abs(x),
-            "exp": torch.exp,
-        }[positivity_func]
-        self.tensor_train_size = horizon * (rank * vocab_size * rank)
-        self.alpha = torch.ones(rank) * 0.1
-        self.beta = torch.ones(rank) * 0.1
-        # Replace single linear layer with two-layer MLP
-        self.param_func_core = torch.nn.Sequential(
-            torch.nn.Linear(n_embd, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, self.tensor_train_size),
+    def __init__(self, config: BaseDistConfig, **kwargs):
+        config.param_net.out_dim = config.horizon * (
+            config.rank * config.vocab_size * config.rank
         )
+        super().__init__(config)
+        self.alpha = torch.ones(config.rank) * 0.1
+        self.beta = torch.ones(config.rank) * 0.1
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
         """Get trainable parameters from the last hidden state.

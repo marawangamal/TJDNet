@@ -1,7 +1,7 @@
 from typing import List, Tuple
 import torch
 
-from distributions._base import BaseDistribution
+from distributions._base import BaseDistConfig, BaseDistribution
 from tensorops.umps import (
     sample_from_umps_tensor,
     select_from_umps_tensor,
@@ -11,31 +11,11 @@ from tensorops.umps import (
 
 
 class UMPSDist(BaseDistribution):
-    def __init__(
-        self,
-        n_embd: int,
-        vocab_size,
-        rank: int,
-        horizon: int,
-        positivity_func: str = "exp",
-        hidden_dim: int = 256,
-        **kwargs,
-    ):
-        super().__init__(horizon)
-        self.rank = rank
-        self.vocab_size = vocab_size
-        self.horizon = horizon
-        self.positivity_func: torch.nn.Module = {
-            "sq": lambda x: x**2,
-            "abs": lambda x: torch.abs(x),
-            "exp": torch.exp,
-        }[positivity_func]
-        self.tensor_train_size = rank + (rank * vocab_size * rank) + rank
-        self.param_func = torch.nn.Sequential(
-            torch.nn.Linear(n_embd, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, self.tensor_train_size),
+    def __init__(self, config: BaseDistConfig, **kwargs):
+        config.param_net.out_dim = (
+            config.rank + (config.rank * config.vocab_size * config.rank) + config.rank
         )
+        super().__init__(config)
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
         params_tilde = self.param_func(last_hidden_state)
