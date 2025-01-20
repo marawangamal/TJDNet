@@ -2,17 +2,20 @@ from typing import List, Optional, Tuple
 import torch
 import line_profiler
 
-from distributions._base import BaseDistribution
+from distributions._base import BaseDistribution, BaseDistConfig
 from tensorops.common import sample_from_tensor_dist
 
 
 class BaseDist(BaseDistribution):
     def __init__(
+        # self,
+        # n_embd: int,
+        # vocab_size,
+        # positivity_func: str = "exp",
+        # horizon: int = 1,
+        # **kwargs,
         self,
-        n_embd: int,
-        vocab_size,
-        positivity_func: str = "exp",
-        horizon: int = 1,
+        config: BaseDistConfig,
         **kwargs,
     ):
         """Basic 1D entropy distribution
@@ -23,17 +26,14 @@ class BaseDist(BaseDistribution):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__(horizon=1)
-        assert horizon == 1, "Only horizon=1 is supported for now"
-        self.param_func = torch.nn.Linear(n_embd, vocab_size)
-        self.vocab_size = vocab_size
-        self.rank = 1
-        self.horizon = horizon
-        self.positivity_func: torch.nn.Module = {
-            "sq": lambda x: x**2,
-            "abs": lambda x: torch.abs(x),
-            "exp": torch.exp,
-        }[positivity_func]
+        assert config.horizon == 1, "Only horizon=1 is supported for now"
+        config.param_net.out_dim = (
+            config.vocab_size
+        )  # Set TPNet output dim to vocab_size
+        super().__init__(config)
+        self.vocab_size = config.vocab_size
+        self.rank = config.rank
+        self.horizon = config.horizon
 
     def init_params(self, params: torch.Tensor) -> None:
         """Initialize the parameters of `param_func` with a given tensor.
@@ -50,7 +50,8 @@ class BaseDist(BaseDistribution):
             self.param_func.bias.zero_()  # Optionally reset biases to zero
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
-        return self.positivity_func(self.param_func(last_hidden_state))
+        p_tilde = self.param_func(last_hidden_state)
+        return p_tilde
 
     def get_dist(
         self,

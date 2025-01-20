@@ -202,6 +202,19 @@ def parse_args():
         help="Evaluation frequency for the trainer.",
     )
     parser.add_argument(
+        "--generate_strategy",
+        type=str,
+        default="steps",
+        choices=["steps", "epoch", "no"],
+        help="Strategy for text generation during training",
+    )
+    parser.add_argument(
+        "--generate_steps",
+        type=int,
+        default=1000,
+        help="Number of steps between generations if strategy is 'steps'",
+    )
+    parser.add_argument(
         "--max_num_samples",
         type=int,
         default=68000,

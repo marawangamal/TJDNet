@@ -7,7 +7,7 @@ import torch.nn as nn
 
 @dataclass
 class TensorParamNetConfig:
-    """Configuration for tensor parameter network.
+    """Configuration for tensor parameter predictor network.
 
     Attributes:
         in_dim: Input embedding dimension
