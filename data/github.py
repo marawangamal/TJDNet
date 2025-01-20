@@ -1,9 +1,10 @@
 # sharegpt.py
 
+import os
 from datasets import load_dataset
 
 from data.common import group_texts
-from data._base import setup
+from data._base import ROOT_DIR, setup
 
 
 class ChatTemplateGithub:
@@ -22,11 +23,11 @@ def prepare_sample(tokenizer, example):
 def load_github_data(
     tokenizer, input_seq_len, test_size=0.01, max_num_samples=68000, **kwargs
 ):
-    setup()
     dataset = load_dataset(
         "codeparrot/github-code",
         split="train",
         languages=["Python"],
+        cache_dir=os.path.join(ROOT_DIR, "datasets"),
     )
     dataset = dataset.select(range(max_num_samples))
     dataset = dataset.map(
@@ -73,6 +74,7 @@ def load_github_data(
 
 # Usage example:
 if __name__ == "__main__":
+    setup()
     from transformers import AutoTokenizer
 
     # Example usage
