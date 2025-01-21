@@ -339,12 +339,19 @@ def get_tokenizer(args):
 
 def get_model_and_tokenizer(args):
     # Tokenizer
+    model_kwargs = {}
     if args.model_type.startswith("gpt2"):
         tokenizer = (
             AutoTokenizer.from_pretrained("gpt2")
             if args.tokenizer_type == "word"
             else CharTokenizer(args.seq_len)
         )
+        model_kwargs = {
+            "vocab_size": len(tokenizer),
+            "n_layer": 6,
+            "n_head": 6,
+            "dropout": 0.1,
+        }
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
 
@@ -370,7 +377,7 @@ def get_model_and_tokenizer(args):
         init_method=args.init_method,
         freeze_base_model=args.freeze_base_model,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
-        model_kwargs={"vocab_size": len(tokenizer)},
+        model_kwargs=model_kwargs,
     )
 
     # Add LLaMA specific config
