@@ -1,3 +1,13 @@
+class BaseChatTemplate:
+    @classmethod
+    def format_prompt(cls, prompt: str) -> str:
+        raise NotImplementedError
+
+    @classmethod
+    def get_sample_prompt(cls):
+        raise NotImplementedError
+
+
 def group_texts(examples, input_seq_len):
     # Concatenate all texts.
     concatenated_examples = {k: sum(examples[k], []) for k in examples.keys()}

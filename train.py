@@ -23,6 +23,7 @@ References:
 import os.path as osp
 import os
 import time
+from typing import Optional
 import wandb
 
 from transformers import (
@@ -33,6 +34,7 @@ from transformers import (
 )
 
 
+from data.common import BaseChatTemplate
 from data.shakespeare import load_shakespeare_data
 from data.sharegpt import load_sharegpt_data
 from data.wikitext import load_wikitext_data
@@ -65,7 +67,9 @@ class GenerationCallback(TrainerCallback):
         generate_steps=1000,
         max_new_tokens=100,
         horizon=1,
-        prompt_formatter_fn=None,
+        chat_template: Optional[BaseChatTemplate] = None,
+        top_k=50,
+        num_beams=1,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -73,11 +77,9 @@ class GenerationCallback(TrainerCallback):
         self.generate_steps = generate_steps
         self.max_new_tokens = max_new_tokens
         self.horizon = horizon
-        self.prompts = [
-            'complete the following code from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    """ Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    """',
-        ]
-        if prompt_formatter_fn is not None:
-            self.prompts = [prompt_formatter_fn(prompt) for prompt in self.prompts]
+        self.prompts = [chat_template.get_sample_prompt() if chat_template else ""]
+        self.top_k = top_k
+        self.num_beams = num_beams
 
     def on_step_end(self, args, state, control, **kwargs):
         if not args.local_rank == 0:
@@ -104,12 +106,14 @@ class GenerationCallback(TrainerCallback):
                     prompt=prompt,
                     max_new_tokens=self.max_new_tokens,
                     horizon=self.horizon,
+                    top_k=self.top_k,
+                    num_beams=self.num_beams,
                 )
                 samples[f"prompt_{i+1}"] = prompt
                 samples[f"generation_{i+1}"] = sample
                 print(f"\nPrompt: {prompt}\nOutput: {sample}\n")
                 wandb.log(
-                    {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},
+                    {f"generation_text_{i}": sample},  # Remove wandb.Html wrapper
                     step=state.global_step,
                 )
 
@@ -203,7 +207,9 @@ def main():
         generate_steps=args.generate_steps,  # or any other frequency you want
         max_new_tokens=args.max_new_tokens,
         horizon=args.horizon_eval,
-        prompt_formatter_fn=chat_template.format_prompt,
+        chat_template=chat_template,
+        top_k=args.top_k,
+        num_beams=args.num_beams,
     )
 
     # Initialize the trainer

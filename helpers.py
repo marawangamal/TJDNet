@@ -150,6 +150,18 @@ def parse_args():
         default=500,
         help="Maximum number of tokens to generate during evaluation.",
     )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=50,
+        help="Retain only the top_k most likely tokens, clamp others to have 0 probability",
+    )
+    parser.add_argument(
+        "--num_beams",
+        type=int,
+        default=1,
+        help="Number of beams to use during evaluation.",
+    )
     # Data Arguments
     parser.add_argument(
         "--dataset",
@@ -273,11 +285,8 @@ def get_test_samples(
     tokenizer,
     prompt="\n",
     max_new_tokens=128,
-    temperature=0.7,
-    top_p=0.9,
     top_k=50,
     do_sample=True,
-    repetition_penalty=1.1,
     num_beams=1,
     num_samples=1,
     print_output=False,
@@ -291,13 +300,10 @@ def get_test_samples(
         outputs = model.generate(
             inputs,
             max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
             top_k=top_k,
             do_sample=do_sample,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
-            repetition_penalty=repetition_penalty,
             num_beams=num_beams,
             horizon=horizon,
         )
