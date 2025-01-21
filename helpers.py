@@ -14,6 +14,7 @@ from data.sharegpt import ChatTemplateShareGPT
 from distributions._base import BaseDistConfig
 from distributions.tpnet import TensorParamNetConfig
 from models._tjd import TJDConfig
+from models.gpt2 import GPT2
 from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
@@ -57,7 +58,7 @@ def parse_args():
         type=str,
         default="gpt2",
         help="Type of base model to use",
-        choices=["gpt2", "llama"],
+        choices=["gpt2", "llama", "gpt2r"],
     )
     parser.add_argument(
         "--model_head",
@@ -338,7 +339,7 @@ def get_tokenizer(args):
 
 def get_model_and_tokenizer(args):
     # Tokenizer
-    if args.model_type == "gpt2":
+    if args.model_type.startswith("gpt2"):
         tokenizer = (
             AutoTokenizer.from_pretrained("gpt2")
             if args.tokenizer_type == "word"
@@ -353,9 +354,7 @@ def get_model_and_tokenizer(args):
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
-            vocab_size=(
-                len(tokenizer) if hasattr(tokenizer, "get_vocab") else len(tokenizer)
-            ),
+            vocab_size=len(tokenizer),
             horizon=args.horizon,
             rank=args.rank,
             param_net=TensorParamNetConfig(
@@ -371,13 +370,18 @@ def get_model_and_tokenizer(args):
         init_method=args.init_method,
         freeze_base_model=args.freeze_base_model,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
+        model_kwargs={"vocab_size": len(tokenizer)},
     )
 
     # Add LLaMA specific config
     if args.model_type == "llama":
         model = TJDLLAMA(model_config)
-    else:
+    elif args.model_type == "gpt2":
         model = TJDGPT2(model_config)
+    elif args.model_type == "gpt2r":
+        model = GPT2(model_config)
+    else:
+        raise ValueError(f"Model type {args.model_type} not recognized.")
 
     chat_template = {
         "sharegpt": ChatTemplateShareGPT,
