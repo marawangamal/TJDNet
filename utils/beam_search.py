@@ -92,7 +92,9 @@ def beam_search(
             break
 
         # Get all candidates from current beam
-        candidates = expand_fn(beam)
+        candidates = expand_fn(
+            beam
+        )  # Going from `n_beams` to `n_beams * vocab_size` beams
 
         # Keep top candidates
         beam = sorted(candidates, key=lambda x: x[1], reverse=True)[:num_beams]
