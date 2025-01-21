@@ -60,7 +60,7 @@ class TensorParamNet(nn.Module):
 
             layers.append(nn.Linear(current_dim, out_features))
 
-            if i < config.num_layers - 1:
+            if i < config.num_layers - 1:  # If not last layer
                 if config.activation is not None:
                     layers.append(self.activation_func)
                 if config.dropout > 0:
