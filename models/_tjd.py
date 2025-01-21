@@ -205,10 +205,13 @@ class TJD(ABC, torch.nn.Module):
         ] * num_beams
 
         def expand_fn(beams):
+            # beams: List[Tuple[seq: List[int], log_prob: float]]
             nonlocal last_hidden_states  # Allow modification of outer variable
             seqs, seq_log_probs = zip(*beams)  # Lists of shape (n_beams, T), (n_beams,)
             seq_log_probs = torch.tensor(seq_log_probs).to(dvc)
 
+            # Since the tensorized model_head models the joint over the next `horizon` tokens,
+            # we only need to do a forward pass (get_last_hidden_state) every `horizon` steps
             time_step = len(seqs[0])
             if time_step % horizon == 0 and time_step != 0:
                 # print(f"[Hidden states] Time step: {time_step} (horizon: {horizon})")
@@ -216,7 +219,7 @@ class TJD(ABC, torch.nn.Module):
                 seqs_tensor = torch.tensor(seqs).to(dvc)
                 for sq in seqs_tensor:
                     inp = torch.cat([input_ids, sq.reshape(1, -1)], dim=1)
-                    hidden = self.get_last_hidden_state(inp)[:, -1:, :]
+                    hidden = self.get_last_hidden_state(inp)[:, -1:, :]  # forward pass
                     last_hidden_states.append(hidden)
 
             next_token_probs = []
