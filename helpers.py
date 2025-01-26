@@ -14,6 +14,7 @@ from data.sharegpt import ChatTemplateShareGPT
 from distributions._base import BaseDistConfig
 from distributions.tpnet import TensorParamNetConfig
 from models._tjd import TJDConfig
+from models.gpt2 import GPT2
 from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
@@ -57,7 +58,7 @@ def parse_args():
         type=str,
         default="gpt2",
         help="Type of base model to use",
-        choices=["gpt2", "llama"],
+        choices=["gpt2", "llama", "gpt2r"],
     )
     parser.add_argument(
         "--model_head",
@@ -150,6 +151,18 @@ def parse_args():
         default=500,
         help="Maximum number of tokens to generate during evaluation.",
     )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=50,
+        help="Retain only the top_k most likely tokens, clamp others to have 0 probability",
+    )
+    parser.add_argument(
+        "--num_beams",
+        type=int,
+        default=1,
+        help="Number of beams to use during evaluation.",
+    )
     # Data Arguments
     parser.add_argument(
         "--dataset",
@@ -200,6 +213,19 @@ def parse_args():
         type=int,
         default=200,
         help="Evaluation frequency for the trainer.",
+    )
+    parser.add_argument(
+        "--generate_strategy",
+        type=str,
+        default="steps",
+        choices=["steps", "epoch", "no"],
+        help="Strategy for text generation during training",
+    )
+    parser.add_argument(
+        "--generate_steps",
+        type=int,
+        default=1000,
+        help="Number of steps between generations if strategy is 'steps'",
     )
     parser.add_argument(
         "--max_num_samples",
@@ -260,11 +286,8 @@ def get_test_samples(
     tokenizer,
     prompt="\n",
     max_new_tokens=128,
-    temperature=0.7,
-    top_p=0.9,
     top_k=50,
     do_sample=True,
-    repetition_penalty=1.1,
     num_beams=1,
     num_samples=1,
     print_output=False,
@@ -278,13 +301,10 @@ def get_test_samples(
         outputs = model.generate(
             inputs,
             max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
             top_k=top_k,
             do_sample=do_sample,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
-            repetition_penalty=repetition_penalty,
             num_beams=num_beams,
             horizon=horizon,
         )
@@ -319,12 +339,19 @@ def get_tokenizer(args):
 
 def get_model_and_tokenizer(args):
     # Tokenizer
-    if args.model_type == "gpt2":
+    model_kwargs = {}
+    if args.model_type.startswith("gpt2"):
         tokenizer = (
             AutoTokenizer.from_pretrained("gpt2")
             if args.tokenizer_type == "word"
             else CharTokenizer(args.seq_len)
         )
+        model_kwargs = {
+            "vocab_size": len(tokenizer),
+            "n_layer": 6,
+            "n_head": 6,
+            "dropout": 0.1,
+        }
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
 
@@ -334,9 +361,7 @@ def get_model_and_tokenizer(args):
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
-            vocab_size=(
-                len(tokenizer) if hasattr(tokenizer, "get_vocab") else len(tokenizer)
-            ),
+            vocab_size=len(tokenizer),
             horizon=args.horizon,
             rank=args.rank,
             param_net=TensorParamNetConfig(
@@ -352,13 +377,18 @@ def get_model_and_tokenizer(args):
         init_method=args.init_method,
         freeze_base_model=args.freeze_base_model,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
+        model_kwargs=model_kwargs,
     )
 
     # Add LLaMA specific config
     if args.model_type == "llama":
         model = TJDLLAMA(model_config)
-    else:
+    elif args.model_type == "gpt2":
         model = TJDGPT2(model_config)
+    elif args.model_type == "gpt2r":
+        model = GPT2(model_config)
+    else:
+        raise ValueError(f"Model type {args.model_type} not recognized.")
 
     chat_template = {
         "sharegpt": ChatTemplateShareGPT,

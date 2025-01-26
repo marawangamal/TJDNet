@@ -18,19 +18,28 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 """
 
+import os
 from datasets import load_dataset
+from data.common import BaseChatTemplate, group_texts
 
-from data.common import group_texts
 
-
-class ChatTemplateShakespeare:
+class ChatTemplateShakespeare(BaseChatTemplate):
     @classmethod
     def format_prompt(cls, prompt: str) -> str:
         return prompt
 
+    @classmethod
+    def get_sample_prompt(cls):
+        return "\n\n"
+
 
 def load_shakespeare_data(tokenizer, input_seq_len, test_size=0.2, **kwargs):
-    dataset = load_dataset("tiny_shakespeare", split="train")
+    # script_dir = os.path.dirname(os.path.abspath(__file__))
+    # local_path = os.path.join(script_dir, "tinyshakespeare.txt")
+    # dataset = load_dataset("text", data_files={"train": local_path}, split="train")
+    dataset = load_dataset(
+        "tiny_shakespeare", split="train", trust_remote_code=True
+    )  # Stopped working on server
     dataset = dataset.map(
         lambda x: tokenizer(x["text"], add_special_tokens=False),
         remove_columns=["text"],

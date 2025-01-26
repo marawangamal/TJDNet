@@ -5,3 +5,4 @@ datasets
 matplotlib
 wandb
 tensorly
+line_profiler

@@ -10,7 +10,7 @@ from transformers import (
 class TJDGPT2(TJD):
     def __init__(self, config: TJDConfig, **kwargs):
         config.base_dist.param_net.in_dim = 768
-        config.base_dist.vocab_size = 50257
+        # config.base_dist.vocab_size = 50257
         super().__init__(config)
         self.pretrained_weights = None
 

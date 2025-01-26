@@ -35,6 +35,13 @@ To evaluate on HumanEval, run the following commands
     python eval/human-eval/human_eval/evaluate_functional_correctness.py samples.jsonl
     ```
 
+
+## View datasets
+To view a sample from the shakespeare dataset run
+```bash
+python data/shakespeare.py
+```
+
 ## Visualization
 1. Generate completetions (will be saved to samples.jsonl)
     ```

@@ -2,10 +2,10 @@
 
 from datasets import load_dataset
 
-from data.common import group_texts
+from data.common import BaseChatTemplate, group_texts
 
 
-class ChatTemplateShareGPT:
+class ChatTemplateShareGPT(BaseChatTemplate):
     HUMAN_PREFIX = "Human: "
     ASSISTANT_PREFIX = "Assistant: "
     MESSAGE_END = "\n\n"
@@ -20,6 +20,14 @@ class ChatTemplateShareGPT:
     def format_prompt(cls, prompt: str) -> str:
         """Format a human prompt for model input."""
         return cls.HUMAN_PREFIX + prompt + cls.MESSAGE_END
+
+    @classmethod
+    def get_sample_prompt(cls):
+        return (
+            cls.format_prompt(
+                'complete the following code from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    """ Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    """'
+            ),
+        )
 
 
 # TODO: use just 2 turns
