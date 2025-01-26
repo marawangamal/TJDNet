@@ -9,6 +9,7 @@ import numpy as np
 from transformers import AutoTokenizer
 
 from ctokenizers.char_tokenizer import CharTokenizer
+from data.gsm8k import ChatTemplateGSM8k
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
 from distributions._base import BaseDistConfig
@@ -173,6 +174,7 @@ def parse_args():
             "shakespeare",
             "wikitext",
             "sharegpt",
+            "gsm8k",
         ],
     )
     # Tokenizer arguments
@@ -393,6 +395,7 @@ def get_model_and_tokenizer(args):
     chat_template = {
         "sharegpt": ChatTemplateShareGPT,
         "shakespeare": ChatTemplateShakespeare,
+        "gsm8k": ChatTemplateGSM8k,
     }[args.dataset]
 
     return model, tokenizer, chat_template

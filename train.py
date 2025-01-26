@@ -35,6 +35,7 @@ from transformers import (
 
 
 from data.common import BaseChatTemplate
+from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
 from data.sharegpt import load_sharegpt_data
 from data.wikitext import load_wikitext_data
@@ -155,6 +156,7 @@ def main():
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
         "sharegpt": load_sharegpt_data,
+        "gsm8k": load_gsm8k_data,
     }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 

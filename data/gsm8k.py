@@ -6,17 +6,29 @@ from git import Optional
 from data.common import BaseChatTemplate, group_texts
 
 
-class QATemplate(BaseChatTemplate):
+class ChatTemplateGSM8k(BaseChatTemplate):
     TEMPLATE = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
 
     @classmethod
     def format_qa(cls, question: str, answer: Optional[str] = None) -> str:
         return cls.TEMPLATE.format(question=question, answer=answer or "")
 
+    @classmethod
+    def format_prompt(cls, prompt: str):
+        return cls.TEMPLATE.format(question=prompt, answer="")
+
+    @classmethod
+    def get_sample_prompt(cls):
+        return cls.TEMPLATE.format(
+            question="Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
+            answer="",
+        )
+
 
 def parse_qa(example, eos_token="<|endoftext|>"):
     return {
-        "text": QATemplate.format_qa(example["question"], example["answer"]) + eos_token
+        "text": ChatTemplateGSM8k.format_qa(example["question"], example["answer"])
+        + eos_token
     }
 
 
