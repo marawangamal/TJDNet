@@ -113,7 +113,7 @@ class GenerationCallback(TrainerCallback):
                 samples[f"generation_{i+1}"] = sample
                 print(f"\nPrompt: {prompt}\nOutput: {sample}\n")
                 wandb.log(
-                    {f"generation_text_{i}": sample},  # Remove wandb.Html wrapper
+                    {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},
                     step=state.global_step,
                 )
 
