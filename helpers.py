@@ -366,18 +366,20 @@ def get_model_and_tokenizer(args):
             if args.tokenizer_type == "word"
             else CharTokenizer(args.seq_len)
         )
+
+        # TODO: Check if necessary for LLAMA too
+        if args.tokenizer_type == "word":
+            tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+
         model_kwargs = {
             "vocab_size": len(tokenizer),
             "n_layer": 6,
             "n_head": 6,
             "dropout": 0.1,
         }
+
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
-
-    # TODO: Check if necessary for LLAMA (maybe it already has the pad tokens)
-    if args.tokenizer_type == "word" or args.model_type == "llama":
-        tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
