@@ -181,6 +181,7 @@ class TJD(ABC, torch.nn.Module):
         do_sample: bool = True,
         horizon: Optional[int] = None,
         top_k: int = 50,
+        stop_token: Optional[int] = None,
         **kwargs,
     ):
         """Generate sequences given an input tensor.
@@ -192,6 +193,7 @@ class TJD(ABC, torch.nn.Module):
             do_sample (bool, optional): Whether to sample. Defaults to False.
             horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
             top_k (int, optional): Top k sampling. Defaults to 50.
+            stop_token (Optional[int], optional): Stop token for generation. Defaults to None.
 
         Returns:
             torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
@@ -258,6 +260,7 @@ class TJD(ABC, torch.nn.Module):
             initial_beam=[([], 0.0)],
             num_beams=num_beams,
             max_steps=max_new_tokens,
+            stop_token=stop_token,
         )
         return torch.tensor(best_seq, device=dvc).reshape(1, -1)
 

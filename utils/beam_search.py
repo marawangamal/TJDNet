@@ -1,4 +1,4 @@
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import torch
 import line_profiler
@@ -71,32 +71,32 @@ def get_candidates(
 
 
 def beam_search(
-    expand_fn: Callable,  # Function that takes List[Tuple[seq, score]] and returns List[Tuple[seq, score]]
+    expand_fn: Callable,
     initial_beam: List[Tuple[List, float]],
     num_beams: int,
     max_steps: int,
+    stop_token: Optional[int] = None,
 ) -> Tuple[list, float]:
-    """
-    Simple beam search that works with any sequence type.
-
-    Args:
-        expand_fn: Function that takes current beam and returns list of candidates
-        initial_beam: Starting [(sequence, score)] list
-        num_beams: Beam width
-        max_steps: Maximum steps
-    """
-    beam = initial_beam
+    active_beams = initial_beam
+    finished_beams = []
 
     for _ in range(max_steps):
-        if not beam:
+        if not active_beams:
             break
 
-        # Get all candidates from current beam
-        candidates = expand_fn(
-            beam
-        )  # Going from `n_beams` to `n_beams * vocab_size` beams
+        candidates = expand_fn(active_beams)
 
-        # Keep top candidates
-        beam = sorted(candidates, key=lambda x: x[1], reverse=True)[:num_beams]
+        # Split candidates into finished and active
+        new_active = []
+        for seq, score in candidates:
+            if stop_token is not None and seq and seq[-1] == stop_token:
+                finished_beams.append((seq, score))
+            else:
+                new_active.append((seq, score))
 
-    return beam[0] if beam else ([], float("-inf"))
+        # Keep top active beams
+        active_beams = sorted(new_active, key=lambda x: x[1], reverse=True)[:num_beams]
+
+    # Return best sequence from finished or active beams
+    all_beams = finished_beams + active_beams
+    return max(all_beams, key=lambda x: x[1]) if all_beams else ([], float("-inf"))

@@ -43,7 +43,8 @@ def process_gsm8k_dataset(dataset, tokenizer, input_seq_len):
         lambda x: tokenizer(x["text"], add_special_tokens=False),
         remove_columns=["text"],
     )
-    dataset = dataset.map(lambda x: group_texts(x, input_seq_len), batched=True)
+    # BUG: removed grouping here, otherwise the model gets trained to start a new q after an answer
+    # dataset = dataset.map(lambda x: group_texts(x, input_seq_len), batched=True)
     return dataset
 
 
@@ -66,7 +67,7 @@ if __name__ == "__main__":
 
     # Example usage
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
 
     dataset = load_gsm8k_data(
         tokenizer=tokenizer,
