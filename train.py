@@ -125,7 +125,7 @@ def main():
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
         # optim="adafactor",  # Use Adafactor optimizer
-        no_cuda=True,  # Force CPU usage
+        # no_cuda=True,  # Force CPU usage
     )
 
     if training_args.local_rank == 0:  # main process
@@ -150,17 +150,17 @@ def main():
         top_k=args.top_k,
         num_beams=args.num_beams,
     )
-    # eval_callback = (
-    #     EvalGSM8KCallback(
-    #         max_new_tokens=args.max_new_tokens,
-    #         top_k=args.top_k,
-    #         horizon=args.horizon_eval,
-    #         num_beams=args.num_beams,
-    #         tokenizer=tokenizer,
-    #     )
-    #     if args.dataset == "gsm8k"
-    #     else None
-    # )
+    eval_callback = (
+        EvalGSM8KCallback(
+            max_new_tokens=args.max_new_tokens,
+            top_k=args.top_k,
+            horizon=args.horizon_eval,
+            num_beams=args.num_beams,
+            tokenizer=tokenizer,
+        )
+        if args.dataset == "gsm8k"
+        else None
+    )
 
     # Initialize the trainer
     trainer = TJDTrainer(
@@ -170,7 +170,7 @@ def main():
         eval_dataset=lm_dataset["test"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[c for c in [generation_callback] if c is not None],
+        callbacks=[c for c in [generation_callback, eval_callback] if c is not None],
     )
 
     # Train the model

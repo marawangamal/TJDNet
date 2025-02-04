@@ -330,9 +330,9 @@ def get_test_samples(
         else:
             samples.append(f"[{i+1}] {sample}")
 
-        if debug:
-            status = "Fail" if len(output_tokens) == max_new_tokens else "Pass"
-            print(f"[{status}] Num tokens: {len(output_tokens)}")
+        # if debug:
+        #     status = "Fail" if len(output_tokens) == max_new_tokens else "Pass"
+        #     print(f"[{status}] Num tokens: {len(output_tokens)}")
 
     if print_output:
         print("\n---\n".join(samples) + "\n")

@@ -2,6 +2,7 @@ import torch
 import wandb
 
 from transformers import TrainerCallback
+from data.gsm8k import ChatTemplateGSM8k
 from helpers import get_test_samples
 
 
@@ -20,7 +21,7 @@ class EvalGSM8KCallback(TrainerCallback):
         self.num_beams = num_beams
         self.tokenizer = tokenizer
 
-    def on_epoch_begin(
+    def on_step_end(
         self,
         args,
         state,
@@ -34,21 +35,30 @@ class EvalGSM8KCallback(TrainerCallback):
         if not args.local_rank == 0:
             return
 
-        # accuracy = compute_accuracy(
-        #     model,
-        #     self.tokenizer,
-        #     eval_dataloader,
-        #     max_new_tokens=self.max_new_tokens,
-        #     horizon=self.horizon,
-        #     top_k=self.top_k,
-        #     num_beams=self.num_beams,
-        # )
-        # wandb.log(
-        #     {
-        #         "eval/acc": accuracy,
-        #     },
-        #     step=state.global_step,
-        # )
+        steps_per_epoch = state.max_steps // state.num_train_epochs
+        should_eval = state.global_step % steps_per_epoch == 0
+        if not should_eval:
+            return
+
+        accuracy = compute_accuracy(
+            model,
+            self.tokenizer,
+            eval_dataloader,
+            max_new_tokens=self.max_new_tokens,
+            horizon=self.horizon,
+            top_k=self.top_k,
+            num_beams=self.num_beams,
+        )
+
+        print("\n=== Evaluation at step", state.global_step, "===")
+        print(f"Accuracy: {accuracy}")
+
+        wandb.log(
+            {
+                "eval/accuracy": accuracy,
+            },
+            step=state.global_step,
+        )
 
 
 def compute_accuracy(
@@ -59,6 +69,7 @@ def compute_accuracy(
     horizon=1,
     top_k=50,
     num_beams=1,
+    max_num_batches=5,
 ):
     model.eval()
     correct = 0
@@ -85,18 +96,20 @@ def compute_accuracy(
 
                 # Parse the sample
                 labels_decoded = tokenizer.decode(labels[0])
-                ground_truth = int(
-                    labels_decoded.split("####")[1]
-                    .split(tokenizer.sep_token)[0]
-                    .strip()
+                ground_truth = ChatTemplateGSM8k.safe_parse(
+                    labels_decoded, tokenizer.sep_token
                 )
-                pred = (
-                    int(pred.split("####")[1].split(tokenizer.sep_token)[0].strip())
-                    if "####" in pred
-                    else None
-                )
+                pred = ChatTemplateGSM8k.safe_parse(pred, tokenizer.sep_token)
+                # pred = (
+                #     float(pred.split("####")[1].split(tokenizer.sep_token)[0].strip())
+                #     if "####" in pred
+                #     else None
+                # )
                 correct += ground_truth == pred
                 total += 1
+
+            if total >= max_num_batches:
+                break
     return correct / total
 
 

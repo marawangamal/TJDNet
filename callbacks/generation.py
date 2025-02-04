@@ -41,12 +41,16 @@ class GenerationCallback(TrainerCallback):
             should_generate = state.global_step % self.generate_steps == 0
         elif self.generate_strategy == "epoch":
             # Check if we're at the end of an epoch
-            should_generate = state.global_step % state.num_train_epochs == 0
+            steps_per_epoch = state.max_steps // state.num_train_epochs
+            should_generate = state.global_step % steps_per_epoch == 0
         elif self.generate_strategy == "no":
             should_generate = False
 
         if should_generate:
             print("\n=== Generation Sample at step", state.global_step, "===")
+            # Details
+            print(f"global_step: {state.global_step}")
+            print(f"num_train_epochs: {state.num_train_epochs}")
             self.model.eval()
 
             samples = {}
