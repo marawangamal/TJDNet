@@ -1,4 +1,4 @@
-# sharegpt.py
+# gsm8k.py
 
 from datasets import load_dataset
 from git import Optional
