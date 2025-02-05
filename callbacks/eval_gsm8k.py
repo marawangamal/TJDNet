@@ -9,6 +9,7 @@ from helpers import get_test_samples
 class EvalGSM8KCallback(TrainerCallback):
     def __init__(
         self,
+        eos_token,
         max_new_tokens=500,
         top_k=50,
         horizon=1,
@@ -20,6 +21,7 @@ class EvalGSM8KCallback(TrainerCallback):
         self.horizon = horizon
         self.num_beams = num_beams
         self.tokenizer = tokenizer
+        self.eos_token = eos_token
 
     def on_step_end(
         self,
@@ -44,6 +46,7 @@ class EvalGSM8KCallback(TrainerCallback):
             model,
             self.tokenizer,
             eval_dataloader,
+            self.eos_token,
             max_new_tokens=self.max_new_tokens,
             horizon=self.horizon,
             top_k=self.top_k,
@@ -65,6 +68,7 @@ def compute_accuracy(
     model,
     tokenizer,
     eval_dataloader,
+    eos_token,
     max_new_tokens=500,
     horizon=1,
     top_k=50,
@@ -84,10 +88,12 @@ def compute_accuracy(
                 )
                 input_ids = input_ids[:, : attention_mask.sum()]
                 labels = labels[:, : attention_mask.sum()]
+                inputs_decoded = tokenizer.decode(input_ids[0])
+                labels_decoded = tokenizer.decode(labels[0])
                 pred = get_test_samples(
                     model,
                     tokenizer,
-                    prompt=tokenizer.decode(input_ids[0]),
+                    prompt=inputs_decoded,
                     max_new_tokens=max_new_tokens,
                     horizon=horizon,
                     top_k=top_k,
@@ -95,17 +101,9 @@ def compute_accuracy(
                 )
 
                 # Parse the sample
-                labels_decoded = tokenizer.decode(labels[0])
-                ground_truth = ChatTemplateGSM8k.safe_parse(
-                    labels_decoded, tokenizer.sep_token
-                )
-                pred = ChatTemplateGSM8k.safe_parse(pred, tokenizer.sep_token)
-                # pred = (
-                #     float(pred.split("####")[1].split(tokenizer.sep_token)[0].strip())
-                #     if "####" in pred
-                #     else None
-                # )
-                correct += ground_truth == pred
+                ground_truth = ChatTemplateGSM8k.safe_parse(labels_decoded, eos_token)
+                pred = ChatTemplateGSM8k.safe_parse(pred, eos_token)
+                correct += ground_truth == pred and ground_truth is not None
                 total += 1
 
             if total >= max_num_batches:

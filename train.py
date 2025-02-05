@@ -152,6 +152,12 @@ def main():
     )
     eval_callback = (
         EvalGSM8KCallback(
+            # TODO: fix this should always just be EOS token?
+            eos_token=(
+                tokenizer.eos_token
+                if args.tokenizer_type == "word"
+                else tokenizer.sep_token
+            ),
             max_new_tokens=args.max_new_tokens,
             top_k=args.top_k,
             horizon=args.horizon_eval,
