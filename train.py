@@ -23,18 +23,18 @@ References:
 import os.path as osp
 import os
 import time
-from typing import Optional
 import wandb
 
 from transformers import (
     DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
-    TrainerCallback,
 )
 
 
-from data.common import BaseChatTemplate
+from callbacks.eval_gsm8k import EvalGSM8KCallback
+from callbacks.generation import GenerationCallback
+from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
 from data.sharegpt import load_sharegpt_data
 from data.wikitext import load_wikitext_data
@@ -56,69 +56,6 @@ class TJDTrainer(Trainer):
         output_dict = model(**inputs)
         loss = output_dict["loss"]
         return (loss, output_dict) if return_outputs else loss
-
-
-class GenerationCallback(TrainerCallback):
-    def __init__(
-        self,
-        model,
-        tokenizer,
-        generate_strategy="steps",
-        generate_steps=1000,
-        max_new_tokens=100,
-        horizon=1,
-        chat_template: Optional[BaseChatTemplate] = None,
-        top_k=50,
-        num_beams=1,
-    ):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.generate_strategy = generate_strategy
-        self.generate_steps = generate_steps
-        self.max_new_tokens = max_new_tokens
-        self.horizon = horizon
-        self.prompts = [chat_template.get_sample_prompt() if chat_template else ""]
-        self.top_k = top_k
-        self.num_beams = num_beams
-
-    def on_step_end(self, args, state, control, **kwargs):
-        if not args.local_rank == 0:
-            return
-
-        should_generate = False
-        if self.generate_strategy == "steps":
-            should_generate = state.global_step % self.generate_steps == 0
-        elif self.generate_strategy == "epoch":
-            # Check if we're at the end of an epoch
-            should_generate = state.global_step % state.num_train_epochs == 0
-        elif self.generate_strategy == "no":
-            should_generate = False
-
-        if should_generate:
-            print("\n=== Generation Sample at step", state.global_step, "===")
-            self.model.eval()
-
-            samples = {}
-            for i, prompt in enumerate(self.prompts):
-                sample = get_test_samples(
-                    self.model,
-                    self.tokenizer,
-                    prompt=prompt,
-                    max_new_tokens=self.max_new_tokens,
-                    horizon=self.horizon,
-                    top_k=self.top_k,
-                    num_beams=self.num_beams,
-                )
-                samples[f"prompt_{i+1}"] = prompt
-                samples[f"generation_{i+1}"] = sample
-                print(f"\nPrompt: {prompt}\nOutput: {sample}\n")
-                wandb.log(
-                    {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},
-                    step=state.global_step,
-                )
-
-            self.model.train()
-            print("=" * 50 + "\n")
 
 
 # Custom evaluation function
@@ -155,6 +92,7 @@ def main():
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
         "sharegpt": load_sharegpt_data,
+        "gsm8k": load_gsm8k_data,
     }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
@@ -187,6 +125,7 @@ def main():
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
         # optim="adafactor",  # Use Adafactor optimizer
+        # no_cuda=True,  # Force CPU usage
     )
 
     if training_args.local_rank == 0:  # main process
@@ -211,6 +150,23 @@ def main():
         top_k=args.top_k,
         num_beams=args.num_beams,
     )
+    eval_callback = (
+        EvalGSM8KCallback(
+            # TODO: fix this should always just be EOS token?
+            eos_token=(
+                tokenizer.eos_token
+                if args.tokenizer_type == "word"
+                else tokenizer.sep_token
+            ),
+            max_new_tokens=args.max_new_tokens,
+            top_k=args.top_k,
+            horizon=args.horizon_eval,
+            num_beams=args.num_beams,
+            tokenizer=tokenizer,
+        )
+        if args.dataset == "gsm8k"
+        else None
+    )
 
     # Initialize the trainer
     trainer = TJDTrainer(
@@ -220,7 +176,7 @@ def main():
         eval_dataset=lm_dataset["test"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[generation_callback],  # Add this line
+        callbacks=[c for c in [generation_callback, eval_callback] if c is not None],
     )
 
     # Train the model

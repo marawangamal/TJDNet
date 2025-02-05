@@ -9,6 +9,7 @@ import numpy as np
 from transformers import AutoTokenizer
 
 from ctokenizers.char_tokenizer import CharTokenizer
+from data.gsm8k import ChatTemplateGSM8k
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
 from distributions._base import BaseDistConfig
@@ -173,6 +174,7 @@ def parse_args():
             "shakespeare",
             "wikitext",
             "sharegpt",
+            "gsm8k",
         ],
     )
     # Tokenizer arguments
@@ -292,6 +294,7 @@ def get_test_samples(
     num_samples=1,
     print_output=False,
     horizon=1,
+    debug=True,
 ):
     # Inference
     model.eval()
@@ -307,12 +310,29 @@ def get_test_samples(
             eos_token_id=tokenizer.eos_token_id,
             num_beams=num_beams,
             horizon=horizon,
+            early_stopping=True,  # For hf models this causes stopping when end token is reached (gpt2r)
+            stop_token=tokenizer.eos_token_id,  # For tjd models this causes stopping when end token is reached
+            stop_strings=[
+                tokenizer.eos_token
+            ],  # For tjd models this causes stopping when end token is reached
         )
+
         sample = tokenizer.decode(outputs[0])
+        output_tokens = outputs[0]
+
+        # Truncate the prompt from the output
+        if sample.startswith(prompt):
+            output_tokens = output_tokens[len(inputs[0]) :]
+            sample = sample[len(prompt) :]
+
         if num_samples == 1:
             samples.append(sample)
         else:
             samples.append(f"[{i+1}] {sample}")
+
+        # if debug:
+        #     status = "Fail" if len(output_tokens) == max_new_tokens else "Pass"
+        #     print(f"[{status}] Num tokens: {len(output_tokens)}")
 
     if print_output:
         print("\n---\n".join(samples) + "\n")
@@ -346,18 +366,20 @@ def get_model_and_tokenizer(args):
             if args.tokenizer_type == "word"
             else CharTokenizer(args.seq_len)
         )
+
+        # TODO: Check if necessary for LLAMA too
+        if args.tokenizer_type == "word":
+            tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+
         model_kwargs = {
             "vocab_size": len(tokenizer),
             "n_layer": 6,
             "n_head": 6,
             "dropout": 0.1,
         }
+
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
-
-    # TODO: avoid this
-    if args.tokenizer_type == "word" or args.model_type == "llama":
-        tokenizer.pad_token = tokenizer.eos_token
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
@@ -393,6 +415,7 @@ def get_model_and_tokenizer(args):
     chat_template = {
         "sharegpt": ChatTemplateShareGPT,
         "shakespeare": ChatTemplateShakespeare,
+        "gsm8k": ChatTemplateGSM8k,
     }[args.dataset]
 
     return model, tokenizer, chat_template

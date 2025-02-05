@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Sequence, Union
 from transformers.tokenization_utils import AddedToken, PreTrainedTokenizer
 
 
+# TODO: use EOS token instead of SEP token for end of sequence
 class CharTokenizer(PreTrainedTokenizer):
     def __init__(
         self,
