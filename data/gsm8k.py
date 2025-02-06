@@ -43,7 +43,7 @@ def parse_qa(example, eos_token="<|endoftext|>"):
     }
 
 
-def process_gsm8k_dataset(dataset, tokenizer):
+def process_gsm8k_dataset(dataset, tokenizer, input_seq_len=512):
     # Process the selected samples
 
     dataset = dataset.map(
@@ -51,12 +51,14 @@ def process_gsm8k_dataset(dataset, tokenizer):
         remove_columns=dataset.column_names,
     )
     dataset = dataset.map(
-        lambda x: tokenizer(x["text"], add_special_tokens=False),
+        lambda x: tokenizer(
+            x["text"], add_special_tokens=False
+        ),  # If true runs PretrainedTokenizerBase.build_inputs_with_special_tokens, maybe adding [BOS] and [EOS]
         remove_columns=["text"],
     )
     # TODO: maybe it can have a [SEP] token
     # BUG: removed grouping here, otherwise the model gets trained to start a new q after an answer
-    # dataset = dataset.map(lambda x: group_texts(x, input_seq_len), batched=True)
+    dataset = dataset.map(lambda x: group_texts(x, input_seq_len), batched=True)
     return dataset
 
 
@@ -88,8 +90,9 @@ def load_gsm8k_data(
 ):
     train_dataset = load_dataset("openai/gsm8k", "main", split="train")
     test_dataset = load_dataset("openai/gsm8k", "main", split="test")
-    train_dataset = process_gsm8k_dataset(train_dataset, tokenizer)
-    test_dataset = process_gsm8k_dataset(test_dataset, tokenizer)
+
+    train_dataset = process_gsm8k_dataset(train_dataset, tokenizer, input_seq_len)
+    test_dataset = process_gsm8k_dataset(test_dataset, tokenizer, input_seq_len)
 
     # Get original sizes
     orig_train_size = len(train_dataset)
@@ -136,9 +139,7 @@ if __name__ == "__main__":
     tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
 
     dataset = load_gsm8k_data(
-        tokenizer=tokenizer,
-        input_seq_len=512,
-        max_num_samples=100,
+        tokenizer=tokenizer, input_seq_len=512, max_num_samples=100
     )
 
     print(f"\nDataset sizes:")

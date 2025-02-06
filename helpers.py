@@ -380,6 +380,7 @@ def get_model_and_tokenizer(args):
 
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+        tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
