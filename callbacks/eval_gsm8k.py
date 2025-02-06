@@ -2,14 +2,16 @@ import torch
 import wandb
 
 from transformers import TrainerCallback
-from data.gsm8k import ChatTemplateGSM8k
+from data.common import BaseClassifierChatTemplate
 from helpers import get_test_samples
 
 
+# TODO: make generic, just needs a chat template with safe_parse
 class EvalGSM8KCallback(TrainerCallback):
     def __init__(
         self,
         eos_token,
+        chat_template: BaseClassifierChatTemplate,
         max_new_tokens=500,
         top_k=50,
         horizon=1,
@@ -22,8 +24,9 @@ class EvalGSM8KCallback(TrainerCallback):
         self.num_beams = num_beams
         self.tokenizer = tokenizer
         self.eos_token = eos_token
+        self.chat_template = chat_template
 
-    def on_step_end(
+    def on_step_begin(
         self,
         args,
         state,
@@ -47,6 +50,7 @@ class EvalGSM8KCallback(TrainerCallback):
             self.tokenizer,
             eval_dataloader,
             self.eos_token,
+            self.chat_template,
             max_new_tokens=self.max_new_tokens,
             horizon=self.horizon,
             top_k=self.top_k,
@@ -69,6 +73,7 @@ def compute_accuracy(
     tokenizer,
     eval_dataloader,
     eos_token,
+    chat_template,
     max_new_tokens=500,
     horizon=1,
     top_k=50,
@@ -101,8 +106,8 @@ def compute_accuracy(
                 )
 
                 # Parse the sample
-                ground_truth = ChatTemplateGSM8k.safe_parse(labels_decoded, eos_token)
-                pred = ChatTemplateGSM8k.safe_parse(pred, eos_token)
+                ground_truth = chat_template.safe_parse(labels_decoded, eos_token)
+                pred = chat_template.safe_parse(pred, eos_token)
                 correct += ground_truth == pred and ground_truth is not None
                 total += 1
 

@@ -3,10 +3,10 @@
 from datasets import load_dataset
 from git import Optional
 
-from data.common import BaseChatTemplate, group_texts
+from data.common import BaseClassifierChatTemplate, group_texts
 
 
-class ChatTemplateGSM8k(BaseChatTemplate):
+class ChatTemplateGSM8k(BaseClassifierChatTemplate):
     TEMPLATE = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
 
     @classmethod

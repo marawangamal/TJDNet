@@ -28,8 +28,12 @@ class ChatTemplateSynthetic(BaseChatTemplate):
     @classmethod
     def safe_parse(cls, generation: str, eos_token: str):
         try:
-            return generation.split("[RESPONSE]")[1].split(eos_token)[0].strip()
-        except Exception:
+            return (
+                float(generation.split("####")[1].split(eos_token)[0].strip())
+                if "####" in generation
+                else None
+            )
+        except Exception as e:
             return None
 
 
@@ -82,7 +86,7 @@ class DataIterator:
 def load_synthetic_data(
     tokenizer,
     input_seq_len,
-    num_train_samples=1000,
+    num_train_samples=10000,
     num_test_samples=100,
     **kwargs,
 ):
@@ -112,8 +116,8 @@ if __name__ == "__main__":
     dataset = load_synthetic_data(
         tokenizer=tokenizer,
         input_seq_len=512,
-        num_train_samples=100,
-        num_test_samples=10,
+        num_train_samples=10000,
+        num_test_samples=100,
     )
 
     # Print sample
