@@ -23,6 +23,7 @@ References:
 import os.path as osp
 import os
 import time
+import torch
 import wandb
 
 from transformers import (
@@ -97,6 +98,7 @@ def main():
         "syn": load_synthetic_data,
     }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    # data_collator = CustomDataCollator(tokenizer=tokenizer, mlm=False)
 
     training_args = TrainingArguments(
         output_dir=ckpt_dir,
@@ -122,6 +124,7 @@ def main():
         save_total_limit=1,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
+        # remove_unused_columns=False,
         # Memory optimization
         # bf16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
@@ -155,6 +158,7 @@ def main():
     eval_callback = (
         EvalGSM8KCallback(
             # TODO: fix this should always just be EOS token?
+            test_dataset=lm_dataset["test_ungrouped"],
             eos_token=(
                 tokenizer.eos_token
                 if args.tokenizer_type == "word"

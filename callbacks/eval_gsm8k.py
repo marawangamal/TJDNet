@@ -11,6 +11,7 @@ class EvalGSM8KCallback(TrainerCallback):
     def __init__(
         self,
         eos_token,
+        test_dataset,
         chat_template: BaseClassifierChatTemplate,
         max_new_tokens=500,
         top_k=50,
@@ -25,6 +26,7 @@ class EvalGSM8KCallback(TrainerCallback):
         self.tokenizer = tokenizer
         self.eos_token = eos_token
         self.chat_template = chat_template
+        self.test_dataset = test_dataset
 
     def on_step_begin(
         self,
@@ -32,8 +34,6 @@ class EvalGSM8KCallback(TrainerCallback):
         state,
         control,
         model=None,
-        train_dataloader=None,
-        eval_dataloader=None,
         **kwargs,
     ):
         # Only compute on single GPU
@@ -48,7 +48,7 @@ class EvalGSM8KCallback(TrainerCallback):
         accuracy = compute_accuracy(
             model,
             self.tokenizer,
-            eval_dataloader,
+            self.test_dataset,
             self.eos_token,
             self.chat_template,
             max_new_tokens=self.max_new_tokens,
@@ -71,45 +71,38 @@ class EvalGSM8KCallback(TrainerCallback):
 def compute_accuracy(
     model,
     tokenizer,
-    eval_dataloader,
+    test_dataset,
     eos_token,
     chat_template,
     max_new_tokens=500,
     horizon=1,
     top_k=50,
     num_beams=1,
-    max_num_batches=5,
+    max_num_batches=10,
 ):
     model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch in eval_dataloader:
-            for i in range(batch["input_ids"].size(0)):
-                input_ids = batch["input_ids"][i].unsqueeze(0).to(model.device)
-                labels = batch["labels"][i].unsqueeze(0).to(model.device)
-                attention_mask = (
-                    batch["attention_mask"][i].unsqueeze(0).to(model.device)
-                )
-                input_ids = input_ids[:, : attention_mask.sum()]
-                labels = labels[:, : attention_mask.sum()]
-                inputs_decoded = tokenizer.decode(input_ids[0])
-                labels_decoded = tokenizer.decode(labels[0])
-                pred = get_test_samples(
-                    model,
-                    tokenizer,
-                    prompt=inputs_decoded,
-                    max_new_tokens=max_new_tokens,
-                    horizon=horizon,
-                    top_k=top_k,
-                    num_beams=num_beams,
-                )
+        for batch in test_dataset:
+            # TODO: issue is that the input_ids contain the answer, so the model is cheating
+            inputs_decoded = tokenizer.decode(batch["prompt_ids"])
+            labels_decoded = tokenizer.decode(batch["input_ids"])
+            pred = get_test_samples(
+                model,
+                tokenizer,
+                prompt=inputs_decoded,
+                max_new_tokens=max_new_tokens,
+                horizon=horizon,
+                top_k=top_k,
+                num_beams=num_beams,
+            )
 
-                # Parse the sample
-                ground_truth = chat_template.safe_parse(labels_decoded, eos_token)
-                pred = chat_template.safe_parse(pred, eos_token)
-                correct += ground_truth == pred and ground_truth is not None
-                total += 1
+            # Parse the sample
+            ground_truth = chat_template.safe_parse(labels_decoded, eos_token)
+            pred = chat_template.safe_parse(pred, eos_token)
+            correct += ground_truth == pred and ground_truth is not None
+            total += 1
 
             if total >= max_num_batches:
                 break
