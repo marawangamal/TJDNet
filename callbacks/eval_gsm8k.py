@@ -1,4 +1,6 @@
 import torch
+from transformers.trainer_callback import TrainerControl, TrainerState
+from transformers.training_args import TrainingArguments
 import wandb
 
 from transformers import TrainerCallback
@@ -28,7 +30,9 @@ class EvalGSM8KCallback(TrainerCallback):
         self.chat_template = chat_template
         self.test_dataset = test_dataset
 
-    def on_step_begin(
+        wandb.define_metric("eval/accuracy-v2", step_metric="global_step")
+
+    def on_step_end(
         self,
         args,
         state,
@@ -67,6 +71,22 @@ class EvalGSM8KCallback(TrainerCallback):
             step=state.global_step,
         )
 
+    def on_evaluate(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
+        print("++++ EVALUATE ++++")
+        wandb.log(
+            {
+                "eval/accuracy-v2": torch.rand(1).item(),
+            },
+            step=state.global_step,
+            commit=True,
+        )
+
 
 def compute_accuracy(
     model,
@@ -78,7 +98,7 @@ def compute_accuracy(
     horizon=1,
     top_k=50,
     num_beams=1,
-    max_num_batches=10,
+    max_num_samples=100,
 ):
     model.eval()
     correct = 0
@@ -104,7 +124,7 @@ def compute_accuracy(
             correct += ground_truth == pred and ground_truth is not None
             total += 1
 
-            if total >= max_num_batches:
+            if total >= max_num_samples:
                 break
     return correct / total
 

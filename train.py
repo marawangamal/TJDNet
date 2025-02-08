@@ -33,7 +33,7 @@ from transformers import (
 )
 
 
-from callbacks.eval_gsm8k import EvalGSM8KCallback
+from callbacks.eval_gsm8k import EvalGSM8KCallback, compute_accuracy
 from callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
@@ -52,12 +52,50 @@ from helpers import (
 
 
 class TJDTrainer(Trainer):
+    def __init__(
+        self,
+        test_dataset,
+        tokenizer,
+        chat_template,
+        horizon,
+        top_k,
+        num_beams,
+        eos_token,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.test_dataset = test_dataset
+        self.chat_template = chat_template
+
+        self.horizon = horizon
+        self.top_k = top_k
+        self.num_beams = num_beams
+        self.eos_token = eos_token
+        self.tokenizer = tokenizer
+
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
         output_dict = model(**inputs)
         loss = output_dict["loss"]
         return (loss, output_dict) if return_outputs else loss
+
+    def evaluation_loop(self, *args, **kwargs):
+        output = super().evaluation_loop(*args, **kwargs)
+        # Add custom metrics
+        acc = compute_accuracy(
+            self.model,
+            tokenizer=self.tokenizer,
+            test_dataset=self.test_dataset,
+            eos_token=self.eos_token,
+            chat_template=self.chat_template,
+            horizon=self.horizon,
+            top_k=self.top_k,
+            num_beams=self.num_beams,
+        )
+        if output and output.metrics:
+            output.metrics[f"eval_acc"] = acc
+        return output
 
 
 # Custom evaluation function
@@ -108,16 +146,16 @@ def main():
         warmup_steps=args.warmup_steps,
         learning_rate=args.lr,
         max_grad_norm=args.grad_clip_val,
-        eval_on_start=True,
         # Logging
         logging_strategy=args.logging_strategy,
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
+        # eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
-        report_to="wandb",  # Enable wandb logging
+        report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
         # Checkpoints
         save_strategy="best",  # Save model every epoch
         save_safetensors=False,
@@ -183,23 +221,40 @@ def main():
         eval_dataset=lm_dataset["test"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[c for c in [generation_callback, eval_callback] if c is not None],
+        callbacks=[c for c in [generation_callback] if c is not None],
+        # Evaluation
+        tokenizer=tokenizer,
+        test_dataset=lm_dataset["test_ungrouped"],
+        chat_template=chat_template,
+        horizon=args.horizon_eval,
+        top_k=args.top_k,
+        num_beams=args.num_beams,
+        eos_token=(
+            tokenizer.eos_token
+            if args.tokenizer_type == "word"
+            else tokenizer.sep_token
+        ),
     )
 
-    # Train the model
-    trainer.train()
+    if args.eval_only:
+        # Run evaluation only
+        metrics = trainer.evaluate()
+        print("Evaluation metrics:", metrics)
+    else:
+        # Train the model
+        trainer.train()
 
-    # Save the model
-    trainer.save_model(ckpt_dir)
+        # Save the model
+        trainer.save_model(ckpt_dir)
 
-    # Generate a test sample
-    test_sample = get_test_samples(
-        model,
-        tokenizer,
-        max_new_tokens=args.max_new_tokens,
-        prompt="What is the meaning of life?",
-    )
-    print(f"Test sample:\n{test_sample}")
+        # Generate a test sample
+        test_sample = get_test_samples(
+            model,
+            tokenizer,
+            max_new_tokens=args.max_new_tokens,
+            prompt="What is the meaning of life?",
+        )
+        print(f"Test sample:\n{test_sample}")
 
 
 if __name__ == "__main__":

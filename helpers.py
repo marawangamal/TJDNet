@@ -231,6 +231,10 @@ def parse_args():
         default=68000,
         help="Maximum number of samples to load from the dataset.",
     )
+    # MISC
+    parser.add_argument(
+        "--eval_only", action="store_true", help="Whether to only evaluate the model"
+    )
     return parser.parse_args()
 
 
