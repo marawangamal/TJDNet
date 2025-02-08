@@ -40,4 +40,4 @@ sbatch scripts/slurm/large.slurm torchrun --nproc_per_node=4 train.py --epochs 5
 # Dataset: GSM
 # Model: LLAMA (word)
 # -------------------
-sbatch scripts/slurm/large.slurm torchrun --nproc_per_node=4 train.py --epochs 5 --logging_strategy epoch --logging_steps 1 --eval_strategy epoch --eval_steps 1 --generate_strategy epoch --tokenizer_type word --num_layers 1 --dropout 0 --top_k 200 --num_beams 1 --batch_size 8 --seq_len 128 --dataset gsm8k --model_type llama --model_head base --horizon 1 --horizon_eval 1 --rank 1 --init_method random --lr 1e-4
+sbatch scripts/slurm/large.slurm torchrun --nproc_per_node=4 train.py --epochs 5 --logging_strategy epoch --logging_steps 1 --eval_strategy epoch --eval_steps 1 --generate_strategy epoch --tokenizer_type word --num_layers 1 --dropout 0 --top_k 200 --num_beams 1 --batch_size 8 --seq_len 128 --dataset gsm8k --model_type llama --model_head base --horizon 1 --horizon_eval 1 --rank 1 --init_method random --hidden_dim 768 --num_layers 2 --use_layer_norm --lr 1e-4
