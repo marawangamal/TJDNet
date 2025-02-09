@@ -2,6 +2,8 @@ import torch
 from transformers.trainer_callback import TrainerControl, TrainerState
 from transformers.training_args import TrainingArguments
 import wandb
+from tqdm import tqdm
+
 
 from transformers import TrainerCallback
 from data.common import BaseClassifierChatTemplate
@@ -99,19 +101,29 @@ def compute_accuracy(
     top_k=50,
     num_beams=1,
     max_num_samples=100,
+    prompt="",
 ):
     model.eval()
     correct = 0
     total = 0
+
+    # Create tqdm progress bar
+    pbar = tqdm(
+        enumerate(test_dataset),
+        total=min(len(test_dataset), max_num_samples),
+        desc="Computing accuracy",
+        leave=False,
+    )
+
     with torch.no_grad():
-        for batch in test_dataset:
+        for i, batch in pbar:
             # TODO: issue is that the input_ids contain the answer, so the model is cheating
             inputs_decoded = tokenizer.decode(batch["prompt_ids"])
             labels_decoded = tokenizer.decode(batch["input_ids"])
             pred = get_test_samples(
                 model,
                 tokenizer,
-                prompt=inputs_decoded,
+                prompt=prompt + inputs_decoded,
                 max_new_tokens=max_new_tokens,
                 horizon=horizon,
                 top_k=top_k,
@@ -123,7 +135,7 @@ def compute_accuracy(
             pred = chat_template.safe_parse(pred, eos_token)
             correct += ground_truth == pred and ground_truth is not None
             total += 1
-
+            pbar.set_postfix({"accuracy": f"{correct / total:.4f}"})
             if total >= max_num_samples:
                 break
     return correct / total

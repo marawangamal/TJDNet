@@ -149,8 +149,8 @@ def load_gsm8k_data(
 
     return {
         "train": train_dataset_filtered,  # Return filtered datasets instead of original
-        "test": val_dataset_filtered,
-        "test_ungrouped": test_dataset,
+        "eval": val_dataset_filtered,
+        "test": test_dataset,
     }
 
 
@@ -168,6 +168,7 @@ if __name__ == "__main__":
 
     print(f"\nDataset sizes:")
     print(f"Train: {len(dataset['train'])} sequences")
+    print(f"Eval: {len(dataset['eval'])} sequences")
     print(f"Test: {len(dataset['test'])} sequences")
     print(f"EOS token: {tokenizer.eos_token}")
 

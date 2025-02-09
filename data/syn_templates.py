@@ -1,27 +1,24 @@
 from typing import Optional
 import random
 from datasets import Dataset
-from data.common import BaseChatTemplate
+from data.common import BaseChatTemplate, group_texts
 
 
 class ChatTemplateSynthetic(BaseChatTemplate):
-    TEMPLATE = """[CONTEXT]\n{context}\n[QUERY]\n{query}\n[RESPONSE]{response}"""
+    TEMPLATE = """[QUESTION]\n{question}\n[RESPONSE]{response}"""
 
     @classmethod
-    def format_qa(cls, context: str, query: str, response: Optional[str] = None) -> str:
-        return cls.TEMPLATE.format(
-            context=context, query=query, response=response or ""
-        )
+    def format_qa(cls, question: str, response: Optional[str] = None) -> str:
+        return cls.TEMPLATE.format(question=question, response=response or "")
 
     @classmethod
-    def format_prompt(cls, context: str, query: str):
-        return cls.TEMPLATE.format(context=context, query=query, response="")
+    def format_prompt(cls, prompt: str):
+        return cls.TEMPLATE.format(question=prompt, response="")
 
     @classmethod
     def get_sample_prompt(cls):
         return cls.TEMPLATE.format(
-            context="Temperature in London is 20°C",
-            query="What's the temperature in Fahrenheit?",
+            question="What is 20°C in Fahrenheit?",
             response="",
         )
 
@@ -33,43 +30,59 @@ class ChatTemplateSynthetic(BaseChatTemplate):
                 if "####" in generation
                 else None
             )
-        except Exception as e:
+        except Exception:
             return None
 
 
 def generate_sample():
     """Generate a single synthetic QA sample."""
-    # Example: Temperature conversion questions
     temp_c = random.randint(-20, 40)
     temp_f = (temp_c * 9 / 5) + 32
 
-    cities = ["London", "New York", "Tokyo", "Paris", "Sydney"]
-    city = random.choice(cities)
-
-    context = f"Temperature in {city} is {temp_c}°C"
-    query = "What's the temperature in Fahrenheit?"
+    question = f"What is {temp_c}°C in Fahrenheit?"
     response = f"\nLet's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C × 9/5) + 32\n2) Plugging in {temp_c}°C:\n   °F = ({temp_c} × 9/5) + 32\n   °F = {temp_f}\n\n####\n{temp_f}"
 
-    return {"context": context, "query": query, "response": response}
+    return {"question": question, "response": response}
 
 
 def parse_qa(example, eos_token="<|endoftext|>"):
     return {
         "text": ChatTemplateSynthetic.format_qa(
-            example["context"], example["query"], example["response"]
+            example["question"], example["response"]
         )
-        + eos_token
+        + eos_token,
+        "prompt": ChatTemplateSynthetic.format_prompt(example["question"]),
     }
 
 
-def process_synthetic_dataset(dataset, tokenizer):
+def process_synthetic_dataset(dataset, tokenizer, input_seq_len=512):
     dataset = dataset.map(
         lambda x: parse_qa(x, tokenizer.eos_token),
         remove_columns=dataset.column_names,
     )
     dataset = dataset.map(
         lambda x: tokenizer(x["text"], add_special_tokens=False),
-        remove_columns=["text"],
+        remove_columns=["text", "prompt"],
+    )
+    dataset = dataset.map(
+        lambda x: group_texts(x, input_seq_len),
+        batched=True,
+    )
+    return dataset
+
+
+def process_synthetic_test_dataset(dataset, tokenizer):
+    # Process the selected samples
+
+    dataset = dataset.map(
+        lambda x: parse_qa(x, tokenizer.eos_token),
+        remove_columns=dataset.column_names,
+    )
+    dataset = dataset.map(
+        lambda x: {
+            **tokenizer(x["text"], add_special_tokens=False),
+            "prompt_ids": tokenizer(x["prompt"])["input_ids"],
+        },
     )
     return dataset
 
@@ -91,18 +104,21 @@ def load_synthetic_data(
     **kwargs,
 ):
     train_dataset = Dataset.from_generator(lambda: DataIterator(num_train_samples))
-    test_dataset = Dataset.from_generator(lambda: DataIterator(num_test_samples))
+    eval_dataset = Dataset.from_generator(lambda: DataIterator(num_test_samples))
+    test_dataset = eval_dataset.select(range(len(eval_dataset)))  # Make copy
 
-    # Process datasets
-    train_dataset = process_synthetic_dataset(train_dataset, tokenizer)
-    test_dataset = process_synthetic_dataset(test_dataset, tokenizer)
+    train_dataset = process_synthetic_dataset(train_dataset, tokenizer, input_seq_len)
+    eval_dataset = process_synthetic_dataset(eval_dataset, tokenizer, input_seq_len)
+    test_dataset = process_synthetic_test_dataset(test_dataset, tokenizer)
 
     print(f"\nDataset sizes:")
     print(f"Train: {len(train_dataset)} sequences")
+    print(f"Test: {len(eval_dataset)} sequences")
     print(f"Test: {len(test_dataset)} sequences")
 
     return {
         "train": train_dataset,
+        "eval": eval_dataset,
         "test": test_dataset,
     }
 
@@ -120,7 +136,6 @@ if __name__ == "__main__":
         num_test_samples=100,
     )
 
-    # Print sample
     example = next(iter(dataset["train"]))
     decoded_text = tokenizer.decode(example["input_ids"])
     print("\nSample output:")

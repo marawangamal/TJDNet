@@ -17,6 +17,7 @@ from distributions._base import BaseDistConfig
 from distributions.tpnet import TensorParamNetConfig
 from models._tjd import TJDConfig
 from models.gpt2 import GPT2
+from models.llama import LLAMA
 from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
@@ -60,7 +61,7 @@ def parse_args():
         type=str,
         default="gpt2",
         help="Type of base model to use",
-        choices=["gpt2", "llama", "gpt2r"],
+        choices=["gpt2", "llama", "gpt2r", "llamar"],
     )
     parser.add_argument(
         "--model_head",
@@ -410,6 +411,8 @@ def get_model_and_tokenizer(args):
         model = TJDGPT2(model_config)
     elif args.model_type == "gpt2r":
         model = GPT2(model_config)
+    elif args.model_type == "llamar":
+        model = LLAMA(model_config)
     else:
         raise ValueError(f"Model type {args.model_type} not recognized.")
 

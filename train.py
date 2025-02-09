@@ -92,7 +92,9 @@ class TJDTrainer(Trainer):
             horizon=self.horizon,
             top_k=self.top_k,
             num_beams=self.num_beams,
+            prompt="Answer the following question, your answer should end with a #### <answer>:",
         )
+        print("Eval accuracy:", acc)
         if output and output.metrics:
             output.metrics[f"eval_acc"] = acc
         return output
@@ -196,7 +198,7 @@ def main():
     eval_callback = (
         EvalGSM8KCallback(
             # TODO: fix this should always just be EOS token?
-            test_dataset=lm_dataset["test_ungrouped"],
+            test_dataset=lm_dataset["test"],
             eos_token=(
                 tokenizer.eos_token
                 if args.tokenizer_type == "word"
@@ -218,13 +220,13 @@ def main():
         model=model,
         args=training_args,
         train_dataset=lm_dataset["train"],
-        eval_dataset=lm_dataset["test"],
+        eval_dataset=lm_dataset["eval"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
         callbacks=[c for c in [generation_callback] if c is not None],
         # Evaluation
         tokenizer=tokenizer,
-        test_dataset=lm_dataset["test_ungrouped"],
+        test_dataset=lm_dataset["test"],
         chat_template=chat_template,
         horizon=args.horizon_eval,
         top_k=args.top_k,
