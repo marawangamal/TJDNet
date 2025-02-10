@@ -1,3 +1,6 @@
+from git import Optional
+
+
 class BaseChatTemplate:
     @classmethod
     def format_prompt(cls, prompt: str) -> str:
@@ -5,6 +8,20 @@ class BaseChatTemplate:
 
     @classmethod
     def get_sample_prompt(cls):
+        raise NotImplementedError
+
+
+class BaseClassifierChatTemplate:
+    @classmethod
+    def format_prompt(cls, prompt: str) -> str:
+        raise NotImplementedError
+
+    @classmethod
+    def get_sample_prompt(cls):
+        raise NotImplementedError
+
+    @classmethod
+    def safe_parse(cls, generation: str, eos_token: str) -> Optional[float]:
         raise NotImplementedError
 
 

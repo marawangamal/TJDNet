@@ -12,10 +12,13 @@ from ctokenizers.char_tokenizer import CharTokenizer
 from data.gsm8k import ChatTemplateGSM8k
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
+from data.syn_numbers import ChatTemplateSynNum
+from data.syn_temp import ChatTemplateSynTemp
 from distributions._base import BaseDistConfig
 from distributions.tpnet import TensorParamNetConfig
 from models._tjd import TJDConfig
 from models.gpt2 import GPT2
+from models.llama import LLAMA
 from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
@@ -59,7 +62,7 @@ def parse_args():
         type=str,
         default="gpt2",
         help="Type of base model to use",
-        choices=["gpt2", "llama", "gpt2r"],
+        choices=["gpt2", "llama", "gpt2r", "llamar"],
     )
     parser.add_argument(
         "--model_head",
@@ -170,12 +173,7 @@ def parse_args():
         type=str,
         default="shakespeare",
         help="Type of dataset to use for training.",
-        choices=[
-            "shakespeare",
-            "wikitext",
-            "sharegpt",
-            "gsm8k",
-        ],
+        choices=["shakespeare", "wikitext", "sharegpt", "gsm8k", "stemp", "snum"],
     )
     # Tokenizer arguments
     parser.add_argument(
@@ -234,6 +232,10 @@ def parse_args():
         type=int,
         default=68000,
         help="Maximum number of samples to load from the dataset.",
+    )
+    # MISC
+    parser.add_argument(
+        "--eval_only", action="store_true", help="Whether to only evaluate the model"
     )
     return parser.parse_args()
 
@@ -380,6 +382,7 @@ def get_model_and_tokenizer(args):
 
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+        tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
@@ -409,6 +412,8 @@ def get_model_and_tokenizer(args):
         model = TJDGPT2(model_config)
     elif args.model_type == "gpt2r":
         model = GPT2(model_config)
+    elif args.model_type == "llamar":
+        model = LLAMA(model_config)
     else:
         raise ValueError(f"Model type {args.model_type} not recognized.")
 
@@ -416,6 +421,8 @@ def get_model_and_tokenizer(args):
         "sharegpt": ChatTemplateShareGPT,
         "shakespeare": ChatTemplateShakespeare,
         "gsm8k": ChatTemplateGSM8k,
+        "stemp": ChatTemplateSynTemp,
+        "snum": ChatTemplateSynNum,
     }[args.dataset]
 
     return model, tokenizer, chat_template

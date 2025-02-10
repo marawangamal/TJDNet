@@ -23,6 +23,7 @@ References:
 import os.path as osp
 import os
 import time
+import torch
 import wandb
 
 from transformers import (
@@ -32,11 +33,13 @@ from transformers import (
 )
 
 
-from callbacks.eval_gsm8k import EvalGSM8KCallback
+from callbacks.eval_gsm8k import EvalGSM8KCallback, compute_accuracy
 from callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
 from data.sharegpt import load_sharegpt_data
+from data.syn_numbers import load_syn_num_data
+from data.syn_temp import load_syn_temp_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
 from helpers import (
@@ -50,12 +53,52 @@ from helpers import (
 
 
 class TJDTrainer(Trainer):
+    def __init__(
+        self,
+        test_dataset,
+        tokenizer,
+        chat_template,
+        horizon,
+        top_k,
+        num_beams,
+        eos_token,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.test_dataset = test_dataset
+        self.chat_template = chat_template
+
+        self.horizon = horizon
+        self.top_k = top_k
+        self.num_beams = num_beams
+        self.eos_token = eos_token
+        self.tokenizer = tokenizer
+
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
         output_dict = model(**inputs)
         loss = output_dict["loss"]
         return (loss, output_dict) if return_outputs else loss
+
+    def evaluation_loop(self, *args, **kwargs):
+        output = super().evaluation_loop(*args, **kwargs)
+        # Add custom metrics
+        acc = compute_accuracy(
+            self.model,
+            tokenizer=self.tokenizer,
+            test_dataset=self.test_dataset,
+            eos_token=self.eos_token,
+            chat_template=self.chat_template,
+            horizon=self.horizon,
+            top_k=self.top_k,
+            num_beams=self.num_beams,
+            # prompt="Answer the following question. Here's an example: 20°C in Fahrenheit is #### 68. Question:",
+        )
+        print("Eval accuracy:", acc)
+        if output and output.metrics:
+            output.metrics[f"eval_acc"] = acc
+        return output
 
 
 # Custom evaluation function
@@ -93,8 +136,11 @@ def main():
         "wikitext": load_wikitext_data,
         "sharegpt": load_sharegpt_data,
         "gsm8k": load_gsm8k_data,
+        "stemp": load_syn_temp_data,
+        "snum": load_syn_num_data,
     }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    # data_collator = CustomDataCollator(tokenizer=tokenizer, mlm=False)
 
     training_args = TrainingArguments(
         output_dir=ckpt_dir,
@@ -104,22 +150,23 @@ def main():
         warmup_steps=args.warmup_steps,
         learning_rate=args.lr,
         max_grad_norm=args.grad_clip_val,
-        eval_on_start=True,
         # Logging
         logging_strategy=args.logging_strategy,
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
+        # eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
-        report_to="wandb",  # Enable wandb logging
+        report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
         # Checkpoints
         save_strategy="best",  # Save model every epoch
         save_safetensors=False,
         save_total_limit=1,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
+        # remove_unused_columns=False,
         # Memory optimization
         # bf16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
@@ -153,18 +200,20 @@ def main():
     eval_callback = (
         EvalGSM8KCallback(
             # TODO: fix this should always just be EOS token?
+            test_dataset=lm_dataset["test"],
             eos_token=(
                 tokenizer.eos_token
                 if args.tokenizer_type == "word"
                 else tokenizer.sep_token
             ),
+            chat_template=chat_template,
             max_new_tokens=args.max_new_tokens,
             top_k=args.top_k,
             horizon=args.horizon_eval,
             num_beams=args.num_beams,
             tokenizer=tokenizer,
         )
-        if args.dataset == "gsm8k"
+        if args.dataset in ["gsm8k", "syn"]
         else None
     )
 
@@ -173,26 +222,43 @@ def main():
         model=model,
         args=training_args,
         train_dataset=lm_dataset["train"],
-        eval_dataset=lm_dataset["test"],
+        eval_dataset=lm_dataset["eval"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[c for c in [generation_callback, eval_callback] if c is not None],
+        callbacks=[c for c in [generation_callback] if c is not None],
+        # Evaluation
+        tokenizer=tokenizer,
+        test_dataset=lm_dataset["test"],
+        chat_template=chat_template,
+        horizon=args.horizon_eval,
+        top_k=args.top_k,
+        num_beams=args.num_beams,
+        eos_token=(
+            tokenizer.eos_token
+            if args.tokenizer_type == "word"
+            else tokenizer.sep_token
+        ),
     )
 
-    # Train the model
-    trainer.train()
+    if args.eval_only:
+        # Run evaluation only
+        metrics = trainer.evaluate()
+        print("Evaluation metrics:", metrics)
+    else:
+        # Train the model
+        trainer.train()
 
-    # Save the model
-    trainer.save_model(ckpt_dir)
+        # Save the model
+        trainer.save_model(ckpt_dir)
 
-    # Generate a test sample
-    test_sample = get_test_samples(
-        model,
-        tokenizer,
-        max_new_tokens=args.max_new_tokens,
-        prompt="What is the meaning of life?",
-    )
-    print(f"Test sample:\n{test_sample}")
+        # Generate a test sample
+        test_sample = get_test_samples(
+            model,
+            tokenizer,
+            max_new_tokens=args.max_new_tokens,
+            prompt="What is the meaning of life?",
+        )
+        print(f"Test sample:\n{test_sample}")
 
 
 if __name__ == "__main__":

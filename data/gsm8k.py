@@ -1,12 +1,12 @@
-# sharegpt.py
+# gsm8k.py
 
 from datasets import load_dataset
 from git import Optional
 
-from data.common import BaseChatTemplate, group_texts
+from data.common import BaseClassifierChatTemplate, group_texts
 
 
-class ChatTemplateGSM8k(BaseChatTemplate):
+class ChatTemplateGSM8k(BaseClassifierChatTemplate):
     TEMPLATE = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
 
     @classmethod
@@ -39,24 +39,49 @@ class ChatTemplateGSM8k(BaseChatTemplate):
 def parse_qa(example, eos_token="<|endoftext|>"):
     return {
         "text": ChatTemplateGSM8k.format_qa(example["question"], example["answer"])
-        + eos_token
+        + eos_token,
+        "prompt": ChatTemplateGSM8k.format_prompt(example["question"]),
     }
 
 
-def process_gsm8k_dataset(dataset, tokenizer):
+def process_gsm8k_dataset(dataset, tokenizer, input_seq_len=512):
     # Process the selected samples
 
     dataset = dataset.map(
         lambda x: parse_qa(x, tokenizer.eos_token),
         remove_columns=dataset.column_names,
     )
+
     dataset = dataset.map(
-        lambda x: tokenizer(x["text"], add_special_tokens=False),
-        remove_columns=["text"],
+        lambda x: {
+            **tokenizer(x["text"], add_special_tokens=False),
+            "prompt_ids": tokenizer(x["prompt"])["input_ids"],
+        },
+        remove_columns=["text", "prompt"],
     )
     # TODO: maybe it can have a [SEP] token
     # BUG: removed grouping here, otherwise the model gets trained to start a new q after an answer
-    # dataset = dataset.map(lambda x: group_texts(x, input_seq_len), batched=True)
+    dataset = dataset.map(
+        lambda x: group_texts(x, input_seq_len),
+        batched=True,
+    )
+    return dataset
+
+
+def process_gsm8k_test_dataset(dataset, tokenizer):
+    # Process the selected samples
+
+    dataset = dataset.map(
+        lambda x: parse_qa(x, tokenizer.eos_token),
+        remove_columns=dataset.column_names,
+    )
+
+    dataset = dataset.map(
+        lambda x: {
+            **tokenizer(x["text"], add_special_tokens=False),
+            "prompt_ids": tokenizer(x["prompt"])["input_ids"],
+        },
+    )
     return dataset
 
 
@@ -87,21 +112,22 @@ def load_gsm8k_data(
     **kwargs,
 ):
     train_dataset = load_dataset("openai/gsm8k", "main", split="train")
+    val_dataset = load_dataset("openai/gsm8k", "main", split="test")
     test_dataset = load_dataset("openai/gsm8k", "main", split="test")
-    train_dataset = process_gsm8k_dataset(train_dataset, tokenizer)
-    test_dataset = process_gsm8k_dataset(test_dataset, tokenizer)
+
+    train_dataset = process_gsm8k_dataset(train_dataset, tokenizer, input_seq_len)
+    val_dataset = process_gsm8k_dataset(val_dataset, tokenizer, input_seq_len)
+    test_dataset = process_gsm8k_test_dataset(test_dataset, tokenizer)
 
     # Get original sizes
     orig_train_size = len(train_dataset)
-    orig_test_size = len(test_dataset)
+    orig_test_size = len(val_dataset)
 
     # Limit the length of the sequences
     train_dataset_filtered = train_dataset.filter(
         lambda x: is_valid_seq(x, input_seq_len)
     )
-    test_dataset_filtered = test_dataset.filter(
-        lambda x: is_valid_seq(x, input_seq_len)
-    )
+    val_dataset_filtered = val_dataset.filter(lambda x: is_valid_seq(x, input_seq_len))
 
     # Print statistics
     print("\nSequence Length Filtering Statistics:")
@@ -116,14 +142,15 @@ def load_gsm8k_data(
 
     print(f"\nTest set:")
     print(f"  Original samples: {orig_test_size}")
-    print(f"  Filtered samples: {len(test_dataset_filtered)}")
-    print(f"  Removed samples: {orig_test_size - len(test_dataset_filtered)}")
-    print(f"  Percentage kept: {(len(test_dataset_filtered)/orig_test_size)*100:.2f}%")
+    print(f"  Filtered samples: {len(val_dataset_filtered)}")
+    print(f"  Removed samples: {orig_test_size - len(val_dataset_filtered)}")
+    print(f"  Percentage kept: {(len(val_dataset_filtered)/orig_test_size)*100:.2f}%")
     print("-" * 40)
 
     return {
         "train": train_dataset_filtered,  # Return filtered datasets instead of original
-        "test": test_dataset_filtered,
+        "eval": val_dataset_filtered,
+        "test": test_dataset,
     }
 
 
@@ -136,13 +163,12 @@ if __name__ == "__main__":
     tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
 
     dataset = load_gsm8k_data(
-        tokenizer=tokenizer,
-        input_seq_len=512,
-        max_num_samples=100,
+        tokenizer=tokenizer, input_seq_len=512, max_num_samples=100
     )
 
     print(f"\nDataset sizes:")
     print(f"Train: {len(dataset['train'])} sequences")
+    print(f"Eval: {len(dataset['eval'])} sequences")
     print(f"Test: {len(dataset['test'])} sequences")
     print(f"EOS token: {tokenizer.eos_token}")
 
