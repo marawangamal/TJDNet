@@ -92,7 +92,7 @@ class TJDTrainer(Trainer):
             horizon=self.horizon,
             top_k=self.top_k,
             num_beams=self.num_beams,
-            prompt="Answer the following question, your answer should end with a #### <answer>:",
+            # prompt="Answer the following question. Here's an example: 20°C in Fahrenheit is #### 68. Question:",
         )
         print("Eval accuracy:", acc)
         if output and output.metrics:
