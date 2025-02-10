@@ -4,7 +4,7 @@ from datasets import Dataset
 from data.common import BaseChatTemplate, group_texts
 
 
-class ChatTemplateSynthetic(BaseChatTemplate):
+class ChatTemplateSynTemp(BaseChatTemplate):
     TEMPLATE = """[QUESTION]\n{question}\n[RESPONSE]{response}"""
 
     @classmethod
@@ -47,11 +47,9 @@ def generate_sample():
 
 def parse_qa(example, eos_token="<|endoftext|>"):
     return {
-        "text": ChatTemplateSynthetic.format_qa(
-            example["question"], example["response"]
-        )
+        "text": ChatTemplateSynTemp.format_qa(example["question"], example["response"])
         + eos_token,
-        "prompt": ChatTemplateSynthetic.format_prompt(example["question"]),
+        "prompt": ChatTemplateSynTemp.format_prompt(example["question"]),
     }
 
 
@@ -96,7 +94,7 @@ class DataIterator:
             yield generate_sample()
 
 
-def load_synthetic_data(
+def load_syn_temp_data(
     tokenizer,
     input_seq_len,
     num_train_samples=10000,
@@ -129,7 +127,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
 
-    dataset = load_synthetic_data(
+    dataset = load_syn_temp_data(
         tokenizer=tokenizer,
         input_seq_len=512,
         num_train_samples=10000,

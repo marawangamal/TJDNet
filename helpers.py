@@ -12,7 +12,8 @@ from ctokenizers.char_tokenizer import CharTokenizer
 from data.gsm8k import ChatTemplateGSM8k
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
-from data.syn_templates import ChatTemplateSynthetic
+from data.syn_numbers import ChatTemplateSynNum
+from data.syn_temp import ChatTemplateSynTemp
 from distributions._base import BaseDistConfig
 from distributions.tpnet import TensorParamNetConfig
 from models._tjd import TJDConfig
@@ -172,7 +173,7 @@ def parse_args():
         type=str,
         default="shakespeare",
         help="Type of dataset to use for training.",
-        choices=["shakespeare", "wikitext", "sharegpt", "gsm8k", "syn"],
+        choices=["shakespeare", "wikitext", "sharegpt", "gsm8k", "stemp", "snum"],
     )
     # Tokenizer arguments
     parser.add_argument(
@@ -420,7 +421,8 @@ def get_model_and_tokenizer(args):
         "sharegpt": ChatTemplateShareGPT,
         "shakespeare": ChatTemplateShakespeare,
         "gsm8k": ChatTemplateGSM8k,
-        "syn": ChatTemplateSynthetic,
+        "stemp": ChatTemplateSynTemp,
+        "snum": ChatTemplateSynNum,
     }[args.dataset]
 
     return model, tokenizer, chat_template
