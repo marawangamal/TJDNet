@@ -97,7 +97,7 @@ class DataIterator:
 def load_syn_num_data(
     tokenizer,
     input_seq_len,
-    num_train_samples=10000,
+    num_train_samples=50000,
     num_test_samples=100,
     **kwargs,
 ):
