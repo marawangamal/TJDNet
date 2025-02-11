@@ -13,6 +13,8 @@ from distributions.umps import UMPSDist
 from tensorops.common import get_windowed_input_ids
 from utils.beam_search import beam_search, get_candidates
 
+import line_profiler
+
 
 DIST_MAP = {
     "full": FullDist,
@@ -64,6 +66,9 @@ class TJDConfig:
     # Numerical parameters
     eps: float = 1e-9
 
+    # Generation parameters
+    eos_token_id: Optional[int] = None
+
 
 class TJD(ABC, torch.nn.Module):
     """Joint Distribution Transformer model."""
@@ -76,6 +81,9 @@ class TJD(ABC, torch.nn.Module):
             **kwargs: Additional keyword arguments.
         """
         super().__init__()
+
+        # Add all under self.config
+        self.config = config
 
         # Initialize core parameters
         self.rank = config.base_dist.rank
@@ -173,7 +181,72 @@ class TJD(ABC, torch.nn.Module):
         for param in self.model.parameters():
             param.requires_grad = False
 
+    @line_profiler.profile
     def generate(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 8,
+        num_beams: int = 1,
+        do_sample: bool = True,
+        horizon: Optional[int] = None,
+        top_k: int = 50,
+        stop_token: Optional[int] = None,
+        **kwargs,
+    ):
+        """Generate sequences given an input tensor.
+
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+            num_beams (int, optional): Number of beams. Defaults to 1.
+            do_sample (bool, optional): Whether to sample. Defaults to False.
+            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+            top_k (int, optional): Top k sampling. Defaults to 50.
+            stop_token (Optional[int], optional): Stop token for generation. Defaults to None.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
+        """
+        # Assert that batch size is 1
+        assert input_ids.size(0) == 1, "Only batch size 1 is supported"
+        input_ids_curr = input_ids.clone()
+        dvc = input_ids.device
+        with torch.no_grad():
+            for t in range(max_new_tokens):
+                last_hidden_state = self.get_last_hidden_state(input_ids)[
+                    :, -1:, :
+                ]  # forward pass
+                ops_tensor = torch.tensor(
+                    [-1],
+                    device=dvc,
+                )
+                next_token_probs, _ = self.model_head.get_dist(
+                    hidden_state=last_hidden_state,
+                    ops=ops_tensor,
+                )  # (V,)
+
+                if do_sample:
+                    # Apply top-k filtering
+                    top_k_probs, top_k_indices = torch.topk(next_token_probs, top_k)
+                    next_token = top_k_indices[0][torch.multinomial(top_k_probs[0], 1)]
+                else:
+                    # Greedy decoding
+                    next_token = torch.argmax(next_token_probs, dim=-1).to(
+                        input_ids_curr.device
+                    )
+
+                # # Check for EOS token
+                # if next_token.item() == stop_token:
+                #     break
+
+                # Append next token to input sequence
+                input_ids_curr = torch.cat(
+                    [input_ids_curr, next_token.reshape(1, 1)], dim=-1
+                )
+
+        return input_ids_curr
+
+    def generate_v1(
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,
