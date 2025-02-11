@@ -12,7 +12,6 @@ from statistics import mean, stdev
 
 from distributions._base import BaseDistConfig
 from distributions.tpnet import TensorParamNetConfig
-from helpers import get_test_samples
 from models._tjd import TJDConfig
 from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
@@ -20,7 +19,7 @@ from models.tjdllama import TJDLLAMA
 import line_profiler
 
 GEN_KWARGS = {
-    "max_new_tokens": 256,
+    "max_new_tokens": 512,
     "num_beams": 1,
     "top_k": 200,
     "do_sample": False,
@@ -93,6 +92,12 @@ def manual_gen_from_model(
     return input_ids
 
 
+def auto_gen_from_model(model, input_ids, **gen_kwargs):
+    with torch.no_grad():
+        gen = model.generate(input_ids, **gen_kwargs, eos_token_id=-1)
+    return gen
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run model benchmarks")
@@ -111,8 +116,8 @@ if __name__ == "__main__":
 
     GPT2_KWARGS = {
         "vocab_size": len(gp2_tokenizer),
-        "n_layer": 6,
-        "n_head": 6,
+        "n_layer": 12,
+        "n_head": 12,
         "dropout": 0.1,
     }
 
@@ -148,68 +153,50 @@ if __name__ == "__main__":
                 **GEN_KWARGS,
             ),
         },
-        # "llama": {
-        # "model_fn": lambda: AutoModelForCausalLM.from_pretrained(
-        #         "meta-llama/Llama-2-7b-chat-hf",
-        #         low_cpu_mem_usage=True,
-        #         device_map="auto",
-        #     ),
-        #     "tokenizer": base_tokenizer,
-        #     "generate_fn": lambda model, input_ids: model.generate(
-        #         input_ids,
-        #         **gen_kwargs,
-        #     ),
-        # },
-        # "llama-manual": {
-        #     "model_fn": lambda: AutoModelForCausalLM.from_pretrained(
-        #         "meta-llama/Llama-2-7b-chat-hf",
-        #         low_cpu_mem_usage=True,
-        #         device_map=device_map,
-        #     ),
-        #     "tokenizer": base_tokenizer,
-        #     "generate_fn": lambda model, input_ids: manual_gen_from_model(
-        #         model,
-        #         input_ids,
-        #         **gen_kwargs,
-        #     ),
-        # },
-        # "tjd-llama": {
-        #     "model_fn": lambda: TJDLLAMA(
-        #         TJDConfig(
-        #             base_dist=BaseDistConfig(
-        #                 vocab_size=len(base_tokenizer),
-        #                 horizon=1,
-        #                 rank=1,
-        #                 param_net=TensorParamNetConfig(),
-        #             ),
-        #             model_head="base",
-        #         )
-        #     ).to(args.device),
-        #     "tokenizer": base_tokenizer,
-        #     "generate_fn": lambda model, input_ids: model.generate(
-        #         input_ids,
-        #         **gen_kwargs,
-        #     ),
-        # },
-        # "tjd-llama-ts": {
-        #     "model_fn": lambda: TJDLLAMA(
-        #         TJDConfig(
-        #             base_dist=BaseDistConfig(
-        #                 vocab_size=len(base_tokenizer),
-        #                 horizon=1,
-        #                 rank=1,
-        #                 param_net=TensorParamNetConfig(),
-        #             ),
-        #             model_head="base",
-        #         )
-        #     ).cuda(),
-        #     "tokenizer": base_tokenizer,
-        #     "generate_fn": lambda model, input_ids: get_test_samples(
-        #         model=model,
-        #         tokenizer=base_tokenizer,
-        #         **gen_kwargs,
-        #     ),
-        # },
+        "llama": {
+            "model_fn": lambda: AutoModelForCausalLM.from_pretrained(
+                "meta-llama/Llama-2-7b-chat-hf",
+                low_cpu_mem_usage=True,
+                device_map="auto",
+            ),
+            "tokenizer": llama_tokenizer,
+            "generate_fn": lambda model, input_ids: auto_gen_from_model(
+                model,
+                input_ids,
+                **GEN_KWARGS,
+            ),
+        },
+        "llama-manual": {
+            "model_fn": lambda: AutoModelForCausalLM.from_pretrained(
+                "meta-llama/Llama-2-7b-chat-hf",
+                low_cpu_mem_usage=True,
+                device_map=device_map,
+            ),
+            "tokenizer": llama_tokenizer,
+            "generate_fn": lambda model, input_ids: manual_gen_from_model(
+                model,
+                input_ids,
+                **GEN_KWARGS,
+            ),
+        },
+        "llama-tjd": {
+            "model_fn": lambda: TJDLLAMA(
+                TJDConfig(
+                    base_dist=BaseDistConfig(
+                        vocab_size=len(llama_tokenizer),
+                        horizon=1,
+                        rank=1,
+                        param_net=TensorParamNetConfig(),
+                    ),
+                    model_head="base",
+                )
+            ).to(args.device),
+            "tokenizer": llama_tokenizer,
+            "generate_fn": lambda model, input_ids: model.generate(
+                input_ids,
+                **GEN_KWARGS,
+            ),
+        },
     }
 
     # Run benchmarks
@@ -222,8 +209,8 @@ if __name__ == "__main__":
                 config["model_fn"](),
                 config["tokenizer"],
                 config["generate_fn"],
-                num_runs=1,
-                num_warmup=0,
+                num_runs=10,
+                num_warmup=3,
                 device=args.device,
             )
             print(f"Results for {model_name}")

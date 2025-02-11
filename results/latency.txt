@@ -1,0 +1,60 @@
+(.venv) marawan.gamal@cn-c010:~/scratch/TJDNet$ python eval_latency.py 
+Starting benchmarks (cuda)...
+
+Benchmarking gpt2-manual...
+Warming up...
+Results for gpt2-manual                                                                                                                                                                                                      
+Mean latency: 5.151s ± 0.000s
+Min latency: 5.151s
+Max latency: 5.151s
+
+Benchmarking gpt2-tjd...
+Warming up...
+Results for gpt2-tjd                                                                                                                                                                                                         
+Mean latency: 5.357s ± 0.000s
+Min latency: 5.357s
+Max latency: 5.357s
+
+Benchmark Results:
+--------------------------------------------------
+
+gpt2-manual:
+Mean latency: 5.151s ± 0.000s
+Min: 5.151s | Max: 5.151s
+
+gpt2-tjd:
+Mean latency: 5.357s ± 0.000s
+Min: 5.357s | Max: 5.357s
+
+
+
+
+(.venv) marawan.gamal@cn-c010:~/scratch/TJDNet$ python eval_latency.py --device cpu
+Starting benchmarks (cpu)...
+
+Benchmarking gpt2-manual...
+Warming up...
+Results for gpt2-manual                                                                                                                                                                                                      
+Mean latency: 515.258s ± 0.000s
+Min latency: 515.258s
+Max latency: 515.258s
+
+Benchmarking gpt2-tjd...
+Warming up...
+Results for gpt2-tjd                                                                                                                                                                                                         
+Mean latency: 75.103s ± 0.000s
+Min latency: 75.103s
+Max latency: 75.103s
+
+Benchmark Results:
+--------------------------------------------------
+
+gpt2-manual:
+Mean latency: 515.258s ± 0.000s
+Min: 515.258s | Max: 515.258s
+
+gpt2-tjd:
+Mean latency: 75.103s ± 0.000s
+Min: 75.103s | Max: 75.103s
+
+
