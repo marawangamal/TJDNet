@@ -11,83 +11,83 @@ from helpers import get_test_samples
 
 
 # TODO: make generic, just needs a chat template with safe_parse
-class EvalGSM8KCallback(TrainerCallback):
-    def __init__(
-        self,
-        eos_token,
-        test_dataset,
-        chat_template: BaseClassifierChatTemplate,
-        max_new_tokens=500,
-        top_k=50,
-        horizon=1,
-        num_beams=1,
-        tokenizer=None,
-    ):
-        self.max_new_tokens = max_new_tokens
-        self.top_k = top_k
-        self.horizon = horizon
-        self.num_beams = num_beams
-        self.tokenizer = tokenizer
-        self.eos_token = eos_token
-        self.chat_template = chat_template
-        self.test_dataset = test_dataset
+# class EvalGSM8KCallback(TrainerCallback):
+# def __init__(
+#     self,
+#     eos_token,
+#     test_dataset,
+#     chat_template: BaseClassifierChatTemplate,
+#     max_new_tokens=500,
+#     top_k=50,
+#     horizon=1,
+#     num_beams=1,
+#     tokenizer=None,
+# ):
+#     self.max_new_tokens = max_new_tokens
+#     self.top_k = top_k
+#     self.horizon = horizon
+#     self.num_beams = num_beams
+#     self.tokenizer = tokenizer
+#     self.eos_token = eos_token
+#     self.chat_template = chat_template
+#     self.test_dataset = test_dataset
 
-        wandb.define_metric("eval/accuracy-v2", step_metric="global_step")
+#     wandb.define_metric("eval/accuracy-v2", step_metric="global_step")
 
-    def on_step_end(
-        self,
-        args,
-        state,
-        control,
-        model=None,
-        **kwargs,
-    ):
-        # Only compute on single GPU
-        if not args.local_rank == 0:
-            return
+# def on_step_end(
+#     self,
+#     args,
+#     state,
+#     control,
+#     model=None,
+#     **kwargs,
+# ):
+#     # Only compute on single GPU
+#     if not args.local_rank == 0:
+#         return
 
-        steps_per_epoch = state.max_steps // state.num_train_epochs
-        should_eval = state.global_step % steps_per_epoch == 0
-        if not should_eval:
-            return
+#     steps_per_epoch = state.max_steps // state.num_train_epochs
+#     should_eval = state.global_step % steps_per_epoch == 0
+#     if not should_eval:
+#         return
 
-        accuracy = compute_accuracy(
-            model,
-            self.tokenizer,
-            self.test_dataset,
-            self.eos_token,
-            self.chat_template,
-            max_new_tokens=self.max_new_tokens,
-            horizon=self.horizon,
-            top_k=self.top_k,
-            num_beams=self.num_beams,
-        )
+#     accuracy = compute_accuracy(
+#         model,
+#         self.tokenizer,
+#         self.test_dataset,
+#         self.eos_token,
+#         self.chat_template,
+#         max_new_tokens=self.max_new_tokens,
+#         horizon=self.horizon,
+#         top_k=self.top_k,
+#         num_beams=self.num_beams,
+#     )
 
-        print("\n=== Evaluation at step", state.global_step, "===")
-        print(f"Accuracy: {accuracy}")
+#     print("\n=== Evaluation at step", state.global_step, "===")
+#     print(f"Accuracy: {accuracy}")
 
-        wandb.log(
-            {
-                "eval/accuracy": accuracy,
-            },
-            step=state.global_step,
-        )
+#     wandb.log(
+#         {
+#             "eval/accuracy": accuracy,
+#         },
+#         step=state.global_step,
+#     )
 
-    def on_evaluate(
-        self,
-        args: TrainingArguments,
-        state: TrainerState,
-        control: TrainerControl,
-        **kwargs,
-    ):
-        print("++++ EVALUATE ++++")
-        wandb.log(
-            {
-                "eval/accuracy-v2": torch.rand(1).item(),
-            },
-            step=state.global_step,
-            commit=True,
-        )
+# def on_evaluate(
+#     self,
+#     args: TrainingArguments,
+#     state: TrainerState,
+#     control: TrainerControl,
+#     **kwargs,
+# ):
+#     print("++++ EVALUATE ++++")
+#     wandb.log(
+#         {
+#             "eval/accuracy-v2": torch.rand(1).item(),
+#         },
+#         step=state.global_step,
+#         commit=True,
+#     )
 
 
 def compute_accuracy(
@@ -96,11 +96,11 @@ def compute_accuracy(
     test_dataset,
     eos_token,
     chat_template,
-    max_new_tokens=500,
+    max_new_tokens=125,
     horizon=1,
     top_k=50,
     num_beams=1,
-    max_num_samples=100,
+    max_num_samples=10,
     prompt="",
 ):
     model.eval()

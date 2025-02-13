@@ -19,7 +19,7 @@ from models.tjdllama import TJDLLAMA
 import line_profiler
 
 GEN_KWARGS = {
-    "max_new_tokens": 512,
+    "max_new_tokens": 256,
     "num_beams": 1,
     "top_k": 200,
     "do_sample": False,
@@ -122,6 +122,17 @@ if __name__ == "__main__":
     }
 
     MODELS = {
+        "gpt2": {
+            "model_fn": lambda: GPT2LMHeadModel(GPT2Config(**GPT2_KWARGS)).to(
+                args.device
+            ),
+            "tokenizer": gp2_tokenizer,
+            "generate_fn": lambda model, input_ids: auto_gen_from_model(
+                model,
+                input_ids,
+                **GEN_KWARGS,
+            ),
+        },
         "gpt2-manual": {
             "model_fn": lambda: GPT2LMHeadModel(GPT2Config(**GPT2_KWARGS)).to(
                 args.device
@@ -209,8 +220,8 @@ if __name__ == "__main__":
                 config["model_fn"](),
                 config["tokenizer"],
                 config["generate_fn"],
-                num_runs=10,
-                num_warmup=3,
+                num_runs=2,
+                num_warmup=2,
                 device=args.device,
             )
             print(f"Results for {model_name}")

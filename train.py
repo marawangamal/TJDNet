@@ -33,7 +33,6 @@ from transformers import (
 )
 
 
-from callbacks.eval_gsm8k import EvalGSM8KCallback, compute_accuracy
 from callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
@@ -84,20 +83,20 @@ class TJDTrainer(Trainer):
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
         # Add custom metrics
-        acc = compute_accuracy(
-            self.model,
-            tokenizer=self.tokenizer,
-            test_dataset=self.test_dataset,
-            eos_token=self.eos_token,
-            chat_template=self.chat_template,
-            horizon=self.horizon,
-            top_k=self.top_k,
-            num_beams=self.num_beams,
-            # prompt="Answer the following question. Here's an example: 20°C in Fahrenheit is #### 68. Question:",
-        )
-        print("Eval accuracy:", acc)
-        if output and output.metrics:
-            output.metrics[f"eval_acc"] = acc
+        # acc = compute_accuracy(
+        #     self.model,
+        #     tokenizer=self.tokenizer,
+        #     test_dataset=self.test_dataset,
+        #     eos_token=self.eos_token,
+        #     chat_template=self.chat_template,
+        #     horizon=self.horizon,
+        #     top_k=self.top_k,
+        #     num_beams=self.num_beams,
+        #     # prompt="Answer the following question. Here's an example: 20°C in Fahrenheit is #### 68. Question:",
+        # )
+        # print("Eval accuracy:", acc)
+        # if output and output.metrics:
+        #     output.metrics[f"eval_acc"] = acc
         return output
 
 
@@ -197,25 +196,25 @@ def main():
         top_k=args.top_k,
         num_beams=args.num_beams,
     )
-    eval_callback = (
-        EvalGSM8KCallback(
-            # TODO: fix this should always just be EOS token?
-            test_dataset=lm_dataset["test"],
-            eos_token=(
-                tokenizer.eos_token
-                if args.tokenizer_type == "word"
-                else tokenizer.sep_token
-            ),
-            chat_template=chat_template,
-            max_new_tokens=args.max_new_tokens,
-            top_k=args.top_k,
-            horizon=args.horizon_eval,
-            num_beams=args.num_beams,
-            tokenizer=tokenizer,
-        )
-        if args.dataset in ["gsm8k", "syn"]
-        else None
-    )
+    # eval_callback = (
+    #     EvalGSM8KCallback(
+    #         # TODO: fix this should always just be EOS token?
+    #         test_dataset=lm_dataset["test"],
+    #         eos_token=(
+    #             tokenizer.eos_token
+    #             if args.tokenizer_type == "word"
+    #             else tokenizer.sep_token
+    #         ),
+    #         chat_template=chat_template,
+    #         max_new_tokens=args.max_new_tokens,
+    #         top_k=args.top_k,
+    #         horizon=args.horizon_eval,
+    #         num_beams=args.num_beams,
+    #         tokenizer=tokenizer,
+    #     )
+    #     if args.dataset in ["gsm8k", "syn"]
+    #     else None
+    # )
 
     # Initialize the trainer
     trainer = TJDTrainer(

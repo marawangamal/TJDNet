@@ -83,7 +83,7 @@ class TJD(ABC, torch.nn.Module):
         super().__init__()
 
         # Add all under self.config
-        self.config = config
+        # self.config = config
 
         # Initialize core parameters
         self.rank = config.base_dist.rank
