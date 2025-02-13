@@ -228,16 +228,16 @@ class TJD(ABC, torch.nn.Module):
                 if do_sample:
                     # Apply top-k filtering
                     top_k_probs, top_k_indices = torch.topk(next_token_probs, top_k)
-                    next_token = top_k_indices[0][torch.multinomial(top_k_probs[0], 1)]
+                    next_token = top_k_indices[torch.multinomial(top_k_probs, 1)]
                 else:
                     # Greedy decoding
                     next_token = torch.argmax(next_token_probs, dim=-1).to(
                         input_ids_curr.device
                     )
 
-                # # Check for EOS token
-                # if next_token.item() == stop_token:
-                #     break
+                # Check for EOS token
+                if next_token.item() == stop_token:
+                    break
 
                 # Append next token to input sequence
                 input_ids_curr = torch.cat(

@@ -227,6 +227,19 @@ def parse_args():
         default=1000,
         help="Number of steps between generations if strategy is 'steps'",
     )
+    # parser.add_argument(
+    #     "--test_strategy",
+    #     type=str,
+    #     default="steps",
+    #     choices=["steps", "epoch"],
+    #     help="Evaluation strategy for the trainer.",
+    # )
+    # parser.add_argument(
+    #     "--test_steps",
+    #     type=int,
+    #     default=2,
+    #     help="Evaluation frequency for the trainer.",
+    # )
     parser.add_argument(
         "--max_num_samples",
         type=int,
