@@ -182,7 +182,7 @@ class TJD(ABC, torch.nn.Module):
             param.requires_grad = False
 
     @line_profiler.profile
-    def generate(
+    def generate_v2(
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,
@@ -246,7 +246,7 @@ class TJD(ABC, torch.nn.Module):
 
         return input_ids_curr
 
-    def generate_v1(
+    def generate(
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,
