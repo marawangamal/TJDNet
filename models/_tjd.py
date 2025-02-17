@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from typing import Dict, Literal, Optional
+from peft import LoraConfig, TaskType, get_peft_model
+
 
 import torch
 
@@ -60,7 +62,8 @@ class TJDConfig:
 
     # Training configuration
     init_method: Literal["random", "pretrained"] = "random"
-    freeze_base_model: bool = False
+    train_mode: Literal["full", "last", "lora"] = "full"
+    lora_rank: int = 512
     use_memory_efficient_loss: bool = False
 
     # Numerical parameters
@@ -92,8 +95,26 @@ class TJD(ABC, torch.nn.Module):
         self.n_embd = config.base_dist.param_net.in_dim
         self.eps = config.eps
 
-        # Set up model components
-        self.model = self.get_model(**config.model_kwargs)
+        # DEBUG: LoraConfig
+        if config.train_mode == "full":
+            self.model = self.get_model(**config.model_kwargs)
+        elif config.train_mode == "last":
+            self.model = self.get_model(**config.model_kwargs)
+            self.freeze_base_model()
+        elif config.train_mode == "lora":
+            peft_config = LoraConfig(
+                task_type=TaskType.FEATURE_EXTRACTION,
+                inference_mode=False,
+                r=config.lora_rank,
+                lora_alpha=32,
+                lora_dropout=0.1,
+            )
+            self.model = get_peft_model(
+                self.get_model(**config.model_kwargs), peft_config
+            )
+        else:
+            raise ValueError(f"Invalid train_mode: {config.train_mode}")
+
         self.model_head = DIST_MAP[config.model_head](config.base_dist)
         self.use_memory_efficient_loss = config.use_memory_efficient_loss
 
@@ -101,9 +122,6 @@ class TJD(ABC, torch.nn.Module):
         if config.init_method == "pretrained":
             weights = self.get_pretrained_lm_head_weights()
             self.model_head.init_params(weights)
-
-        if config.freeze_base_model:
-            self.freeze_base_model()
 
         # Trainer compatibility
         self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
