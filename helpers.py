@@ -125,8 +125,8 @@ def parse_args():
         type=str,
         default="random",
         choices=[
-            "pretrained",
-            "random",
+            "random",  # Completely random initialization
+            "pretrained",  # Initialize the model tensor head with pretrained weights
         ],
         help="Initialization method for model head - pretrained (p) or random (r)",
     )
@@ -142,7 +142,7 @@ def parse_args():
         help="Training mode for the model.",
     )
     parser.add_argument(
-        "lora_rank",
+        "--lora_rank",
         type=int,
         default=8,
         help="Rank of the tensor train decomposition for LORA training.",
@@ -238,19 +238,6 @@ def parse_args():
         default=1000,
         help="Number of steps between generations if strategy is 'steps'",
     )
-    # parser.add_argument(
-    #     "--test_strategy",
-    #     type=str,
-    #     default="steps",
-    #     choices=["steps", "epoch"],
-    #     help="Evaluation strategy for the trainer.",
-    # )
-    # parser.add_argument(
-    #     "--test_steps",
-    #     type=int,
-    #     default=2,
-    #     help="Evaluation frequency for the trainer.",
-    # )
     parser.add_argument(
         "--max_num_samples",
         type=int,
@@ -385,7 +372,6 @@ def get_tokenizer(args):
 
 def get_model_and_tokenizer(args):
     # Tokenizer
-    model_kwargs = {}
     if args.model_type.startswith("gpt2"):
         tokenizer = (
             AutoTokenizer.from_pretrained("gpt2")
@@ -396,13 +382,6 @@ def get_model_and_tokenizer(args):
         # TODO: Check if necessary for LLAMA too
         if args.tokenizer_type == "word":
             tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
-
-        model_kwargs = {
-            "vocab_size": len(tokenizer),
-            "n_layer": 6,
-            "n_head": 6,
-            "dropout": 0.1,
-        }
 
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
@@ -427,7 +406,6 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
-        model_kwargs=model_kwargs,
     )
 
     # Add LLaMA specific config
