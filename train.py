@@ -22,8 +22,6 @@ References:
 
 import os.path as osp
 import os
-import time
-import torch
 import wandb
 
 from transformers import (
@@ -116,8 +114,9 @@ def main():
     args = parse_args()
     exp_name = get_experiment_name(vars(args))
     # Add timestamp to exp_name
-    exp_name += f"_{int(time.time())}"
+    # exp_name += f"_{int(time.time())}"  -- remove to facilitate resume_from_checkpoint
     ckpt_dir = osp.join("checkpoints", exp_name)
+    has_checkpoint = osp.exists(ckpt_dir)
     os.makedirs(ckpt_dir, exist_ok=True)
 
     set_seed(args.seed)
@@ -245,8 +244,9 @@ def main():
         metrics = trainer.evaluate()
         print("Evaluation metrics:", metrics)
     else:
-        # Train the model
-        trainer.train()
+        trainer.train(
+            resume_from_checkpoint=args.resume_from_checkpoint and has_checkpoint
+        )
 
         # Save the model
         trainer.save_model(ckpt_dir)

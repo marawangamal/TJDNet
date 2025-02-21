@@ -25,7 +25,11 @@ from models.tjdllama import TJDLLAMA
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
+
+    # ------------------
     # Training arguments
+    # ------------------
+
     parser.add_argument(
         "--epochs", type=int, default=10, help="Number of training epochs."
     )
@@ -56,7 +60,17 @@ def parse_args():
         default=1.0,
         help="Gradient clipping value for training.",
     )
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        default=False,
+        action="store_true",
+        help="Whether to use a memory efficient loss function.",
+    )
+
+    # ---------------
     # Model arguments
+    # ---------------
+
     parser.add_argument(
         "--model_type",
         type=str,
@@ -93,7 +107,6 @@ def parse_args():
         default="relu",
         help="Activation function to use in the model head.",
     )
-    # use_layer_norm
     parser.add_argument(
         "--use_layer_norm",
         default=False,
@@ -133,7 +146,7 @@ def parse_args():
     # Training mode
     parser.add_argument(
         "--train_mode",
-        default=False,
+        default="full",
         choices=[
             "full",
             "last",
@@ -198,7 +211,11 @@ def parse_args():
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility"
     )
+
+    # ------------------
     # Trainer arguments
+    # ------------------
+
     parser.add_argument(
         "--logging_strategy",
         type=str,
