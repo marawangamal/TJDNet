@@ -23,7 +23,7 @@ class TensorParamNetConfig:
     in_dim: int = 768
     hidden_dim: int = 512
     out_dim: int = 1
-    num_layers: int = 2
+    num_layers: int = 1
     activation: Optional[str] = "relu"
     positivity_func: Literal["sq", "abs", "exp"] = "exp"
     dropout: float = 0.0

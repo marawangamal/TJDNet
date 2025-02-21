@@ -125,16 +125,27 @@ def parse_args():
         type=str,
         default="random",
         choices=[
-            "pretrained",
-            "random",
+            "random",  # Completely random initialization
+            "pretrained",  # Initialize the model tensor head with pretrained weights
         ],
         help="Initialization method for model head - pretrained (p) or random (r)",
     )
+    # Training mode
     parser.add_argument(
-        "--freeze_base_model",
+        "--train_mode",
         default=False,
-        action="store_true",
-        help="Whether to freeze the base model during training.",
+        choices=[
+            "full",
+            "last",
+            "lora",
+        ],
+        help="Training mode for the model.",
+    )
+    parser.add_argument(
+        "--lora_rank",
+        type=int,
+        default=8,
+        help="Rank of the tensor train decomposition for LORA training.",
     )
     parser.add_argument(
         "--use_memory_efficient_loss",
@@ -361,7 +372,6 @@ def get_tokenizer(args):
 
 def get_model_and_tokenizer(args):
     # Tokenizer
-    model_kwargs = {}
     if args.model_type.startswith("gpt2"):
         tokenizer = (
             AutoTokenizer.from_pretrained("gpt2")
@@ -372,13 +382,6 @@ def get_model_and_tokenizer(args):
         # TODO: Check if necessary for LLAMA too
         if args.tokenizer_type == "word":
             tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
-
-        model_kwargs = {
-            "vocab_size": len(tokenizer),
-            "n_layer": 6,
-            "n_head": 6,
-            "dropout": 0.1,
-        }
 
     else:  # llama
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
@@ -400,9 +403,9 @@ def get_model_and_tokenizer(args):
         ),
         model_head=args.model_head,
         init_method=args.init_method,
-        freeze_base_model=args.freeze_base_model,
+        train_mode=args.train_mode,
+        lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
-        model_kwargs=model_kwargs,
     )
 
     # Add LLaMA specific config

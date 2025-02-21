@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from typing import Dict, Literal, Optional
+from peft import LoraConfig, TaskType, get_peft_model
+
 
 import torch
 
@@ -12,6 +14,8 @@ from distributions.mps import MPSDist
 from distributions.umps import UMPSDist
 from tensorops.common import get_windowed_input_ids
 from utils.beam_search import beam_search, get_candidates
+
+import line_profiler
 
 
 DIST_MAP = {
@@ -58,11 +62,15 @@ class TJDConfig:
 
     # Training configuration
     init_method: Literal["random", "pretrained"] = "random"
-    freeze_base_model: bool = False
+    train_mode: Literal["full", "last", "lora"] = "full"
+    lora_rank: int = 512
     use_memory_efficient_loss: bool = False
 
     # Numerical parameters
     eps: float = 1e-9
+
+    # Generation parameters
+    eos_token_id: Optional[int] = None
 
 
 class TJD(ABC, torch.nn.Module):
@@ -77,6 +85,9 @@ class TJD(ABC, torch.nn.Module):
         """
         super().__init__()
 
+        # Add all under self.config
+        # self.config = config
+
         # Initialize core parameters
         self.rank = config.base_dist.rank
         self.horizon = config.base_dist.horizon
@@ -84,8 +95,26 @@ class TJD(ABC, torch.nn.Module):
         self.n_embd = config.base_dist.param_net.in_dim
         self.eps = config.eps
 
-        # Set up model components
-        self.model = self.get_model(**config.model_kwargs)
+        # DEBUG: LoraConfig
+        if config.train_mode == "full":
+            self.model = self.get_model(**config.model_kwargs)
+        elif config.train_mode == "last":
+            self.model = self.get_model(**config.model_kwargs)
+            self.freeze_base_model()
+        elif config.train_mode == "lora":
+            peft_config = LoraConfig(
+                task_type=TaskType.FEATURE_EXTRACTION,
+                inference_mode=False,
+                r=config.lora_rank,
+                lora_alpha=32,
+                lora_dropout=0.1,
+            )
+            self.model = get_peft_model(
+                self.get_model(**config.model_kwargs), peft_config
+            )
+        else:
+            raise ValueError(f"Invalid train_mode: {config.train_mode}")
+
         self.model_head = DIST_MAP[config.model_head](config.base_dist)
         self.use_memory_efficient_loss = config.use_memory_efficient_loss
 
@@ -93,9 +122,6 @@ class TJD(ABC, torch.nn.Module):
         if config.init_method == "pretrained":
             weights = self.get_pretrained_lm_head_weights()
             self.model_head.init_params(weights)
-
-        if config.freeze_base_model:
-            self.freeze_base_model()
 
         # Trainer compatibility
         self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
@@ -172,6 +198,71 @@ class TJD(ABC, torch.nn.Module):
         """Freeze the base model."""
         for param in self.model.parameters():
             param.requires_grad = False
+
+    @line_profiler.profile
+    def generate_v2(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 8,
+        num_beams: int = 1,
+        do_sample: bool = True,
+        horizon: Optional[int] = None,
+        top_k: int = 50,
+        stop_token: Optional[int] = None,
+        **kwargs,
+    ):
+        """Generate sequences given an input tensor.
+
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+            num_beams (int, optional): Number of beams. Defaults to 1.
+            do_sample (bool, optional): Whether to sample. Defaults to False.
+            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+            top_k (int, optional): Top k sampling. Defaults to 50.
+            stop_token (Optional[int], optional): Stop token for generation. Defaults to None.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, `max_new_tokens`).
+        """
+        # Assert that batch size is 1
+        assert input_ids.size(0) == 1, "Only batch size 1 is supported"
+        input_ids_curr = input_ids.clone()
+        dvc = input_ids.device
+        with torch.no_grad():
+            for t in range(max_new_tokens):
+                last_hidden_state = self.get_last_hidden_state(input_ids)[
+                    :, -1:, :
+                ]  # forward pass
+                ops_tensor = torch.tensor(
+                    [-1],
+                    device=dvc,
+                )
+                next_token_probs, _ = self.model_head.get_dist(
+                    hidden_state=last_hidden_state,
+                    ops=ops_tensor,
+                )  # (V,)
+
+                if do_sample:
+                    # Apply top-k filtering
+                    top_k_probs, top_k_indices = torch.topk(next_token_probs, top_k)
+                    next_token = top_k_indices[torch.multinomial(top_k_probs, 1)]
+                else:
+                    # Greedy decoding
+                    next_token = torch.argmax(next_token_probs, dim=-1).to(
+                        input_ids_curr.device
+                    )
+
+                # Check for EOS token
+                if next_token.item() == stop_token:
+                    break
+
+                # Append next token to input sequence
+                input_ids_curr = torch.cat(
+                    [input_ids_curr, next_token.reshape(1, 1)], dim=-1
+                )
+
+        return input_ids_curr
 
     def generate(
         self,

@@ -1,16 +1,12 @@
 import torch
 from models._tjd import TJD, TJDConfig
 
-from transformers import (
-    GPT2Config,
-    GPT2LMHeadModel,
-)
+from transformers import GPT2LMHeadModel
 
 
 class TJDGPT2(TJD):
     def __init__(self, config: TJDConfig, **kwargs):
         config.base_dist.param_net.in_dim = 768
-        # config.base_dist.vocab_size = 50257
         super().__init__(config)
         self.pretrained_weights = None
 
@@ -30,7 +26,7 @@ class TJDGPT2(TJD):
         return self.pretrained_weights
 
     def get_model(self, **model_kwargs):
-        model = GPT2LMHeadModel(GPT2Config(**model_kwargs))
+        model = GPT2LMHeadModel.from_pretrained("gpt2")
         transformer_model = model.transformer
         self.pretrained_weights = model.lm_head.weight
         del model

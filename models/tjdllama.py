@@ -7,7 +7,7 @@ from models._tjd import TJD, TJDConfig
 class TJDLLAMA(TJD):
     def __init__(self, config: TJDConfig, **kwargs):
         config.base_dist.param_net.in_dim = 4096
-        config.base_dist.vocab_size = 32000
+        config.base_dist.vocab_size = 32000  # Dists will set the param_net.out_dim based on rank, head type, and vocab_size (e.g. MPS will have r**2*h*v)
         super().__init__(config)
         self.pretrained_weights = None
 
@@ -17,8 +17,8 @@ class TJDLLAMA(TJD):
             attention_mask=attention_mask,
         )
         last_hidden_state = transformer_outputs.last_hidden_state
-        del transformer_outputs
-        torch.cuda.empty_cache()
+        # del transformer_outputs
+        # torch.cuda.empty_cache()
         return last_hidden_state
 
     def get_pretrained_lm_head_weights(self):
