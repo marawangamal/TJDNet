@@ -36,6 +36,7 @@ from callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
 from data.sharegpt import load_sharegpt_data
+from data.syn_number_bases import load_syn_num_base_data
 from data.syn_numbers import load_syn_num_data
 from data.syn_temp import load_syn_temp_data
 from data.wikitext import load_wikitext_data
@@ -137,6 +138,7 @@ def main():
         "gsm8k": load_gsm8k_data,
         "stemp": load_syn_temp_data,
         "snum": load_syn_num_data,
+        "sbase": load_syn_num_base_data,
     }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     # data_collator = CustomDataCollator(tokenizer=tokenizer, mlm=False)

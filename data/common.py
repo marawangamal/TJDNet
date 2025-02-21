@@ -10,19 +10,20 @@ class BaseChatTemplate:
     def get_sample_prompt(cls):
         raise NotImplementedError
 
-
-class BaseClassifierChatTemplate:
     @classmethod
-    def format_prompt(cls, prompt: str) -> str:
+    def safe_parse(cls, generation: str, eos_token: str) -> Optional[str]:
         raise NotImplementedError
 
     @classmethod
-    def get_sample_prompt(cls):
-        raise NotImplementedError
-
-    @classmethod
-    def safe_parse(cls, generation: str, eos_token: str) -> Optional[float]:
-        raise NotImplementedError
+    def check_answer(cls, answer_pred_unp: str, answer_true_unp: str, eos_token: str):
+        try:
+            answer_pred = cls.safe_parse(answer_pred_unp, eos_token)
+            answer_true = cls.safe_parse(answer_true_unp, eos_token)
+            if not (answer_pred and answer_true):
+                return False
+            return answer_pred == answer_true
+        except Exception:
+            return False
 
 
 def group_texts(examples, input_seq_len):
