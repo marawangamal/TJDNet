@@ -19,7 +19,7 @@ class ChatTemplateSynNumBase(BaseChatTemplate):
     @classmethod
     def get_sample_prompt(cls):
         return cls.TEMPLATE.format(
-            question="What is 14 in Binary?",
+            question="Randomly select a base m in [2, 8, 16] and output the representation of 42 in base m.",
             response="",
         )
 
@@ -78,25 +78,21 @@ def generate_sample():
     """Generate a number conversion sample for binary, octal, or hexadecimal."""
     # Random number between 0 and 255
     num = random.randint(0, 255)
-
-    # Randomly select base
     base = random.choice([2, 8, 16])
+
+    question = f"Randomly select a base m in [2, 8, 16] and output the representation of {num} in base m."
 
     # Get representation based on base
     if base == 2:
         rep = bin(num)[2:]  # Remove '0b' prefix
-        base_name = "Binary"
         steps = f"1) Divide {num} by 2 repeatedly and track remainders\n2) Reading remainders bottom-up gives: {rep}"
     elif base == 8:
         rep = oct(num)[2:]  # Remove '0o' prefix
-        base_name = "Octal"
         steps = f"1) Divide {num} by 8 repeatedly and track remainders\n2) Reading remainders bottom-up gives: {rep}"
     else:  # base 16
         rep = hex(num)[2:].upper()  # Remove '0x' prefix and capitalize
-        base_name = "Hexadecimal"
         steps = f"1) Divide {num} by 16 repeatedly and track remainders\n2) For remainders 10-15, use letters A-F\n3) Reading remainders bottom-up gives: {rep}"
 
-    question = f"What is {num} in {base_name}?"
     response = f"\nLet's solve this:\n{steps}\n\n #### {rep} [{base}]"
 
     return {

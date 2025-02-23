@@ -12,6 +12,7 @@ from ctokenizers.char_tokenizer import CharTokenizer
 from data.gsm8k import ChatTemplateGSM8k
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
+from data.sharegptv2 import ChatTemplateShareGPTV2
 from data.syn_number_bases import ChatTemplateSynNumBase
 from data.syn_numbers import ChatTemplateSynNum
 from data.syn_temp import ChatTemplateSynTemp
@@ -270,10 +271,18 @@ def parse_args():
         default=68000,
         help="Maximum number of samples to load from the dataset.",
     )
+
+    # ---
     # MISC
+    # ---
+
     parser.add_argument(
         "--eval_only", action="store_true", help="Whether to only evaluate the model"
     )
+    parser.add_argument(
+        "--wandb_id", type=str, default=None, help="Wandb ID for resuming runs"
+    )
+
     return parser.parse_args()
 
 
@@ -447,7 +456,7 @@ def get_model_and_tokenizer(args):
         raise ValueError(f"Model type {args.model_type} not recognized.")
 
     chat_template = {
-        "sharegpt": ChatTemplateShareGPT,
+        "sharegpt": ChatTemplateShareGPTV2,
         "shakespeare": ChatTemplateShakespeare,
         "gsm8k": ChatTemplateGSM8k,
         "stemp": ChatTemplateSynTemp,

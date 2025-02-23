@@ -99,7 +99,7 @@ def compute_accuracy(
     horizon=1,
     top_k=50,
     num_beams=1,
-    max_num_samples=10,
+    max_num_samples=50,
     prompt="",
 ):
     model.eval()
