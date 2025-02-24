@@ -35,7 +35,7 @@ class BaseDist(BaseDistribution):
         self.rank = config.rank
         self.horizon = config.horizon
 
-    def init_params(self, params: torch.Tensor) -> None:
+    def init_params_v1(self, params: torch.Tensor) -> None:
         """Initialize the parameters of `param_func` with a given tensor.
 
         Args:
@@ -48,6 +48,44 @@ class BaseDist(BaseDistribution):
         with torch.no_grad():
             self.param_func.weight.copy_(params)  # Set the weights
             self.param_func.bias.zero_()  # Optionally reset biases to zero
+
+    def init_params(
+        self, pt_weight: torch.Tensor, pt_bias: Optional[torch.Tensor]
+    ) -> None:
+        """
+        Initialize the weights (and optionally the bias) of a single-layer
+        TensorParamNet with a given parameter tensor.
+
+        Args:
+            params (torch.Tensor): A tensor of shape matching the linear layer's
+                weight shape, i.e. (out_dim, in_dim).
+        """
+        # Identify the linear layer (it's the last item in self.param_func.network)
+        linear_layer = self.param_func.network[-1]
+        if not isinstance(linear_layer, torch.nn.Linear):
+            raise ValueError(
+                f"Expected the last layer to be nn.Linear, but got {type(linear_layer)}"
+            )
+
+        # Shape check
+        expected_shape = linear_layer.weight.shape  # (out_dim, in_dim)
+        if pt_weight.shape != expected_shape:
+            raise ValueError(
+                f"Expected params of shape {expected_shape}, but got {pt_weight.shape}"
+            )
+
+        if pt_bias is not None and pt_bias.shape != linear_layer.bias.shape:
+            raise ValueError(
+                f"Expected bias of shape {linear_layer.bias.shape}, but got {pt_bias.shape}"
+            )
+
+        # Copy parameters
+        with torch.no_grad():
+            linear_layer.weight.copy_(pt_weight)
+            if pt_bias is not None:
+                linear_layer.bias.copy_(pt_bias)
+            else:
+                linear_layer.bias.zero_()
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         p_tilde = self.param_func(last_hidden_state)
