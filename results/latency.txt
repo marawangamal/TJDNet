@@ -1,89 +1,29 @@
-(.venv) marawan.gamal@cn-c010:~/scratch/TJDNet$ python eval_latency.py 
-Starting benchmarks (cuda)...
+python eval_latency.py --device cuda --inp_seq_len 256 --out_seq_len 128
 
-Benchmarking gpt2-manual...
-Warming up...
-Results for gpt2-manual                                                                                                                                                                                                      
-Mean latency: 5.151s ± 0.000s
-Min latency: 5.151s
-Max latency: 5.151s
-
-Benchmarking gpt2-tjd...
-Warming up...
-Results for gpt2-tjd                                                                                                                                                                                                         
-Mean latency: 5.357s ± 0.000s
-Min latency: 5.357s
-Max latency: 5.357s
 
 Benchmark Results:
 --------------------------------------------------
-
-gpt2-manual:
-Mean latency: 5.151s ± 0.000s
-Min: 5.151s | Max: 5.151s
-
-gpt2-tjd:
-Mean latency: 5.357s ± 0.000s
-Min: 5.357s | Max: 5.357s
-
-
-
-
-(.venv) marawan.gamal@cn-c010:~/scratch/TJDNet$ python eval_latency.py --device cpu
-Starting benchmarks (cpu)...
-
-Benchmarking gpt2-manual...
-Warming up...
-Results for gpt2-manual                                                                                                                                                                                                      
-Mean latency: 515.258s ± 0.000s
-Min latency: 515.258s
-Max latency: 515.258s
-
-Benchmarking gpt2-tjd...
-Warming up...
-Results for gpt2-tjd                                                                                                                                                                                                         
-Mean latency: 75.103s ± 0.000s
-Min latency: 75.103s
-Max latency: 75.103s
-
-Benchmark Results:
---------------------------------------------------
-
-gpt2-manual:
-Mean latency: 515.258s ± 0.000s
-Min: 515.258s | Max: 515.258s
-
-gpt2-tjd:
-Mean latency: 75.103s ± 0.000s
-Min: 75.103s | Max: 75.103s
-
-
-
-
-
------ with warmup=3 and runs=10 -----
-
 
 gpt2:
-Mean latency: 4.757s ± 0.023s
-Min: 4.632s | Max: 4.784s
+Mean latency: 1.375s ± 0.044s
+Min: 1.326s | Max: 1.457s
+GPU memory (allocated): 1100.37 MB ± 0.00 MB
+CPU memory (RSS): 1051.36 MB ± 0.00 MB
 
-gpt2-manual:
-Mean latency: 4.957s ± 0.011s
-Min: 4.941s | Max: 4.976s
+gpt2::cp::rank1::horizon1:
+Mean latency: 1.623s ± 0.074s
+Min: 1.536s | Max: 1.748s
+GPU memory (allocated): 1492.63 MB ± 3.05 MB
+CPU memory (RSS): 1081.63 MB ± 0.01 MB
 
-gpt2-tjd:
-Mean latency: 5.479s ± 0.095s
-Min: 5.291s | Max: 5.601s
+gpt2::cp::rank2::horizon2:
+Mean latency: 1.084s ± 0.060s
+Min: 0.998s | Max: 1.179s
+GPU memory (allocated): 2526.00 MB ± 2.35 MB
+CPU memory (RSS): 1476.59 MB ± 0.00 MB
 
-llama:
-Mean latency: 30.186s ± 0.012s
-Min: 30.167s | Max: 30.199s
-
-llama-manual:
-Mean latency: 210.843s ± 0.565s
-Min: 210.403s | Max: 212.109s
-
-llama-tjd:
-Mean latency: 68.637s ± 0.108s
-Min: 68.536s | Max: 68.851s
+gpt2::cp::rank4::horizon4:
+Mean latency: 0.726s ± 0.075s
+Min: 0.639s | Max: 0.857s
+GPU memory (allocated): 3707.19 MB ± 3.22 MB
+CPU memory (RSS): 1478.48 MB ± 0.00 MB

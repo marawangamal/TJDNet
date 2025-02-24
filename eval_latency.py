@@ -202,6 +202,23 @@ def main(args):
             ),
         },
         {
+            "name": "gpt2::cp::rank1::horizon1",
+            "model_fn": lambda: TJDGPT2(
+                TJDConfig(
+                    base_dist=BaseDistConfig(
+                        vocab_size=768,
+                        horizon=1,
+                        rank=1,
+                        param_net=TensorParamNetConfig(),
+                    ),
+                    model_head="cp",
+                ),
+            ),
+            "benchmark_fn": lambda model, input_ids: model.generate(
+                input_ids, **gen_kwargs
+            ),
+        },
+        {
             "name": "gpt2::cp::rank2::horizon2",
             "model_fn": lambda: TJDGPT2(
                 TJDConfig(
@@ -209,6 +226,23 @@ def main(args):
                         vocab_size=768,
                         horizon=2,
                         rank=2,
+                        param_net=TensorParamNetConfig(),
+                    ),
+                    model_head="cp",
+                ),
+            ),
+            "benchmark_fn": lambda model, input_ids: model.generate(
+                input_ids, **gen_kwargs
+            ),
+        },
+        {
+            "name": "gpt2::cp::rank2::horizon2",
+            "model_fn": lambda: TJDGPT2(
+                TJDConfig(
+                    base_dist=BaseDistConfig(
+                        vocab_size=768,
+                        horizon=2,
+                        rank=4,
                         param_net=TensorParamNetConfig(),
                     ),
                     model_head="cp",
