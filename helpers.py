@@ -401,35 +401,16 @@ def load_args(ckpt_dir):
     return args
 
 
-def get_tokenizer(args):
-    pass
-
-
-MODEL_NAME_MAP = {
-    "llama7b": {"model_name": "meta-llama/Llama-2-7b-chat-hf"},
-    "llama13b": {"model_name": "meta-llama/Llama-2-13b-chat-hf"},
-    "llama70b": {"model_name": "meta-llama/Llama-2-70b-chat-hf"},
-    "gpt2": {"model_name": "gpt2"},
-}
-
-
 def get_model_and_tokenizer(args):
-    # # Tokenizer
-    # if args.model_type.startswith("gpt2"):
-    #     tokenizer = (
-    #         AutoTokenizer.from_pretrained("gpt2")
-    #         if args.tokenizer_type == "word"
-    #         else CharTokenizer(args.seq_len)
-    #     )
-
-    #     # TODO: Check if necessary for LLAMA too
-    #     if args.tokenizer_type == "word":
-    #         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+    hf_model_name = {
+        "llama7b": "meta-llama/Llama-2-7b-chat-hf",
+        "llama13b": "meta-llama/Llama-2-13b-chat-hf",
+        "llama70b": "meta-llama/Llama-2-70b-chat-hf",
+        "gpt2": "gpt2",
+    }[args.model_type]
 
     if args.tokenizer_type == "word":
-        tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_NAME_MAP[args.model_type]["model_name"]
-        )
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
     else:
         raise NotImplementedError("CharTokenizer removed for now.")
@@ -453,20 +434,17 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
-        model_kwargs={"hf_model_name": MODEL_NAME_MAP[args.model_type]["model_name"]},
+        model_kwargs={"hf_model_name": hf_model_name},
     )
 
-    # Add LLaMA specific config
-    if args.model_type == "llama":
-        model = TJDLLAMA(model_config)
-    elif args.model_type == "gpt2":
-        model = TJDGPT2(model_config)
-    elif args.model_type == "gpt2r":
-        model = GPT2(model_config)
-    elif args.model_type == "llamar":
-        model = LLAMA(model_config)
-    else:
-        raise ValueError(f"Model type {args.model_type} not recognized.")
+    model = {
+        "llama7b": TJDLLAMA,
+        "llama13b": TJDLLAMA,
+        "llama70b": TJDLLAMA,
+        "gpt2": TJDGPT2,
+        "gpt2r": GPT2,
+        "llamar": LLAMA,
+    }[args.model_type](model_config)
 
     chat_template = {
         "sharegpt": ChatTemplateShareGPTV2,
@@ -478,3 +456,15 @@ def get_model_and_tokenizer(args):
     }[args.dataset]
 
     return model, tokenizer, chat_template
+
+
+# # Tokenizer
+# if args.model_type.startswith("gpt2"):
+#     tokenizer = (
+#         AutoTokenizer.from_pretrained("gpt2")
+#         if args.tokenizer_type == "word"
+#         else CharTokenizer(args.seq_len)
+#     )
+
+#     if args.tokenizer_type == "word":
+#         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
