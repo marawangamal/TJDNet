@@ -7,6 +7,7 @@ from models._tjd import TJD, TJDConfig
 class TJDLLAMA(TJD):
     def __init__(self, config: TJDConfig, **kwargs):
         config.base_dist.param_net.in_dim = 4096
+        # BUG: might be an issue since we add <pad> token to the vocab_size
         config.base_dist.vocab_size = 32000  # Dists will set the param_net.out_dim based on rank, head type, and vocab_size (e.g. MPS will have r**2*h*v)
         super().__init__(config)
         self.pretrained_weights = None

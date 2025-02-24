@@ -42,6 +42,7 @@ from data.syn_temp import load_syn_temp_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
 from helpers import (
+    get_chat_template,
     get_git_info,
     get_model_and_tokenizer,
     get_test_samples,
@@ -123,7 +124,9 @@ def main():
     save_args(args, ckpt_dir)
 
     # Model and tokenizer
-    model, tokenizer, chat_template = get_model_and_tokenizer(args)
+    model, tokenizer = get_model_and_tokenizer(args)
+    chat_template = get_chat_template(args)
+
     params_dict = model.param_dict
     # Print dict key value pairs
     print("Model parameters:")

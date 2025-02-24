@@ -18,12 +18,17 @@ import time
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
+from helpers import get_model_and_tokenizer
 from models.tjdgpt2 import TJDGPT2
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    # Existing arguments
+
+    # --------------------------------------------
+    # Latency Benchmark Args (These stay constant)
+    # --------------------------------------------
+
     parser.add_argument(
         "--num_runs",
         type=int,
@@ -37,16 +42,11 @@ def parse_args():
         help="Number of warmup runs",
     )
     parser.add_argument(
-        "--rank",
-        type=int,
-        default=2,
-        help="Rank of the MPS/CP model",
-    )
-    parser.add_argument(
-        "--horizon",
-        type=int,
-        default=2,
-        help="Horizon of the MPS/CP model",
+        "--device",
+        type=str,
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        choices=["cuda", "cpu"],
+        help="Device to run on (cuda/cpu)",
     )
     parser.add_argument(
         "--max_new_tokens",
@@ -72,45 +72,36 @@ def parse_args():
         default="generate",
         help="Mode to benchmark (generate or train)",
     )
+
+    # ----------------------
+    # Model Args
+    # ----------------------
+
     parser.add_argument(
-        "--device",
+        "--model_type",
         type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
-        choices=["cuda", "cpu"],
-        help="Device to run on (cuda/cpu)",
+        default="gpt2",
+        help="Type of base model to use",
+        choices=["gpt2", "llama7b", "llama13b", "llama70b", "gpt2r", "llamar"],
     )
 
-    # Model configuration arguments
     parser.add_argument(
-        "--vocab_size",
-        type=int,
-        default=128,
-        help="Vocabulary size for the model",
-    )
-    parser.add_argument(
-        "--n_embd",
-        type=int,
-        default=64,
-        help="Embedding dimension",
-    )
-    parser.add_argument(
-        "--n_layer",
+        "--rank",
         type=int,
         default=2,
-        help="Number of transformer layers",
+        help="Rank of the MPS/CP model",
     )
     parser.add_argument(
-        "--n_head",
+        "--horizon",
         type=int,
         default=2,
-        help="Number of attention heads",
+        help="Horizon of the MPS/CP model",
     )
-    parser.add_argument(
-        "--dropout",
-        type=float,
-        default=0.1,
-        help="Dropout probability",
-    )
+
+    # ------------------
+    # Generation Args
+    # ------------------
+
     parser.add_argument(
         "--beam_size",
         type=int,
@@ -128,6 +119,7 @@ def parse_args():
         type=int,
         default=50,
     )
+
     return parser.parse_args()
 
 
@@ -196,20 +188,9 @@ def print_latency_results(latency_results):
         print(f"{model_name:<{name_width}} | {mean:>10.2f} ± {std:>10.2f}")
 
 
-def main():
+def mainV1():
     args = parse_args()
-
-    print(f"\nUsing device: {args.device}")
-
-    # Model configuration
-    model_config = {
-        "vocab_size": args.vocab_size,
-        "n_embd": args.n_embd,
-        "n_layer": args.n_layer,
-        "n_head": args.n_head,
-        "dropout": args.dropout,
-        "rank": args.rank,
-    }
+    model, _ = get_model_and_tokenizer(args)
 
     model_forward_kwargs = {
         "do_sample": args.do_sample,
@@ -254,6 +235,11 @@ def main():
 
     # Print results in tabular format
     print_latency_results(latency_results)
+
+
+def main():
+    args = parse_args()
+    model, _ = get_model_and_tokenizer(args)
 
 
 if __name__ == "__main__":

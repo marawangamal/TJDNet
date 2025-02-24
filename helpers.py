@@ -446,16 +446,20 @@ def get_model_and_tokenizer(args):
         "llamar": LLAMA,
     }[args.model_type](model_config)
 
-    chat_template = {
-        "sharegpt": ChatTemplateShareGPTV2,
-        "shakespeare": ChatTemplateShakespeare,
+    return model, tokenizer
+
+
+def get_chat_template(args):
+    chat_templates = {
         "gsm8k": ChatTemplateGSM8k,
-        "stemp": ChatTemplateSynTemp,
+        "shakespeare": ChatTemplateShakespeare,
+        "sharegpt": ChatTemplateShareGPT,
+        "sharegptv2": ChatTemplateShareGPTV2,
         "snum": ChatTemplateSynNum,
         "sbase": ChatTemplateSynNumBase,
-    }[args.dataset]
-
-    return model, tokenizer, chat_template
+        "stemp": ChatTemplateSynTemp,
+    }
+    return chat_templates[args.dataset]
 
 
 # # Tokenizer
