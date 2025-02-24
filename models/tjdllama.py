@@ -28,8 +28,11 @@ class TJDLLAMA(TJD):
         return self.pretrained_weights, self.pretrained_bias
 
     def get_model(self, **model_kwargs):
+        model_name = model_kwargs.get("hf_model_name")
+        if model_name is None:
+            raise ValueError("HF Model name not provided.")
         model = AutoModelForCausalLM.from_pretrained(
-            "meta-llama/Llama-2-7b-chat-hf",
+            model_name,
             low_cpu_mem_usage=True,
         )
         transformer_model = model.model

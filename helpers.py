@@ -78,7 +78,7 @@ def parse_args():
         type=str,
         default="gpt2",
         help="Type of base model to use",
-        choices=["gpt2", "llama", "gpt2r", "llamar"],
+        choices=["gpt2", "llama7b", "llama13b", "llama70b", "gpt2r", "llamar"],
     )
     parser.add_argument(
         "--model_head",
@@ -405,22 +405,34 @@ def get_tokenizer(args):
     pass
 
 
+MODEL_NAME_MAP = {
+    "llama7b": {"model_name": "meta-llama/Llama-2-7b-chat-hf"},
+    "llama13b": {"model_name": "meta-llama/Llama-2-13b-chat-hf"},
+    "llama70b": {"model_name": "meta-llama/Llama-2-70b-chat-hf"},
+    "gpt2": {"model_name": "gpt2"},
+}
+
+
 def get_model_and_tokenizer(args):
-    # Tokenizer
-    if args.model_type.startswith("gpt2"):
-        tokenizer = (
-            AutoTokenizer.from_pretrained("gpt2")
-            if args.tokenizer_type == "word"
-            else CharTokenizer(args.seq_len)
+    # # Tokenizer
+    # if args.model_type.startswith("gpt2"):
+    #     tokenizer = (
+    #         AutoTokenizer.from_pretrained("gpt2")
+    #         if args.tokenizer_type == "word"
+    #         else CharTokenizer(args.seq_len)
+    #     )
+
+    #     # TODO: Check if necessary for LLAMA too
+    #     if args.tokenizer_type == "word":
+    #         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+
+    if args.tokenizer_type == "word":
+        tokenizer = AutoTokenizer.from_pretrained(
+            MODEL_NAME_MAP[args.model_type]["model_name"]
         )
-
-        # TODO: Check if necessary for LLAMA too
-        if args.tokenizer_type == "word":
-            tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
-
-    else:  # llama
-        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+    else:
+        raise NotImplementedError("CharTokenizer removed for now.")
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
@@ -441,6 +453,7 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
+        model_kwargs={"hf_model_name": MODEL_NAME_MAP[args.model_type]["model_name"]},
     )
 
     # Add LLaMA specific config
