@@ -22,8 +22,6 @@ References:
 
 import os.path as osp
 import os
-import time
-import torch
 import wandb
 
 from transformers import (
@@ -37,7 +35,8 @@ from callbacks.eval_gsm8k import compute_accuracy
 from callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
-from data.sharegpt import load_sharegpt_data
+from data.sharegptv2 import load_sharegptv2_data
+from data.syn_number_bases import load_syn_num_base_data
 from data.syn_numbers import load_syn_num_data
 from data.syn_temp import load_syn_temp_data
 from data.wikitext import load_wikitext_data
@@ -83,19 +82,18 @@ class TJDTrainer(Trainer):
 
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
-        # Add custom metrics
-        acc = compute_accuracy(
-            self.model,
-            tokenizer=self.tokenizer,
-            test_dataset=self.test_dataset,
-            eos_token=self.eos_token,
-            chat_template=self.chat_template,
-            horizon=self.horizon,
-            top_k=self.top_k,
-            num_beams=self.num_beams,
-            # prompt="Answer the following question. Here's an example: 20°C in Fahrenheit is #### 68. Question:",
-        )
-        print("Eval accuracy:", acc)
+        if self.test_dataset:
+            acc = compute_accuracy(
+                self.model,
+                tokenizer=self.tokenizer,
+                test_dataset=self.test_dataset,
+                eos_token=self.eos_token,
+                chat_template=self.chat_template,
+                horizon=self.horizon,
+                top_k=self.top_k,
+                num_beams=self.num_beams,
+            )
+            print("Eval accuracy:", acc)
         if output and output.metrics:
             output.metrics[f"eval_acc"] = acc
         return output
@@ -116,8 +114,9 @@ def main():
     args = parse_args()
     exp_name = get_experiment_name(vars(args))
     # Add timestamp to exp_name
-    exp_name += f"_{int(time.time())}"
+    # exp_name += f"_{int(time.time())}"  -- remove to facilitate resume_from_checkpoint
     ckpt_dir = osp.join("checkpoints", exp_name)
+    has_checkpoint = osp.exists(ckpt_dir)
     os.makedirs(ckpt_dir, exist_ok=True)
 
     set_seed(args.seed)
@@ -134,10 +133,11 @@ def main():
     lm_dataset = {
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
-        "sharegpt": load_sharegpt_data,
+        "sharegpt": load_sharegptv2_data,
         "gsm8k": load_gsm8k_data,
         "stemp": load_syn_temp_data,
         "snum": load_syn_num_data,
+        "sbase": load_syn_num_base_data,
     }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     # data_collator = CustomDataCollator(tokenizer=tokenizer, mlm=False)
@@ -183,6 +183,7 @@ def main():
         wandb.init(
             project=project_name,
             name=exp_name,
+            id=args.wandb_id,
         )
 
     # In your main function, add this before initializing the trainer:
@@ -197,25 +198,6 @@ def main():
         top_k=args.top_k,
         num_beams=args.num_beams,
     )
-    # eval_callback = (
-    #     EvalGSM8KCallback(
-    #         # TODO: fix this should always just be EOS token?
-    #         test_dataset=lm_dataset["test"],
-    #         eos_token=(
-    #             tokenizer.eos_token
-    #             if args.tokenizer_type == "word"
-    #             else tokenizer.sep_token
-    #         ),
-    #         chat_template=chat_template,
-    #         max_new_tokens=args.max_new_tokens,
-    #         top_k=args.top_k,
-    #         horizon=args.horizon_eval,
-    #         num_beams=args.num_beams,
-    #         tokenizer=tokenizer,
-    #     )
-    #     if args.dataset in ["gsm8k", "syn"]
-    #     else None
-    # )
 
     # Initialize the trainer
     trainer = TJDTrainer(
@@ -245,8 +227,9 @@ def main():
         metrics = trainer.evaluate()
         print("Evaluation metrics:", metrics)
     else:
-        # Train the model
-        trainer.train()
+        trainer.train(
+            resume_from_checkpoint=args.resume_from_checkpoint and has_checkpoint
+        )
 
         # Save the model
         trainer.save_model(ckpt_dir)

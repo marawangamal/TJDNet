@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from typing import Dict, Literal, Optional
+from typing import Dict, Literal, Optional, Tuple
+from click import Option
 from peft import LoraConfig, TaskType, get_peft_model
 
 
@@ -120,8 +121,8 @@ class TJD(ABC, torch.nn.Module):
 
         # Handle model initialization
         if config.init_method == "pretrained":
-            weights = self.get_pretrained_lm_head_weights()
-            self.model_head.init_params(weights)
+            pt_weight, pt_bias = self.get_pretrained_lm_head_weights()
+            self.model_head.init_params(pt_weight, pt_bias)
 
         # Trainer compatibility
         self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
@@ -188,8 +189,10 @@ class TJD(ABC, torch.nn.Module):
         """
         pass
 
-    def get_pretrained_lm_head_weights(self) -> torch.Tensor:
-        """Get the language model head weights. Used for initializing the model head."""
+    def get_pretrained_lm_head_weights(
+        self,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """Get the language model head weights + bias. Used for initializing the model head."""
         raise NotImplementedError(
             "get_pretrained_lm_head_weights must be implemented for pretrained init"
         )

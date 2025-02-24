@@ -12,6 +12,8 @@ from ctokenizers.char_tokenizer import CharTokenizer
 from data.gsm8k import ChatTemplateGSM8k
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
+from data.sharegptv2 import ChatTemplateShareGPTV2
+from data.syn_number_bases import ChatTemplateSynNumBase
 from data.syn_numbers import ChatTemplateSynNum
 from data.syn_temp import ChatTemplateSynTemp
 from distributions._base import BaseDistConfig
@@ -25,7 +27,11 @@ from models.tjdllama import TJDLLAMA
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
+
+    # ------------------
     # Training arguments
+    # ------------------
+
     parser.add_argument(
         "--epochs", type=int, default=10, help="Number of training epochs."
     )
@@ -56,13 +62,23 @@ def parse_args():
         default=1.0,
         help="Gradient clipping value for training.",
     )
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        default=False,
+        action="store_true",
+        help="Whether to use a memory efficient loss function.",
+    )
+
+    # ---------------
     # Model arguments
+    # ---------------
+
     parser.add_argument(
         "--model_type",
         type=str,
         default="gpt2",
         help="Type of base model to use",
-        choices=["gpt2", "llama", "gpt2r", "llamar"],
+        choices=["gpt2", "llama7b", "llama13b", "llama70b", "gpt2r", "llamar"],
     )
     parser.add_argument(
         "--model_head",
@@ -93,7 +109,6 @@ def parse_args():
         default="relu",
         help="Activation function to use in the model head.",
     )
-    # use_layer_norm
     parser.add_argument(
         "--use_layer_norm",
         default=False,
@@ -133,7 +148,7 @@ def parse_args():
     # Training mode
     parser.add_argument(
         "--train_mode",
-        default=False,
+        default="full",
         choices=[
             "full",
             "last",
@@ -184,7 +199,15 @@ def parse_args():
         type=str,
         default="shakespeare",
         help="Type of dataset to use for training.",
-        choices=["shakespeare", "wikitext", "sharegpt", "gsm8k", "stemp", "snum"],
+        choices=[
+            "shakespeare",
+            "wikitext",
+            "sharegpt",
+            "gsm8k",
+            "stemp",
+            "snum",
+            "sbase",
+        ],
     )
     # Tokenizer arguments
     parser.add_argument(
@@ -198,7 +221,11 @@ def parse_args():
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility"
     )
+
+    # ------------------
     # Trainer arguments
+    # ------------------
+
     parser.add_argument(
         "--logging_strategy",
         type=str,
@@ -244,10 +271,18 @@ def parse_args():
         default=68000,
         help="Maximum number of samples to load from the dataset.",
     )
+
+    # ---
     # MISC
+    # ---
+
     parser.add_argument(
         "--eval_only", action="store_true", help="Whether to only evaluate the model"
     )
+    parser.add_argument(
+        "--wandb_id", type=str, default=None, help="Wandb ID for resuming runs"
+    )
+
     return parser.parse_args()
 
 
@@ -366,26 +401,19 @@ def load_args(ckpt_dir):
     return args
 
 
-def get_tokenizer(args):
-    pass
-
-
 def get_model_and_tokenizer(args):
-    # Tokenizer
-    if args.model_type.startswith("gpt2"):
-        tokenizer = (
-            AutoTokenizer.from_pretrained("gpt2")
-            if args.tokenizer_type == "word"
-            else CharTokenizer(args.seq_len)
-        )
+    hf_model_name = {
+        "llama7b": "meta-llama/Llama-2-7b-chat-hf",
+        "llama13b": "meta-llama/Llama-2-13b-chat-hf",
+        "llama70b": "meta-llama/Llama-2-70b-chat-hf",
+        "gpt2": "gpt2",
+    }[args.model_type]
 
-        # TODO: Check if necessary for LLAMA too
-        if args.tokenizer_type == "word":
-            tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
-
-    else:  # llama
-        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+    if args.tokenizer_type == "word":
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+    else:
+        raise NotImplementedError("CharTokenizer removed for now.")
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
@@ -406,26 +434,37 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
+        model_kwargs={"hf_model_name": hf_model_name},
     )
 
-    # Add LLaMA specific config
-    if args.model_type == "llama":
-        model = TJDLLAMA(model_config)
-    elif args.model_type == "gpt2":
-        model = TJDGPT2(model_config)
-    elif args.model_type == "gpt2r":
-        model = GPT2(model_config)
-    elif args.model_type == "llamar":
-        model = LLAMA(model_config)
-    else:
-        raise ValueError(f"Model type {args.model_type} not recognized.")
+    model = {
+        "llama7b": TJDLLAMA,
+        "llama13b": TJDLLAMA,
+        "llama70b": TJDLLAMA,
+        "gpt2": TJDGPT2,
+        "gpt2r": GPT2,
+        "llamar": LLAMA,
+    }[args.model_type](model_config)
 
     chat_template = {
-        "sharegpt": ChatTemplateShareGPT,
+        "sharegpt": ChatTemplateShareGPTV2,
         "shakespeare": ChatTemplateShakespeare,
         "gsm8k": ChatTemplateGSM8k,
         "stemp": ChatTemplateSynTemp,
         "snum": ChatTemplateSynNum,
+        "sbase": ChatTemplateSynNumBase,
     }[args.dataset]
 
     return model, tokenizer, chat_template
+
+
+# # Tokenizer
+# if args.model_type.startswith("gpt2"):
+#     tokenizer = (
+#         AutoTokenizer.from_pretrained("gpt2")
+#         if args.tokenizer_type == "word"
+#         else CharTokenizer(args.seq_len)
+#     )
+
+#     if args.tokenizer_type == "word":
+#         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})

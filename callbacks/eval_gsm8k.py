@@ -6,7 +6,6 @@ from tqdm import tqdm
 
 
 from transformers import TrainerCallback
-from data.common import BaseClassifierChatTemplate
 from helpers import get_test_samples
 
 
@@ -100,7 +99,7 @@ def compute_accuracy(
     horizon=1,
     top_k=50,
     num_beams=1,
-    max_num_samples=10,
+    max_num_samples=50,
     prompt="",
 ):
     model.eval()
@@ -131,9 +130,10 @@ def compute_accuracy(
             )
 
             # Parse the sample
-            ground_truth = chat_template.safe_parse(labels_decoded, eos_token)
-            pred = chat_template.safe_parse(pred, eos_token)
-            correct += ground_truth == pred and ground_truth is not None
+            # ground_truth = chat_template.safe_parse(labels_decoded, eos_token)
+            # pred = chat_template.safe_parse(pred, eos_token)
+            # correct += ground_truth == pred and ground_truth is not None
+            correct += chat_template.check_answer(pred, labels_decoded, eos_token)
             total += 1
             pbar.set_postfix({"accuracy": f"{correct / total:.4f}"})
             if total >= max_num_samples:

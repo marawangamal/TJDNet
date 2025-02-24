@@ -6,7 +6,10 @@
 # --------
 
 # Base
-sbatch scripts/slurm/llama.slurm torchrun --nproc_per_node=4 train.py --epochs 1 --batch_size 32 --seq_len 256 --dataset sharegpt --model_type llama --model_head base --horizon 1 --horizon_eval 1 --freeze_base_model --init_method random
+sbatch scripts/slurm/large-unkillable.slurm torchrun --nproc_per_node=4 train.py --epochs 1 --batch_size 32 --seq_len 256 --dataset sharegpt --model_type llama --model_head base --horizon 1 --horizon_eval 1 --train_mode lora --lora_rank 32
+sbatch scripts/slurm/llama.slurm torchrun --nproc_per_node=4 train.py --epochs 1 --batch_size 32 --seq_len 256 --dataset sharegpt --model_type gpt2 --model_head base --horizon 1 --horizon_eval 1 --train_mode lora --lora_rank 64
+
+
 sbatch scripts/slurm/llama.slurm torchrun --nproc_per_node=4 train.py --epochs 1 --batch_size 32 --seq_len 256 --dataset sharegpt --model_type llama --model_head base --horizon 1 --horizon_eval 1 --freeze_base_model --init_method pretrained
 
 # CP (hidden_dim=256-1024) Does increasing num_layers help?
