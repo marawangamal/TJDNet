@@ -8,7 +8,6 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer
 
-from ctokenizers.char_tokenizer import CharTokenizer
 from data.gsm8k import ChatTemplateGSM8k
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
@@ -44,7 +43,7 @@ def parse_args():
     parser.add_argument(
         "--seq_len",
         type=int,
-        default=256,
+        default=128,
         help="Block size for model input sequences.",
     )
     parser.add_argument(
@@ -197,7 +196,7 @@ def parse_args():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="shakespeare",
+        default="gsm8k",
         help="Type of dataset to use for training.",
         choices=[
             "shakespeare",

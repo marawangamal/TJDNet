@@ -18,18 +18,19 @@ References:
     - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
 """
 
-# python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
-
 import os.path as osp
 import os
 
 import torch
 from transformers import (
     DataCollatorForLanguageModeling,
+    AutoModelForCausalLM,
+    AutoTokenizer,
 )
+from peft import LoraConfig, TaskType, get_peft_model
 
 from torch.utils.data import DataLoader
-from accelerate import Accelerator, DistributedType
+from accelerate import Accelerator
 
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
@@ -53,7 +54,7 @@ def train_loop(
     train_dataloader,
     accelerator,
     optimizer,
-    scheduler,
+    scheduler=None,
 ):
 
     for batch in train_dataloader:
@@ -62,7 +63,8 @@ def train_loop(
         loss = outputs.loss
         accelerator.backward(loss)
         optimizer.step()
-        scheduler.step()
+        if scheduler:
+            scheduler.step()
 
 
 def main():
@@ -79,13 +81,33 @@ def main():
     save_args(args, ckpt_dir)
 
     # Model and tokenizer
-    model, tokenizer = get_model_and_tokenizer(args)
-    chat_template = get_chat_template(args)
+    # model, tokenizer = get_model_and_tokenizer(args)
+    # chat_template = get_chat_template(args)
 
-    params_dict = model.param_dict
+    # meta-llama/Llama-2-7b-chat-hf
+    model = AutoModelForCausalLM.from_pretrained(
+        "meta-llama/Llama-2-7b-chat-hf", low_cpu_mem_usage=True
+    )
+    model = get_peft_model(
+        model,
+        LoraConfig(
+            task_type=TaskType.FEATURE_EXTRACTION,
+            inference_mode=False,
+            r=4,
+            lora_alpha=32,
+            lora_dropout=0.1,
+        ),
+    )
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+    tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+
     # Print dict key value pairs
     print("Model parameters:")
-    print("\n".join([f"{k}: {v}" for k, v in params_dict.items()]))
+    print(
+        "# Params (Trainable):",
+        sum(p.numel() for p in model.parameters() if p.requires_grad),
+    )
+    print("# Params (Total):", sum(p.numel() for p in model.parameters()))
 
     # Datasets
     lm_dataset = {
@@ -99,63 +121,31 @@ def main():
     }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    # DataLoaders creation:
     train_dataloader = DataLoader(
         lm_dataset["train"],
         shuffle=True,
         collate_fn=data_collator,
-        batch_size=args.per_device_train_batch_size,
+        batch_size=args.batch_size,
     )
     eval_dataloader = DataLoader(
         lm_dataset["eval"],
         collate_fn=data_collator,
-        batch_size=args.per_device_eval_batch_size,
+        batch_size=args.batch_size,
     )
 
-    optimizer_grouped_parameters = [
-        {
-            "params": [
-                p
-                for n, p in model.named_parameters()
-                if not any(nd in n for nd in no_decay)
-            ],
-            "weight_decay": args.weight_decay,
-        },
-        {
-            "params": [
-                p
-                for n, p in model.named_parameters()
-                if any(nd in n for nd in no_decay)
-            ],
-            "weight_decay": 0.0,
-        },
-    ]
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
-
-    accelerator = Accelerator(
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        **accelerator_log_kwargs,
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    accelerator = Accelerator()
+    model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
+        model, optimizer, train_dataloader, eval_dataloader
     )
 
-    lr_scheduler = get_scheduler(
-        name=args.lr_scheduler_type,
+    # Train
+    train_loop(
+        model=model,
+        train_dataloader=train_dataloader,
+        accelerator=accelerator,
         optimizer=optimizer,
-        num_warmup_steps=args.num_warmup_steps * accelerator.num_processes,
-        num_training_steps=(
-            args.max_train_steps
-            if overrode_max_train_steps
-            else args.max_train_steps * accelerator.num_processes
-        ),
     )
-
-    # Prepare everything with our `accelerator`.
-    model, optimizer, train_dataloader, eval_dataloader, lr_scheduler = (
-        accelerator.prepare(
-            model, optimizer, train_dataloader, eval_dataloader, lr_scheduler
-        )
-    )
-
-    train_loop(model, tokenizer, train_dataloader, eval_dataloader, optimizer)
 
 
 if __name__ == "__main__":

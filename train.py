@@ -83,20 +83,20 @@ class TJDTrainer(Trainer):
 
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
-        # if self.test_dataset:
-        #     acc = compute_accuracy(
-        #         self.model,
-        #         tokenizer=self.tokenizer,
-        #         test_dataset=self.test_dataset,
-        #         eos_token=self.eos_token,
-        #         chat_template=self.chat_template,
-        #         horizon=self.horizon,
-        #         top_k=self.top_k,
-        #         num_beams=self.num_beams,
-        #     )
-        #     print("Eval accuracy:", acc)
-        # if output and output.metrics:
-        #     output.metrics[f"eval_acc"] = acc
+        if self.test_dataset:
+            acc = compute_accuracy(
+                self.model,
+                tokenizer=self.tokenizer,
+                test_dataset=self.test_dataset,
+                eos_token=self.eos_token,
+                chat_template=self.chat_template,
+                horizon=self.horizon,
+                top_k=self.top_k,
+                num_beams=self.num_beams,
+            )
+            print("Eval accuracy:", acc)
+        if output and output.metrics:
+            output.metrics[f"eval_acc"] = acc
         return output
 
 

@@ -53,10 +53,7 @@ def process_gsm8k_dataset(dataset, tokenizer, input_seq_len=512):
     )
 
     dataset = dataset.map(
-        lambda x: {
-            **tokenizer(x["text"], add_special_tokens=False),
-            "prompt_ids": tokenizer(x["prompt"])["input_ids"],
-        },
+        lambda x: tokenizer(x["text"], add_special_tokens=False),
         remove_columns=["text", "prompt"],
     )
     # TODO: maybe it can have a [SEP] token
