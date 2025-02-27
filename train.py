@@ -83,20 +83,20 @@ class TJDTrainer(Trainer):
 
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
-        if self.test_dataset:
-            acc = compute_accuracy(
-                self.model,
-                tokenizer=self.tokenizer,
-                test_dataset=self.test_dataset,
-                eos_token=self.eos_token,
-                chat_template=self.chat_template,
-                horizon=self.horizon,
-                top_k=self.top_k,
-                num_beams=self.num_beams,
-            )
-            print("Eval accuracy:", acc)
-        if output and output.metrics:
-            output.metrics[f"eval_acc"] = acc
+        # if self.test_dataset:
+        #     acc = compute_accuracy(
+        #         self.model,
+        #         tokenizer=self.tokenizer,
+        #         test_dataset=self.test_dataset,
+        #         eos_token=self.eos_token,
+        #         chat_template=self.chat_template,
+        #         horizon=self.horizon,
+        #         top_k=self.top_k,
+        #         num_beams=self.num_beams,
+        #     )
+        #     print("Eval accuracy:", acc)
+        # if output and output.metrics:
+        #     output.metrics[f"eval_acc"] = acc
         return output
 
 
@@ -171,10 +171,11 @@ def main():
         greater_is_better=False,
         # remove_unused_columns=False,
         # Memory optimization
-        # bf16=True,  # Enable bfloat16 mixed precision
+        # fp16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
         # optim="adafactor",  # Use Adafactor optimizer
+        # torch_empty_cache_steps=1,
         # no_cuda=True,  # Force CPU usage
     )
 

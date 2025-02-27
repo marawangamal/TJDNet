@@ -30,7 +30,7 @@ CPU memory (RSS): 1478.48 MB ± 0.00 MB
 
 
 
-python eval_latency.py --device cuda --model_family llama --out_seq_len 32 --inp_seq_len 8
+python eval_latency.py --device cuda --model_family llama --inp_seq_len 8 --out_seq_len 32
 
 
 Benchmark Results:

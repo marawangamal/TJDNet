@@ -2,7 +2,6 @@
 Hardware Requirements (for Llama-based models):
     - GPUs: 4x NVIDIA A100 80GB GPUs 
     - CPU RAM: 128GB minimum
-    - Storage: Recommend 1TB+ SSD for dataset and checkpoints
 
     Note: GPT-2 based models require significantly less resources
 
@@ -10,9 +9,7 @@ Recommended SLURM allocation (for Llama):
     salloc --gres=gpu:a100l:4 --mem=128G --cpus-per-task=32
 
 Usage:
-    - Uses PyTorch Distributed Data Parallel (DDP) for multi-GPU training
-    - Automatic mixed precision (AMP) enabled for memory efficiency
-    - Gradient checkpointing available for large models
+    - accelerate launch --multi_gpu train.py ...
     
 References:
     - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
@@ -29,6 +26,9 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
 )
+import wandb
+
+from peft import LoraConfig, TaskType, get_peft_model
 
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
@@ -59,6 +59,17 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         "meta-llama/Llama-2-7b-chat-hf", low_cpu_mem_usage=True
     )
+    p_model = get_peft_model(
+        model,
+        LoraConfig(
+            task_type=TaskType.FEATURE_EXTRACTION,
+            inference_mode=False,
+            r=4,
+            lora_alpha=32,
+            lora_dropout=0.1,
+        ),
+    )
+
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
     # TODO remove this line
     tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
@@ -90,7 +101,7 @@ def main():
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
-        report_to="none",  # Disable wandb for eval only
+        report_to="wandb",  # Disable wandb for eval only
         # Checkpoints
         save_strategy="best",  # Save model every epoch
         save_safetensors=False,
@@ -107,12 +118,20 @@ def main():
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
         # optim="adamw_bnb_8bit",  # Use Adafactor optimizer
         # OPT 2.
-        fsdp="full_shard",
+        # fsdp="full_shard",
     )
+
+    if training_args.local_rank == 0:  # main process
+        project_name = "tjdnet-dev"
+        wandb.init(
+            project=f"train-basic-{project_name}",
+            name=exp_name,
+            id=args.wandb_id,
+        )
 
     # Initialize the trainer
     trainer = Trainer(
-        model=model,
+        model=p_model,
         args=training_args,
         train_dataset=lm_dataset["train"],
         eval_dataset=lm_dataset["eval"],
@@ -126,7 +145,7 @@ def main():
 
     # Generate a test sample
     test_sample = get_test_samples(
-        model,
+        p_model,
         tokenizer,
         max_new_tokens=args.max_new_tokens,
         prompt="What is the meaning of life?",
