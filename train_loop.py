@@ -1,25 +1,6 @@
-"""
-Hardware Requirements (for Llama-based models):
-    - GPUs: 4x NVIDIA A100 80GB GPUs 
-    - CPU RAM: 128GB minimum
-    - Storage: Recommend 1TB+ SSD for dataset and checkpoints
-
-    Note: GPT-2 based models require significantly less resources
-
-Recommended SLURM allocation (for Llama):
-    salloc --gres=gpu:a100l:4 --mem=128G --cpus-per-task=32
-
-Usage:
-    - Uses PyTorch Distributed Data Parallel (DDP) for multi-GPU training
-    - Automatic mixed precision (AMP) enabled for memory efficiency
-    - Gradient checkpointing available for large models
-    
-References:
-    - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
-"""
-
 import os.path as osp
 import os
+from typing import Callable, Dict, List, Optional, Any, Tuple, Union
 
 import torch
 from transformers import (
@@ -27,10 +8,13 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
 )
+
+# pyright: reportPrivateImportUsage=false
 from peft import LoraConfig, TaskType, get_peft_model
 
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
+from tqdm import tqdm
 
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
@@ -49,15 +33,29 @@ from helpers import (
 )
 
 
-def train_loop(
-    model,
-    train_dataloader,
-    accelerator,
-    optimizer,
-    scheduler=None,
-):
+def inner_train_loop(
+    model: torch.nn.Module,
+    train_dataloader: DataLoader,
+    accelerator: Accelerator,
+    optimizer: torch.optim.Optimizer,
+    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+    epoch: Optional[int] = None,
+    total_epochs: Optional[int] = None,
+) -> Dict[str, Any]:
+    # Create a tqdm progress bar that disappears after completion
+    epoch_str = f"Epoch {epoch}/{total_epochs}" if epoch is not None else "Training"
+    progress_bar = tqdm(
+        total=len(train_dataloader),
+        desc=epoch_str,
+        position=0,
+        leave=False,
+        dynamic_ncols=True,
+    )
 
-    for batch in train_dataloader:
+    running_loss = 0.0
+    model.train()
+
+    for i, batch in enumerate(train_dataloader):
         optimizer.zero_grad()
         outputs = model(**batch)
         loss = outputs.loss
@@ -65,6 +63,76 @@ def train_loop(
         optimizer.step()
         if scheduler:
             scheduler.step()
+
+        # Update the progress bar with loss info
+        running_loss += loss.item()
+        avg_loss = running_loss / (i + 1)
+        progress_bar.set_postfix({"loss": f"{avg_loss:.4f}"})
+        progress_bar.update(1)
+
+    # Close the progress bar after the epoch
+    progress_bar.close()
+
+    # Create and return metrics dictionary
+    metrics = {
+        "train_loss": avg_loss,
+        "epoch": epoch if epoch is not None else 1,
+        "steps": len(train_dataloader),
+        "lr": optimizer.param_groups[0]["lr"],
+    }
+    return metrics
+
+
+def train_loop(
+    model: torch.nn.Module,
+    train_dataloader: DataLoader,
+    accelerator: Accelerator,
+    optimizer: torch.optim.Optimizer,
+    epochs: int = 1,
+    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+    on_train_epoch_end: Optional[Callable] = None,
+):
+    for epoch in range(epochs):
+        # Run inner training loop for this epoch
+        inner_train_loop(
+            model=model,
+            train_dataloader=train_dataloader,
+            accelerator=accelerator,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            epoch=epoch + 1,
+            total_epochs=epochs,
+        )
+        if on_train_epoch_end is not None:
+            on_train_epoch_end(epoch + 1)
+
+
+def evaluate(
+    model: torch.nn.Module, eval_dataloader: DataLoader, accelerator: Accelerator
+) -> float:
+    model.eval()
+    progress_bar = tqdm(
+        total=len(eval_dataloader),
+        desc="Evaluating",
+        position=0,
+        leave=False,
+        dynamic_ncols=True,
+    )
+
+    eval_loss = 0
+    with torch.no_grad():
+        for i, batch in enumerate(eval_dataloader):
+            outputs = model(**batch)
+            loss = outputs.loss
+            eval_loss += loss.item()
+
+            avg_loss = eval_loss / (i + 1)
+            progress_bar.set_postfix({"loss": f"{avg_loss:.4f}"})
+            progress_bar.update(1)
+
+    progress_bar.close()
+    model.train()
+    return eval_loss / len(eval_dataloader)
 
 
 def main():
@@ -134,18 +202,24 @@ def main():
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+
+    # Add a learning rate scheduler if needed
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs * len(train_dataloader))
     accelerator = Accelerator()
     model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
         model, optimizer, train_dataloader, eval_dataloader
     )
 
-    # Train
+    # Train with the callback
     train_loop(
         model=model,
         train_dataloader=train_dataloader,
         accelerator=accelerator,
         optimizer=optimizer,
+        epochs=3,
     )
+
+    print("Training complete!")
 
 
 if __name__ == "__main__":
