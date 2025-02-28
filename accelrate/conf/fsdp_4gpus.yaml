@@ -14,7 +14,7 @@ fsdp_config:
   fsdp_sync_module_states: true
   # Set fsdp_use_orig_params=true if using peft: 
   # https://dev-discuss.pytorch.org/t/rethinking-pytorch-fully-sharded-data-parallel-fsdp-from-first-principles/1019
-  fsdp_use_orig_params: false
+  fsdp_use_orig_params: true
 machine_rank: 0
 main_training_function: main
 mixed_precision: bf16
