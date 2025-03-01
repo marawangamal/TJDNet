@@ -42,11 +42,39 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStr
 
 from torch.distributed.fsdp.wrap import (
     transformer_auto_wrap_policy,
+    lambda_auto_wrap_policy,
+    _or_policy,
     enable_wrap,
     wrap,
 )
 import pdb
 import sys
+
+from distributions.base import BaseDist
+from helpers import get_model_and_tokenizer, parse_args
+
+
+def create_tjd_auto_wrap_policy(
+    transformer_layer_cls,  # LlamaDecoderLayer
+    base_dist_cls,  # Your BaseDist class
+):
+    """
+    Creates a policy that wraps both transformer layers and BaseDist modules in FSDP.
+    """
+
+    def policy_fn(module, recurse, unwrapped_params, **kwargs):
+        # Check if the module is a transformer layer
+        if isinstance(module, tuple(transformer_layer_cls)):
+            return True
+
+        # Check if the module is a BaseDist
+        if isinstance(module, base_dist_cls):
+            return True
+
+        # Use default recursive wrapping for other modules
+        return False
+
+    return policy_fn
 
 
 class ForkedPdb(pdb.Pdb):
@@ -108,7 +136,8 @@ def train(args, model, rank, world_size, train_loader, optimizer, epoch, sampler
         # Forward and backward pass
         optimizer.zero_grad()
         output = model(**batch_dv)
-        loss = output.loss
+        # loss = output.loss # for hf model
+        loss = output["loss"]  # for tjd model
         loss.backward()
         optimizer.step()
 
@@ -173,34 +202,52 @@ def printr(msg: str, rank: int):
 def fsdp_main(rank, world_size, args):
     setup(rank, world_size)
 
-    # transform = transforms.Compose(
-    #     [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+    # Get model and tokenizer
+    # A. Lllama
+    # tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+    # tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+
+    # model = AutoModelForCausalLM.from_pretrained(
+    #     "meta-llama/Llama-2-7b-chat-hf", low_cpu_mem_usage=True
+    # )
+    # llama_auto_wrap_policy = functools.partial(
+    #     transformer_auto_wrap_policy,
+    #     transformer_layer_cls={type(model.model.layers[0])},
+    # )
+    # model = FSDP(
+    #     model,
+    #     auto_wrap_policy=llama_auto_wrap_policy,
+    #     device_id=rank,
+    #     sharding_strategy=ShardingStrategy.FULL_SHARD,
     # )
 
-    # dataset1 = datasets.MNIST(
-    #     "../data", train=True, download=False, transform=transform
-    # )
-    # dataset2 = datasets.MNIST(
-    #     "../data", train=False, download=False, transform=transform
-    # )
+    # B. TJDNet
+    model, tokenizer = get_model_and_tokenizer(args)
+    # if rank == 0:
+    #     ForkedPdb().set_trace()
+    # 1. Create transformer wrapping policy for LlamaDecoderLayers
+    transformer_policy = functools.partial(
+        transformer_auto_wrap_policy,
+        transformer_layer_cls={type(model.model.layers[0])},
+    )
 
-    # sampler1 = DistributedSampler(
-    #     dataset1, rank=rank, num_replicas=world_size, shuffle=True
-    # )
-    # sampler2 = DistributedSampler(dataset2, rank=rank, num_replicas=world_size)
+    # 2. Create a direct function for BaseDist wrapping
+    def base_dist_policy(module, recurse=True, **kwargs):
+        return isinstance(module, BaseDist)
 
-    # train_kwargs = {"batch_size": args.batch_size, "sampler": sampler1}
-    # test_kwargs = {"batch_size": args.test_batch_size, "sampler": sampler2}
-    # cuda_kwargs = {"num_workers": 2, "pin_memory": True, "shuffle": False}
-    # train_kwargs.update(cuda_kwargs)
-    # test_kwargs.update(cuda_kwargs)
+    # 3. Combine the policies
+    combined_policy = functools.partial(
+        _or_policy, policies=[transformer_policy, base_dist_policy]
+    )
+    model = FSDP(
+        model,
+        auto_wrap_policy=combined_policy,
+        device_id=rank,
+        sharding_strategy=ShardingStrategy.FULL_SHARD,
+    )
+    printr(f"Model created on rank {rank}", rank)
 
-    # train_loader = torch.utils.data.DataLoader(dataset1, **train_kwargs)
-    # test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
-
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
-    tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
-    lm_dataset = load_gsm8k_data(tokenizer, input_seq_len=128)
+    lm_dataset = load_gsm8k_data(tokenizer, input_seq_len=128, print_stats=rank == 0)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     # Create proper distributed sampler
     train_sampler = DistributedSampler(
@@ -228,26 +275,8 @@ def fsdp_main(rank, world_size, args):
     init_start_event = torch.cuda.Event(enable_timing=True)
     init_end_event = torch.cuda.Event(enable_timing=True)
 
-    # if rank == 0:
-    #     ForkedPdb().set_trace()
-
     # meta-llama/Llama-2-7b-chat-hf
     # model = Net().to(rank)
-    model = AutoModelForCausalLM.from_pretrained(
-        "meta-llama/Llama-2-7b-chat-hf", low_cpu_mem_usage=True
-    )
-    llama_auto_wrap_policy = functools.partial(
-        transformer_auto_wrap_policy,
-        transformer_layer_cls={type(model.model.layers[0])},
-    )
-    model = FSDP(
-        model,
-        auto_wrap_policy=llama_auto_wrap_policy,
-        device_id=rank,
-        sharding_strategy=ShardingStrategy.FULL_SHARD,
-    )
-
-    printr(f"Model created on rank {rank}", rank)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
 
     init_start_event.record()  # pyright: ignore[reportCallIssue]
@@ -272,73 +301,19 @@ def fsdp_main(rank, world_size, args):
         )
         print(f"{model}")
 
-    if args.save_model:
-        # use a barrier to make sure training is done on all ranks
-        dist.barrier()
-        states = model.state_dict()
-        if rank == 0:
-            torch.save(states, "mnist_cnn.pt")
+    # if args.save_model:
+    #     # use a barrier to make sure training is done on all ranks
+    #     dist.barrier()
+    #     states = model.state_dict()
+    #     if rank == 0:
+    #         torch.save(states, "mnist_cnn.pt")
 
     cleanup()
 
 
 if __name__ == "__main__":
-    # Training settings
-    parser = argparse.ArgumentParser(description="PyTorch MNIST Example")
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1,
-        metavar="N",
-        help="input batch size for training (default: 64)",
-    )
-    parser.add_argument(
-        "--seq-len", type=int, default=128, help="input sequence length"
-    )
-    parser.add_argument(
-        "--test-batch-size",
-        type=int,
-        default=1,
-        metavar="N",
-        help="input batch size for testing (default: 1000)",
-    )
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=10,
-        metavar="N",
-        help="number of epochs to train (default: 14)",
-    )
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=1e-5,
-        metavar="LR",
-        help="learning rate (default: 1.0)",
-    )
-    parser.add_argument(
-        "--gamma",
-        type=float,
-        default=0.7,
-        metavar="M",
-        help="Learning rate step gamma (default: 0.7)",
-    )
-    parser.add_argument(
-        "--no-cuda", action="store_true", default=False, help="disables CUDA training"
-    )
-    parser.add_argument(
-        "--seed", type=int, default=1, metavar="S", help="random seed (default: 1)"
-    )
-    parser.add_argument(
-        "--save-model",
-        action="store_true",
-        default=False,
-        help="For Saving the current Model",
-    )
-    args = parser.parse_args()
-
+    args = parse_args()
     torch.manual_seed(args.seed)
-
     WORLD_SIZE = torch.cuda.device_count()
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage]
         fsdp_main, args=(WORLD_SIZE, args), nprocs=WORLD_SIZE, join=True
