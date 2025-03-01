@@ -18,6 +18,8 @@ Getting the FSDP `transformer_layer_cls`
 import os
 import argparse
 import functools
+from tqdm import tqdm
+
 from random import sample
 import torch
 import torch.nn as nn
@@ -87,31 +89,49 @@ def cleanup():
 
 
 def train(args, model, rank, world_size, train_loader, optimizer, epoch, sampler=None):
-    printr(f"Taining started on rank {rank}", rank)
+    printr(f"Training started on rank {rank}", rank)
     model.train()
     ddp_loss = torch.zeros(2).to(rank)
     if sampler:
         sampler.set_epoch(epoch)
-    for batch_idx, batch in enumerate(train_loader):
-        # data, target = data.to(rank), target.to(rank)
-        # batch is not a dict
+
+    # Create tqdm progress bar only on rank 0
+    if rank == 0:
+        pbar = tqdm(total=len(train_loader), desc=f"Epoch {epoch}")
+
+    for batch in train_loader:
+        # Prepare batch for GPU
         batch_dv = {
             k: v.to(rank) for k, v in batch.items() if isinstance(v, torch.Tensor)
         }
+
+        # Forward and backward pass
         optimizer.zero_grad()
         output = model(**batch_dv)
         loss = output.loss
         loss.backward()
         optimizer.step()
+
+        # Track loss
         ddp_loss[0] += loss.item()
-        printr(f"Loss (rank {rank}): {loss.item()}", rank)
         first_key = next(iter(batch_dv.keys()))
         ddp_loss[1] += len(batch_dv[first_key])
 
-    print(f"Rank {rank} done with training, about to reduce")
-    dist.all_reduce(ddp_loss, op=dist.ReduceOp.SUM)
+        # Update progress bar on rank 0
+        if rank == 0:
+            pbar.update(1)
+            pbar.set_postfix({"loss": loss.item()})
+
+    # Close progress bar
     if rank == 0:
-        print("Train Epoch: {} \tLoss: {:.6f}".format(epoch, ddp_loss[0] / ddp_loss[1]))
+        pbar.close()
+
+    printr(f"Rank {rank} done with training, about to reduce", rank)
+    dist.all_reduce(ddp_loss, op=dist.ReduceOp.SUM)
+
+    if rank == 0:
+        avg_loss = ddp_loss[0] / ddp_loss[1]
+        print(f"Train Epoch: {epoch} \tAverage Loss: {avg_loss:.6f}")
 
 
 def test(model, rank, world_size, test_loader):
