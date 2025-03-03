@@ -1,8 +1,3 @@
-if __name__ == "__main__":
-    pass
-# https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html
-
-
 from argparse import Namespace
 import argparse
 import os
