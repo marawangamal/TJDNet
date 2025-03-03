@@ -15,6 +15,8 @@ Getting the FSDP `transformer_layer_cls`
     
 """
 
+import enum
+from math import e
 import os
 import argparse
 import functools
@@ -38,20 +40,28 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP,
+    ShardingStrategy,
+    StateDictType,
+    FullStateDictConfig,
+)
+
+# from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+# from torch.distributed.fsdp.fully_sharded_data_parallel import (
+#     FullyShardedDataParallel as FSDP,
+# )
 
 from torch.distributed.fsdp.wrap import (
     transformer_auto_wrap_policy,
-    lambda_auto_wrap_policy,
     _or_policy,
-    enable_wrap,
-    wrap,
 )
 import pdb
 import sys
 
+from callbacks.eval_gsm8k import compute_accuracy
 from distributions.base import BaseDist
-from helpers import get_model_and_tokenizer, parse_args
+from helpers import get_chat_template, get_model_and_tokenizer, parse_args
 
 
 def create_tjd_auto_wrap_policy(
@@ -194,6 +204,50 @@ def test(model, rank, world_size, test_loader):
         )
 
 
+def test_v2(
+    model,
+    tokenizer,
+    test_dataset,
+    chat_template,
+    horizon,
+    top_k,
+    num_beams,
+    eos_token,
+    rank,
+    world_size,
+):
+
+    # Only process on rank 0 to avoid duplicate computations
+    if rank == 0:
+        with torch.no_grad():
+            printr(f"Unsharding model for evaluation...", rank)
+
+            # Configure FSDP to gather full parameters on rank 0
+            full_state_dict_config = FullStateDictConfig(
+                offload_to_cpu=True,
+                rank0_only=True,
+            )
+
+            # Temporarily consolidate the model
+            with FSDP.state_dict_type(
+                model, StateDictType.FULL_STATE_DICT, full_state_dict_config
+            ):
+                accuracy = compute_accuracy(
+                    model=model,
+                    tokenizer=tokenizer,
+                    test_dataset=test_dataset,
+                    eos_token=eos_token,
+                    chat_template=chat_template,
+                    horizon=horizon,
+                    top_k=top_k,
+                    num_beams=num_beams,
+                )
+                printr(f"Test accuracy: {accuracy:.4f}", rank)
+
+    # Make sure all processes wait for the evaluation to complete
+    dist.barrier()
+
+
 def printr(msg: str, rank: int):
     if rank == 0:
         print(msg)
@@ -202,30 +256,7 @@ def printr(msg: str, rank: int):
 def fsdp_main(rank, world_size, args):
     setup(rank, world_size)
 
-    # Get model and tokenizer
-    # A. Lllama
-    # tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
-    # tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
-
-    # model = AutoModelForCausalLM.from_pretrained(
-    #     "meta-llama/Llama-2-7b-chat-hf", low_cpu_mem_usage=True
-    # )
-    # llama_auto_wrap_policy = functools.partial(
-    #     transformer_auto_wrap_policy,
-    #     transformer_layer_cls={type(model.model.layers[0])},
-    # )
-    # model = FSDP(
-    #     model,
-    #     auto_wrap_policy=llama_auto_wrap_policy,
-    #     device_id=rank,
-    #     sharding_strategy=ShardingStrategy.FULL_SHARD,
-    # )
-
-    # B. TJDNet
     model, tokenizer = get_model_and_tokenizer(args)
-    # if rank == 0:
-    #     ForkedPdb().set_trace()
-    # 1. Create transformer wrapping policy for LlamaDecoderLayers
     transformer_policy = functools.partial(
         transformer_auto_wrap_policy,
         transformer_layer_cls={type(model.model.layers[0])},
@@ -245,6 +276,7 @@ def fsdp_main(rank, world_size, args):
         device_id=rank,
         sharding_strategy=ShardingStrategy.FULL_SHARD,
     )
+    chat_template = get_chat_template(args)
     printr(f"Model created on rank {rank}", rank)
 
     lm_dataset = load_gsm8k_data(tokenizer, input_seq_len=128, print_stats=rank == 0)
@@ -281,16 +313,28 @@ def fsdp_main(rank, world_size, args):
 
     init_start_event.record()  # pyright: ignore[reportCallIssue]
     for epoch in range(1, args.epochs + 1):
-        train(
-            args,
-            model,
-            rank,
-            world_size,
-            train_loader,
-            optimizer,
-            epoch,
+        # train(
+        #     args,
+        #     model,
+        #     rank,
+        #     world_size,
+        #     train_loader,
+        #     optimizer,
+        #     epoch,
+        # )
+
+        test_v2(
+            model=model,
+            rank=rank,
+            world_size=world_size,
+            tokenizer=tokenizer,
+            test_dataset=lm_dataset["test"],
+            chat_template=chat_template,
+            horizon=args.horizon_eval,
+            top_k=args.top_k,
+            num_beams=args.num_beams,
+            eos_token=tokenizer.eos_token_id,
         )
-        # test(model, rank, world_size, test_loader)
 
     init_end_event.record()  # pyright: ignore[reportCallIssue]
 
