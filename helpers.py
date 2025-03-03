@@ -24,6 +24,20 @@ from models.tjdgpt2 import TJDGPT2
 from models.tjdllama import TJDLLAMA
 
 
+import uuid
+import re
+
+
+def generate_wandb_id():
+    """Generate a random 8-character ID with lowercase letters and numbers only."""
+    # Generate UUID and remove hyphens
+    raw_id = str(uuid.uuid4()).replace("-", "")
+    # Keep only lowercase letters and numbers
+    clean_id = re.sub(r"[^a-z0-9]", "", raw_id.lower())
+    # Return first 8 characters
+    return clean_id[:8]
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
 
@@ -279,7 +293,13 @@ def parse_args():
         "--eval_only", action="store_true", help="Whether to only evaluate the model"
     )
     parser.add_argument(
-        "--wandb_id", type=str, default=None, help="Wandb ID for resuming runs"
+        "--compute_acc", action="store_true", help="Whether to compute accuracy"
+    )
+    parser.add_argument(
+        "--wandb_id",
+        type=str,
+        default=None,
+        help="Wandb ID for resuming runs",
     )
 
     return parser.parse_args()
