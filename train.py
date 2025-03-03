@@ -20,11 +20,11 @@ References:
 
 # python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
 
-import os.path as osp
 import os
-from requests import get
-import wandb
+import os.path as osp
+import uuid
 
+import wandb
 from transformers import (
     DataCollatorForLanguageModeling,
     Trainer,
@@ -111,26 +111,32 @@ def compute_metrics(eval_pred):
     }
 
 
-def get_wandb_id(exp_name):
-    """Generate a deterministic wandb_id based on experiment name."""
-    import hashlib
-
-    # Get an MD5 hash of the experiment name and take the first 8 chars
-    return hashlib.md5(exp_name.encode()).hexdigest()[:8]
+def generate_wandb_id():
+    """Generate a random wandb_id that's compatible with W&B requirements."""
+    # Generate a random UUID and take the first 8 characters
+    # This gives us plenty of uniqueness while keeping the ID short
+    random_id = str(uuid.uuid4()).replace("-", "")[:8]
+    return random_id
 
 
 def main():
     # Configuration
     args = parse_args()
+    if hasattr(args, "wandb_id") and args.wandb_id is None:
+        args.wandb_id = generate_wandb_id()
     exp_name = get_experiment_name(vars(args))
-    args.wandb_id = get_wandb_id(exp_name) if args.wandb_id is None else args.wandb_id
-    # Add timestamp to exp_name
-    # exp_name += f"_{int(time.time())}"  -- remove to facilitate resume_from_checkpoint
     ckpt_dir = osp.join("checkpoints", exp_name)
-    has_checkpoint = osp.exists(ckpt_dir)
     os.makedirs(ckpt_dir, exist_ok=True)
-    if has_checkpoint:
-        print(f"Resuming from checkpoint: {ckpt_dir}")
+
+    has_checkpoint = False
+    if osp.exists(ckpt_dir):
+        # Look for actual checkpoint files (like pytorch_model.bin or similar)
+        checkpoint_files = [
+            f for f in os.listdir(ckpt_dir) if f.startswith("checkpoint-")
+        ]
+        has_checkpoint = len(checkpoint_files) > 0
+        if has_checkpoint:
+            print(f"Resuming from checkpoint: {ckpt_dir}")
 
     set_seed(args.seed)
     save_args(args, ckpt_dir)
@@ -203,13 +209,6 @@ def main():
             name=exp_name,
             id=args.wandb_id,
         )
-
-        # if not args.wandb_id:
-        #     current_wandb_id = wandb_run.id
-        #     print(f"Current wandb run ID: {current_wandb_id}")
-        #     # Optionally save it to a file for easy reference
-        #     with open(osp.join(ckpt_dir, "wandb_id.txt"), "w") as f:
-        #         f.write(current_wandb_id)
 
     # In your main function, add this before initializing the trainer:
     generation_callback = GenerationCallback(

@@ -15,8 +15,9 @@ Hardware Requirements:
     Same as train.py requirements for inference
 """
 
-import json
 import os
+import os.path as osp
+import json
 import argparse
 import torch
 from tqdm import tqdm
@@ -54,7 +55,8 @@ def main():
     # Parse just our evaluation-specific arguments
     parser = argparse.ArgumentParser(description="Evaluate model checkpoints")
     parser.add_argument(
-        "--checkpoint_dir",
+        "-c",
+        "--checkpoint",
         type=str,
         required=True,
         help="Directory containing the model checkpoint and args.json",
@@ -67,34 +69,37 @@ def main():
     )
     args = parser.parse_args()
 
-    checkpoints = os.listdir(args.checkpoint_dir)
+    checkpoints = [
+        osp.join(args.checkpoint, c)
+        for c in os.listdir(args.checkpoint)
+        if c != "args.json"
+    ]
+    exp_args_dict = json.load(open(os.path.join(args.checkpoint, "args.json")))
+
+    # 1. Setup
+    exp_args = argparse.Namespace(**exp_args_dict)
+    model, tokenizer = get_model_and_tokenizer(exp_args)
+    chat_template = get_chat_template(exp_args)
+    lm_dataset = {
+        "shakespeare": load_shakespeare_data,
+        "wikitext": load_wikitext_data,
+        "sharegpt": load_sharegptv2_data,
+        "gsm8k": load_gsm8k_data,
+        "stemp": load_syn_temp_data,
+        "snum": load_syn_num_data,
+        "sbase": load_syn_num_base_data,
+    }[exp_args.dataset](
+        tokenizer, exp_args.seq_len, max_num_samples=exp_args.max_num_samples
+    )
+
     results = []
     for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
-
-        # 1. Setup
-        exp_args_dict = json.load(
-            open(os.path.join(args.checkpoint_dir, checkpoint, "args.json"))
-        )
-        exp_args = argparse.Namespace(**exp_args_dict)
-        model, tokenizer = get_model_and_tokenizer(exp_args)
-        chat_template = get_chat_template(exp_args)
-        lm_dataset = {
-            "shakespeare": load_shakespeare_data,
-            "wikitext": load_wikitext_data,
-            "sharegpt": load_sharegptv2_data,
-            "gsm8k": load_gsm8k_data,
-            "stemp": load_syn_temp_data,
-            "snum": load_syn_num_data,
-            "sbase": load_syn_num_base_data,
-        }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
-
-        # 2. Load weights
         model = load_weights(model, checkpoint)
         model.to(args.device)
         acc = compute_accuracy(
             model,
             tokenizer=tokenizer,
-            test_dataset=lm_dataset,
+            test_dataset=lm_dataset["test"],
             eos_token=tokenizer.eos_token,
             chat_template=chat_template,
             horizon=exp_args.horizon,
@@ -103,6 +108,13 @@ def main():
         )
         print(f"Eval accuracy: {acc} for checkpoint: {checkpoint}")
         results.append(acc)
+
+    # Save results to CSV
+    results_file = osp.join(args.checkpoint, "eval_results.csv")
+    with open(results_file, "w") as f:
+        f.write("checkpoint,accuracy\n")
+        for checkpoint, acc in zip(checkpoints, results):
+            f.write(f"{checkpoint},{acc}\n")
 
 
 if __name__ == "__main__":

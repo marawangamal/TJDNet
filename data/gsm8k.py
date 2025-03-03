@@ -106,7 +106,7 @@ def load_gsm8k_data(
     input_seq_len,
     test_size=0.01,
     max_num_samples=68000,
-    print_stats=True,
+    print_stats=False,
     **kwargs,
 ):
     train_dataset = load_dataset("openai/gsm8k", "main", split="train")
