@@ -3,6 +3,8 @@ if __name__ == "__main__":
 # https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html
 
 
+from argparse import Namespace
+import argparse
 import os
 from typing import Any, Union
 
@@ -88,7 +90,7 @@ def generate_output_distribution_spectrum(
         outputs = model(input_ids)
     logits = outputs.logits
     # P(y_1| x)  v-dimensional
-    probs = torch.nn.functional.softmax(logits, dim=-1)  # (1, vocab_size)
+    probs = torch.nn.functional.softmax(logits[0, -1])  # (1, vocab_size)
 
     for i in range(vocab_size):
         with torch.no_grad():
@@ -97,19 +99,21 @@ def generate_output_distribution_spectrum(
             )
         logits = outputs.logits
         # P(y_1=j, y_2| x) v-dimensional
-        probs = torch.nn.functional.softmax(logits, dim=-1)  # (1, vocab_size)
+        probs = torch.nn.functional.softmax(logits[0, -1])
         output_mat[i] = probs[0]
 
     return output_mat
 
 
-def main():
+def main(args: Namespace):
     # Configuration
     # meta-llama/Llama-2-7b-chat-hf
     model = AutoModelForCausalLM.from_pretrained(
-        "meta-llama/Llama-2-7b-chat-hf", low_cpu_mem_usage=True
+        # "meta-llama/Llama-2-7b-chat-hf",
+        args.model,
+        low_cpu_mem_usage=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
 
     # Generate output distribution spectrum
     print("Generating output distribution matrix...")
@@ -129,8 +133,16 @@ def main():
     print(f"Sum of all singular values: {spectrum.sum()}")
     print(f"Effective rank (singular values > 1e-10): {(spectrum > 1e-10).sum()}")
 
-    # Plot spectrum
-
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Analyze the output spectrum of language models"
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="gpt2",  # meta-llama/Llama-2-7b-chat-hf
+        help="Hugging Face model identifier (default: gpt2)",
+    )
+    args = parser.parse_args()
+    main(args)
