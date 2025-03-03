@@ -7,6 +7,7 @@ from argparse import Namespace
 import argparse
 import os
 from typing import Any, Union
+from tqdm import tqdm
 
 import torch
 from transformers import (
@@ -92,7 +93,15 @@ def generate_output_distribution_spectrum(
     # P(y_1| x)  v-dimensional
     probs = torch.nn.functional.softmax(logits[0, -1])  # (1, vocab_size)
 
-    for i in range(vocab_size):
+    for i in tqdm(
+        range(vocab_size),
+        desc="Processing tokens",
+        unit="token",
+        leave=False,
+        dynamic_ncols=True,
+        smoothing=0.1,
+        colour="green",
+    ):
         with torch.no_grad():
             outputs = model(
                 torch.cat([input_ids, torch.tensor([i]).reshape(1, 1)], dim=-1)
@@ -106,10 +115,7 @@ def generate_output_distribution_spectrum(
 
 
 def main(args: Namespace):
-    # Configuration
-    # meta-llama/Llama-2-7b-chat-hf
     model = AutoModelForCausalLM.from_pretrained(
-        # "meta-llama/Llama-2-7b-chat-hf",
         args.model,
         low_cpu_mem_usage=True,
     )
@@ -122,11 +128,9 @@ def main(args: Namespace):
     print("Computing spectrum...")
     spectrum = get_spectrum(output_mat)
 
-    # Plot spectrum
-
     print("Plotting spectrum...")
     os.makedirs("results", exist_ok=True)
-    plot_spectrum(spectrum, save_path="results/spectrum_plot.png")
+    plot_spectrum(spectrum, save_path=f"results/spectrum_plot_{args.model}.png")
 
     # Print some statistics
     print(f"Top 10 singular values: {spectrum[:10]}")
@@ -139,6 +143,7 @@ if __name__ == "__main__":
         description="Analyze the output spectrum of language models"
     )
     parser.add_argument(
+        "-m",
         "--model",
         type=str,
         default="gpt2",  # meta-llama/Llama-2-7b-chat-hf
