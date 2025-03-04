@@ -53,3 +53,7 @@ Mean latency: 0.403s ± 0.010s
 Min: 0.398s | Max: 0.425s
 GPU memory (allocated): 33970.34 MB ± 0.00 MB
 CPU memory (RSS): 1125.05 MB ± 0.05 MB
+
+
+llama::cp::rank16::horizon2:num_layers2
+0.04

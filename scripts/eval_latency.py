@@ -2,17 +2,19 @@
 
 Examples:
 
-python eval_latency.py --device cuda --model_family llama --out_seq_len 32 --inp_seq_len 8
-python eval_latency.py --device cuda --model_family gpt2 --out_seq_len 128 --inp_seq_len 256
+python scripts/eval_latency.py --device cuda --model_family llama --out_seq_len 32 --inp_seq_len 8
+python scripts/eval_latency.py --device cuda --model_family gpt2 --out_seq_len 128 --inp_seq_len 256
 
 """
 
-import argparse
-import torch
-from tqdm import tqdm
+import gc
 import time
 import psutil
-import gc
+import argparse
+from tqdm import tqdm
+
+import torch
+import pandas as pd
 from statistics import mean, stdev
 
 from tjdnet.distributions._base import BaseDistConfig
@@ -147,32 +149,61 @@ def log_summary(result):
         print(f"Max CPU memory (RSS): {max(peak_rss):.2f} MB")
 
 
-def log_results(results):
-    # Print results
-    print("\nBenchmark Results:")
-    print("-" * 50)
-    for model_name, stats in results.items():
-        print(f"\n{model_name}:")
-        print(f"Mean latency: {stats['mean']:.3f}s ± {stats['std']:.3f}s")
-        print(f"Min: {stats['min']:.3f}s | Max: {stats['max']:.3f}s")
+def log_results(results, output_format="markdown", cols=None):
+    # Create a list to hold each model's data
+    table_data = []
 
-        # Memory usage
+    for model_name, stats in results.items():
+        # Latency stats
+        latency = f"{stats['mean']:.3f}s ± {stats['std']:.3f}s"
+        min_lat = f"{stats['min']:.3f}s"
+        max_lat = f"{stats['max']:.3f}s"
+
+        # GPU memory
         if torch.cuda.is_available() and stats["memory"]["peak_gpu"]:
-            # Get the first device's stats
             device = list(stats["memory"]["peak_gpu"][0].keys())[0]
             peak_allocs = [
                 run[device]["peak_allocated_mb"] for run in stats["memory"]["peak_gpu"]
             ]
-            print(
-                f"GPU memory (allocated): {mean(peak_allocs):.2f} MB ± {stdev(peak_allocs) if len(peak_allocs) > 1 else 0:.2f} MB"
-            )
+            gpu_mem = f"{mean(peak_allocs):.2f} MB ± {stdev(peak_allocs) if len(peak_allocs) > 1 else 0:.2f} MB"
+        else:
+            gpu_mem = "N/A"
 
         # CPU memory
         if stats["memory"]["peak_cpu"]:
             peak_rss = [run["rss_mb"] for run in stats["memory"]["peak_cpu"]]
-            print(
-                f"CPU memory (RSS): {mean(peak_rss):.2f} MB ± {stdev(peak_rss) if len(peak_rss) > 1 else 0:.2f} MB"
-            )
+            cpu_mem = f"{mean(peak_rss):.2f} MB ± {stdev(peak_rss) if len(peak_rss) > 1 else 0:.2f} MB"
+        else:
+            cpu_mem = "N/A"
+
+        # Add row to table data
+        table_data.append(
+            {
+                "Model": model_name,
+                "Latency (mean ± std)": latency,
+                "Min Latency": min_lat,
+                "Max Latency": max_lat,
+                "GPU Memory": gpu_mem,
+                "CPU Memory": cpu_mem,
+            }
+        )
+
+    # Create DataFrame
+    df = pd.DataFrame(table_data)
+
+    # Output in the desired format
+    if output_format.lower() == "markdown":
+        result = df.to_markdown(index=False)
+    elif output_format.lower() == "latex":
+        result = df.to_latex(index=False)
+    elif output_format.lower() == "html":
+        result = df.to_html(index=False)
+    else:
+        # Default to print in a readable format
+        result = df.to_string(index=False)
+
+    print(result)
+    return result
 
 
 def main(args):
@@ -294,14 +325,16 @@ def main(args):
             ),
         },
         {
-            "name": "llama::cp::rank2::horizon2",
+            "name": "llama::cp::nlayers2::rank2::horizon2",
             "model_fn": lambda: TJDLLAMA(
                 TJDConfig(
                     base_dist=BaseDistConfig(
                         vocab_size=32000,
                         horizon=2,
                         rank=2,
-                        param_net=TensorParamNetConfig(),
+                        param_net=TensorParamNetConfig(
+                            num_layers=2,
+                        ),
                     ),
                     model_head="cp",
                     model_kwargs=llama_model_kwargs,
@@ -312,14 +345,16 @@ def main(args):
             ),
         },
         {
-            "name": "llama::cp::rank4::horizon4",
+            "name": "llama::cp::nlayers2::rank4::horizon4",
             "model_fn": lambda: TJDLLAMA(
                 TJDConfig(
                     base_dist=BaseDistConfig(
                         vocab_size=32000,
                         horizon=4,
                         rank=4,
-                        param_net=TensorParamNetConfig(),
+                        param_net=TensorParamNetConfig(
+                            num_layers=2,
+                        ),
                     ),
                     model_head="cp",
                     model_kwargs=llama_model_kwargs,
