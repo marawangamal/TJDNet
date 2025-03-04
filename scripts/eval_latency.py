@@ -105,101 +105,99 @@ def benchmark_model_v2(
         # Get current CPU memory usage
         peak_cpu_mem.append(get_cpu_memory_stats())
 
-    # Calculate memory deltas from baseline
-    mem_stats = {
-        "gpu_baseline": baseline_gpu_mem,
-        "cpu_baseline": baseline_cpu_mem,
-        "peak_gpu": peak_gpu_mem,
-        "peak_cpu": peak_cpu_mem,
-    }
+    # Process GPU memory stats
+    gpu_memory = {}
+    if torch.cuda.is_available() and peak_gpu_mem:
+        # Use device 0 for simplicity
+        device = f"cuda:0"
+        allocated_vals = [run[device]["peak_allocated_mb"] for run in peak_gpu_mem]
+        reserved_vals = [run[device]["peak_reserved_mb"] for run in peak_gpu_mem]
+
+        gpu_memory["allocated"] = {
+            "mean": mean(allocated_vals),
+            "std": stdev(allocated_vals) if len(allocated_vals) > 1 else 0,
+            "min": min(allocated_vals),
+            "max": max(allocated_vals),
+        }
+
+        gpu_memory["reserved"] = {
+            "mean": mean(reserved_vals),
+            "std": stdev(reserved_vals) if len(reserved_vals) > 1 else 0,
+            "min": min(reserved_vals),
+            "max": max(reserved_vals),
+        }
+
+    # Process CPU memory stats
+    cpu_memory = {}
+    if peak_cpu_mem:
+        rss_vals = [run["rss_mb"] for run in peak_cpu_mem]
+        cpu_memory["rss"] = {
+            "mean": mean(rss_vals),
+            "std": stdev(rss_vals) if len(rss_vals) > 1 else 0,
+            "min": min(rss_vals),
+            "max": max(rss_vals),
+        }
 
     return {
-        "mean": mean(latencies),
-        "std": stdev(latencies) if len(latencies) > 1 else 0,
-        "min": min(latencies),
-        "max": max(latencies),
-        "all_latencies": latencies,
-        "memory": mem_stats,
+        "latency": {
+            "mean": mean(latencies),
+            "std": stdev(latencies) if len(latencies) > 1 else 0,
+            "min": min(latencies),
+            "max": max(latencies),
+        },
+        "gpu_memory (allocated)": gpu_memory.get("allocated", {}),
+        "gpu_memory (reserved)": gpu_memory.get("reserved", {}),
+        "cpu_memory (rss)": cpu_memory.get("rss", {}),
     }
-
-
-def log_summary(result):
-    print(f"Mean latency: {result['mean']:.3f}s ± {result['std']:.3f}s")
-    print(f"Min latency: {result['min']:.3f}s")
-    print(f"Max latency: {result['max']:.3f}s")
-
-    # Log memory usage summary
-    if torch.cuda.is_available() and result["memory"]["peak_gpu"]:
-        # Get the first device's stats
-        device = list(result["memory"]["peak_gpu"][0].keys())[0]
-        peak_allocs = [
-            run[device]["peak_allocated_mb"] for run in result["memory"]["peak_gpu"]
-        ]
-        print(
-            f"Mean GPU memory (allocated): {mean(peak_allocs):.2f} MB ± {stdev(peak_allocs) if len(peak_allocs) > 1 else 0:.2f} MB"
-        )
-        print(f"Max GPU memory (allocated): {max(peak_allocs):.2f} MB")
-
-    # Log CPU memory
-    if result["memory"]["peak_cpu"]:
-        peak_rss = [run["rss_mb"] for run in result["memory"]["peak_cpu"]]
-        print(
-            f"Mean CPU memory (RSS): {mean(peak_rss):.2f} MB ± {stdev(peak_rss) if len(peak_rss) > 1 else 0:.2f} MB"
-        )
-        print(f"Max CPU memory (RSS): {max(peak_rss):.2f} MB")
 
 
 def log_results(results, output_format="markdown", cols=None):
+    """Generate a formatted table of benchmark results for multiple models.
+
+    Args:
+        results (dict): Dictionary of benchmark results for each model (eg. {model_name: {metric_name: metric_value}}).
+        output_format (str): Output format for the table (markdown, latex, html, or default).
+        cols (list): List of columns to include in the table.
+    """
     # Create a list to hold each model's data
     table_data = []
 
-    for model_name, stats in results.items():
-        # Latency stats
-        latency = f"{stats['mean']:.3f}s ± {stats['std']:.3f}s"
-        min_lat = f"{stats['min']:.3f}s"
-        max_lat = f"{stats['max']:.3f}s"
+    for model_name, model_stats in results.items():
+        row_data = {"Model": model_name}
 
-        # GPU memory
-        if torch.cuda.is_available() and stats["memory"]["peak_gpu"]:
-            device = list(stats["memory"]["peak_gpu"][0].keys())[0]
-            peak_allocs = [
-                run[device]["peak_allocated_mb"] for run in stats["memory"]["peak_gpu"]
-            ]
-            gpu_mem = f"{mean(peak_allocs):.2f} MB ± {stdev(peak_allocs) if len(peak_allocs) > 1 else 0:.2f} MB"
+        # Process each metric that has the expected structure
+        for metric_name, metric_values in model_stats.items():
+            if isinstance(metric_values, dict) and all(
+                k in metric_values for k in ["mean", "std"]
+            ):
+                # For each metric, add mean ± std
+                row_data[f"{metric_name}"] = (
+                    f"{metric_values['mean']:.3f} ± {metric_values['std']:.3f}"
+                )
+
+        # Filter columns if specified
+        if cols is not None:
+            filtered_row = {col: row_data[col] for col in cols if col in row_data}
+            table_data.append(filtered_row)
         else:
-            gpu_mem = "N/A"
-
-        # CPU memory
-        if stats["memory"]["peak_cpu"]:
-            peak_rss = [run["rss_mb"] for run in stats["memory"]["peak_cpu"]]
-            cpu_mem = f"{mean(peak_rss):.2f} MB ± {stdev(peak_rss) if len(peak_rss) > 1 else 0:.2f} MB"
-        else:
-            cpu_mem = "N/A"
-
-        # Add row to table data
-        table_data.append(
-            {
-                "Model": model_name,
-                "Latency (mean ± std)": latency,
-                "Min Latency": min_lat,
-                "Max Latency": max_lat,
-                "GPU Memory": gpu_mem,
-                "CPU Memory": cpu_mem,
-            }
-        )
+            table_data.append(row_data)
 
     # Create DataFrame
     df = pd.DataFrame(table_data)
 
     # Output in the desired format
-    if output_format.lower() == "markdown":
-        result = df.to_markdown(index=False)
-    elif output_format.lower() == "latex":
-        result = df.to_latex(index=False)
-    elif output_format.lower() == "html":
-        result = df.to_html(index=False)
-    else:
-        # Default to print in a readable format
+    try:
+        if output_format.lower() == "markdown":
+            result = df.to_markdown(index=False)
+        elif output_format.lower() == "latex":
+            result = df.to_latex(index=False)
+        elif output_format.lower() == "html":
+            result = df.to_html(index=False)
+        else:
+            # Default to print in a readable format
+            result = df.to_string(index=False)
+    except ImportError:
+        # Fallback if dependencies are missing
         result = df.to_string(index=False)
 
     print(result)
@@ -386,7 +384,7 @@ def main(args):
             results[exp["name"]] = benchmark_model_v2(
                 model, benchmark_fn, benchmark_fn_kwargs={"input_ids": input_ids}
             )
-            log_summary(results[exp["name"]])
+            # print(f"{exp['name']}: {results[exp['name']['latency']['mean']]}")
 
             # Clean up to avoid memory accumulation between experiments
             del model
