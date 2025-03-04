@@ -24,7 +24,29 @@ import matplotlib.pyplot as plt
 
 def get_spectrum(output_mat):
     """Get spectrum of 2D matrix by computing singular values"""
-    _, s, _ = torch.linalg.svd(output_mat)
+    spectrum_tests = [
+        {
+            "test": lambda x: torch.isnan(x).any(),
+            "error": "Matrix contains NaN values",
+        },
+        {
+            "test": lambda x: torch.isinf(x).any(),
+            "error": "Matrix contains infinite values",
+        },
+        {
+            "test": lambda x: x.ndim != 2,
+            "error": "Matrix must be 2D",
+        },
+    ]
+
+    for test in spectrum_tests:
+        if test["test"](output_mat):
+            raise ValueError(test["error"])
+
+    # Print min/max values for debugging
+    print(f"Min value: {output_mat.min()}")
+    print(f"Max value: {output_mat.max()}")
+    _, s, _ = torch.linalg.svd(output_mat, full_matrices=False)
     return s
 
 
@@ -139,6 +161,78 @@ def generate_output_distribution_spectrum(
     return output_mat
 
 
+def generate_output_distribution_spectrum_batched(
+    model: torch.nn.Module,
+    tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
+    start_str: str = "\n",
+    checkpoint_steps: int = 50,  # Save progress every n tokens
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    batch_size: int = 128,
+    overwrite: bool = True,
+):
+    """Batched version of generate_output_distribution_spectrum"""
+    # Ensure 'results' directory exists for checkpoint
+    os.makedirs("results", exist_ok=True)
+    checkpoint_path = "results/output_mat_batched_checkpoint.pt"
+
+    # Initialize or resume
+    vocab_size = len(tokenizer.get_vocab())
+    p_y1_y2 = torch.zeros((vocab_size, vocab_size))
+    start_idx = 0
+
+    if os.path.exists(checkpoint_path) and not overwrite:
+        # If there's a checkpoint, load it
+        saved_mat, saved_idx = torch.load(checkpoint_path)
+        # Copy the saved matrix into our newly allocated matrix in case sizes match
+        p_y1_y2[: saved_mat.shape[0], : saved_mat.shape[1]] = saved_mat
+        start_idx = saved_idx
+        print(f"Resuming from {checkpoint_path} at token index {start_idx}.")
+
+    x = torch.tensor(tokenizer.encode(start_str, return_tensors="pt")).to(
+        device
+    )  # Shape: (1, seq_len)
+    model.to(device)
+
+    # Use 'total' and 'initial' in tqdm, then manually call pbar.update(1)
+    with tqdm(
+        total=vocab_size,
+        initial=start_idx,
+        desc="Processing tokens",
+        unit="token",
+        leave=False,
+        dynamic_ncols=True,
+        smoothing=0.1,
+        colour="green",
+    ) as pbar:
+        for i in range(start_idx, vocab_size, batch_size):
+            with torch.no_grad():
+                y1 = (
+                    torch.arange(i, min(i + batch_size, vocab_size))
+                    .reshape(-1, 1)
+                    .to(device)
+                )  # Shape: (batch_size, 1)
+                outputs = model(torch.cat([x.repeat(y1.size(0), 1), y1], dim=-1))
+            logits = outputs.logits  # Shape: (batch_size, 2, vocab_size)
+            p_y1 = torch.nn.functional.softmax(
+                logits[:, -2], dim=-1
+            )  # Shape: (batch_size, vocab_size)
+            p_y2_g_y1 = torch.nn.functional.softmax(
+                logits[:, -1], dim=-1
+            )  # Shape: (batch_size, vocab_size)
+            p_y1_y2[i : i + batch_size] = p_y2_g_y1 * p_y1
+
+            # Periodically save checkpoint
+            if (i + 1) % (checkpoint_steps * batch_size) == 0 or (i + 1) == vocab_size:
+                torch.save((p_y1_y2, i + 1), checkpoint_path)
+                if (i + 1) < vocab_size:
+                    pbar.set_postfix_str(f"Checkpoint saved at index {i+1}")
+
+            # Manually update the tqdm bar by 1 step
+            pbar.update(batch_size)
+
+    return p_y1_y2
+
+
 def main(args: Namespace):
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
@@ -148,7 +242,7 @@ def main(args: Namespace):
 
     # Generate output distribution spectrum (resuming or starting fresh)
     print("Generating output distribution matrix...")
-    output_mat = generate_output_distribution_spectrum(model, tokenizer)
+    output_mat = generate_output_distribution_spectrum_batched(model, tokenizer)
 
     print("Computing spectrum...")
     spectrum = get_spectrum(output_mat)

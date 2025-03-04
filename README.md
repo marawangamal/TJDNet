@@ -34,8 +34,8 @@ Results obtained after training LLama7b on GSM8k for 10 epochs.
 
 | Model                                 | Latency [s]   | Accuracy      |                                                                                            
 |:--------------------------------------|:--------------|:--------------|
-| llama                                 | 1.491 ± 0.011 | 0.4 |
-| llama::cp::nlayers2::rank16::horizon2 | 0.757 ± 0.007 | 0.4 |
+| llama                                 | 1.491 ± 0.011 | 0.04 |
+| llama::cp::nlayers2::rank16::horizon2 | 0.757 ± 0.007 | 0.04 |
 | llama::cp::nlayers2::rank32::horizon2 | 0.775 ± 0.010 | - |
 
 ## Creating a custom TJDModel
