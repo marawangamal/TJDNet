@@ -105,9 +105,10 @@ def generate_output_distribution_spectrum(
     )  # Shape: (1, seq_len)
     model.to(device)
 
-    # Wrap the for-loop in 'with tqdm(...) as pbar:'
+    # Use 'total' and 'initial' in tqdm, then manually call pbar.update(1)
     with tqdm(
-        range(start_idx, vocab_size),
+        total=vocab_size,
+        initial=start_idx,
         desc="Processing tokens",
         unit="token",
         leave=False,
@@ -115,9 +116,8 @@ def generate_output_distribution_spectrum(
         smoothing=0.1,
         colour="green",
     ) as pbar:
-        for i in pbar:
+        for i in range(start_idx, vocab_size):
             with torch.no_grad():
-                # p(y2) = model(x, y1)
                 outputs = model(
                     torch.cat(
                         [input_ids, torch.tensor([i]).to(device).reshape(1, 1)], dim=-1
@@ -131,8 +131,10 @@ def generate_output_distribution_spectrum(
             if (i + 1) % checkpoint_steps == 0 or (i + 1) == vocab_size:
                 torch.save((output_mat, i + 1), checkpoint_path)
                 if (i + 1) < vocab_size:
-                    # Update tqdm postfix instead of printing
                     pbar.set_postfix_str(f"Checkpoint saved at index {i+1}")
+
+            # Manually update the tqdm bar by 1 step
+            pbar.update(1)
 
     return output_mat
 

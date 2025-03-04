@@ -131,16 +131,16 @@ def parse_args():
     parser.add_argument(
         "--rank",
         type=int,
-        default=2,
+        default=1,
         help="Rank of the tensor train decomposition.",
     )
     parser.add_argument(
         "--horizon",
         type=int,
-        default=2,
+        default=1,
         help="Block size for model input sequences.",
     )
-    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate.")
+    parser.add_argument("--dropout", type=float, default=0, help="Dropout rate.")
     parser.add_argument(
         "--positivity_func",
         type=str,
@@ -156,12 +156,12 @@ def parse_args():
             "random",  # Completely random initialization
             "pretrained",  # Initialize the model tensor head with pretrained weights
         ],
-        help="Initialization method for model head - pretrained (p) or random (r)",
+        help="Initialization method for model head - pretrained or random",
     )
     # Training mode
     parser.add_argument(
         "--train_mode",
-        default="full",
+        default="lora",
         choices=[
             "full",
             "last",
@@ -172,7 +172,7 @@ def parse_args():
     parser.add_argument(
         "--lora_rank",
         type=int,
-        default=8,
+        default=32,
         help="Rank of the tensor train decomposition for LORA training.",
     )
     parser.add_argument(
@@ -185,7 +185,7 @@ def parse_args():
     parser.add_argument(
         "--horizon_eval",
         type=int,
-        default=2,
+        default=1,
         help="Block size for model input sequences.",
     )
     parser.add_argument(
@@ -197,7 +197,7 @@ def parse_args():
     parser.add_argument(
         "--top_k",
         type=int,
-        default=50,
+        default=200,
         help="Retain only the top_k most likely tokens, clamp others to have 0 probability",
     )
     parser.add_argument(
@@ -242,33 +242,33 @@ def parse_args():
     parser.add_argument(
         "--logging_strategy",
         type=str,
-        default="steps",
+        default="epoch",
         choices=["steps", "epoch"],
         help="Logging strategy for the trainer.",
     )
     parser.add_argument(
         "--logging_steps",
         type=int,
-        default=100,
+        default=1,
         help="Logging frequency for the trainer.",
     )
     parser.add_argument(
         "--eval_strategy",
         type=str,
-        default="steps",
+        default="epoch",
         choices=["steps", "epoch"],
         help="Evaluation strategy for the trainer.",
     )
     parser.add_argument(
         "--eval_steps",
         type=int,
-        default=200,
+        default=1,
         help="Evaluation frequency for the trainer.",
     )
     parser.add_argument(
         "--generate_strategy",
         type=str,
-        default="steps",
+        default="epoch",
         choices=["steps", "epoch", "no"],
         help="Strategy for text generation during training",
     )
