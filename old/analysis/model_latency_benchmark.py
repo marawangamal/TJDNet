@@ -18,8 +18,8 @@ import time
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from helpers import get_model_and_tokenizer
-from models.tjdgpt2 import TJDGPT2
+from utils.train_helpers import get_model_and_tokenizer
+from tjdnet.models.tjdgpt2 import TJDGPT2
 
 
 def parse_args():

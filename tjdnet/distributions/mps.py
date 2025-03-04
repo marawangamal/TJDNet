@@ -1,8 +1,8 @@
 from typing import List, Tuple
 import torch
 
-from distributions._base import BaseDistConfig, BaseDistribution
-from tensorops.mps import (
+from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
+from tjdnet.tensorops.mps import (
     sample_from_mps_tensorV1,
     select_from_mps_tensor,
     select_margin_mps_tensor,

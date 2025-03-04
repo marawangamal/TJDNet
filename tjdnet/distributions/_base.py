@@ -4,7 +4,7 @@ from typing import Optional, Tuple, List
 
 import torch
 
-from distributions.tpnet import TensorParamNet, TensorParamNetConfig
+from tjdnet.distributions.tpnet import TensorParamNet, TensorParamNetConfig
 
 
 @dataclass

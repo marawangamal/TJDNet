@@ -1,7 +1,7 @@
 import torch
 import line_profiler
 
-from tensorops.common import get_breakpoints, mps_to_tensor
+from tjdnet.tensorops.common import get_breakpoints, mps_to_tensor
 
 
 def select_from_umps_tensor(

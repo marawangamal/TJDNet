@@ -59,9 +59,9 @@ from torch.distributed.fsdp.wrap import (
 import pdb
 import sys
 
-from callbacks.eval_gsm8k import compute_accuracy
-from distributions.base import BaseDist
-from helpers import get_chat_template, get_model_and_tokenizer, parse_args
+from utils.callbacks.eval_gsm8k import compute_accuracy
+from tjdnet.distributions.base import BaseDist
+from utils.train_helpers import get_chat_template, get_model_and_tokenizer, parse_args
 
 
 def create_tjd_auto_wrap_policy(

@@ -3,8 +3,8 @@ from git import Optional
 import torch
 import torch.autograd.profiler as profiler
 
-from distributions._base import BaseDistConfig, BaseDistribution
-from tensorops.cp import (
+from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
+from tjdnet.tensorops.cp import (
     sample_from_cp_tensor,
     select_from_cp_tensor,
     select_margin_cp_tensor,

@@ -1,7 +1,7 @@
 from typing import List, Optional, Tuple
 import torch
 
-from tensorops.common import get_breakpoints, mps_to_tensor
+from tjdnet.tensorops.common import get_breakpoints, mps_to_tensor
 from utils.beam_search import beam_search
 
 

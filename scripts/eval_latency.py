@@ -15,11 +15,11 @@ import psutil
 import gc
 from statistics import mean, stdev
 
-from distributions._base import BaseDistConfig
-from distributions.tpnet import TensorParamNetConfig
-from models._tjd import TJDConfig
-from models.tjdgpt2 import TJDGPT2
-from models.tjdllama import TJDLLAMA
+from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions.tpnet import TensorParamNetConfig
+from tjdnet.models._tjd import TJDConfig
+from tjdnet.models.tjdgpt2 import TJDGPT2
+from tjdnet.models.tjdllama import TJDLLAMA
 
 
 def get_gpu_memory_stats():

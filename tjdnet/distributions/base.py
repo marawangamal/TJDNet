@@ -2,8 +2,8 @@ from typing import List, Optional, Tuple
 import torch
 import line_profiler
 
-from distributions._base import BaseDistribution, BaseDistConfig
-from tensorops.common import sample_from_tensor_dist
+from tjdnet.distributions._base import BaseDistribution, BaseDistConfig
+from tjdnet.tensorops.common import sample_from_tensor_dist
 
 
 class BaseDist(BaseDistribution):

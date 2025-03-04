@@ -3,7 +3,7 @@ import torch
 import tensorly as tl
 import line_profiler
 
-from tensorops.common import get_breakpoints
+from tjdnet.tensorops.common import get_breakpoints
 
 tl.set_backend("pytorch")
 

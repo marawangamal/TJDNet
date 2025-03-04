@@ -32,8 +32,8 @@ from transformers import (
 )
 
 
-from callbacks.eval_gsm8k import compute_accuracy
-from callbacks.generation import GenerationCallback
+from utils.callbacks.eval_gsm8k import compute_accuracy
+from utils.callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
 from data.sharegptv2 import load_sharegptv2_data
@@ -42,7 +42,7 @@ from data.syn_numbers import load_syn_num_data
 from data.syn_temp import load_syn_temp_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
-from helpers import (
+from utils.train_helpers import (
     get_chat_template,
     get_git_info,
     get_model_and_tokenizer,

@@ -7,13 +7,13 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 import torch
 
-from distributions._base import BaseDistConfig
-from distributions.base import BaseDist
-from distributions.cp import CPDist
-from distributions.full import FullDist
-from distributions.mps import MPSDist
-from distributions.umps import UMPSDist
-from tensorops.common import get_windowed_input_ids
+from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions.base import BaseDist
+from tjdnet.distributions.cp import CPDist
+from tjdnet.distributions.full import FullDist
+from tjdnet.distributions.mps import MPSDist
+from tjdnet.distributions.umps import UMPSDist
+from tjdnet.tensorops.common import get_windowed_input_ids
 from utils.beam_search import beam_search, get_candidates
 
 import line_profiler

@@ -1,17 +1,17 @@
 from typing import Optional
 import torch
-from models._tjd import TJD, TJDConfig
+from tjdnet.models._tjd import TJD, TJDConfig
 
-from transformers import AutoModelForCausalLM
+from transformers import (
+    GPT2Config,
+    GPT2LMHeadModel,
+)
 
 
-class LLAMA(torch.nn.Module):
+class GPT2(torch.nn.Module):
     def __init__(self, config: TJDConfig, **kwargs):
         super().__init__()
-        self.model = AutoModelForCausalLM.from_pretrained(
-            "meta-llama/Llama-2-7b-chat-hf",
-            low_cpu_mem_usage=True,
-        )
+        self.model = GPT2LMHeadModel(GPT2Config(**config.model_kwargs))
 
     def forward(
         self,

@@ -15,13 +15,13 @@ from data.sharegptv2 import ChatTemplateShareGPTV2
 from data.syn_number_bases import ChatTemplateSynNumBase
 from data.syn_numbers import ChatTemplateSynNum
 from data.syn_temp import ChatTemplateSynTemp
-from distributions._base import BaseDistConfig
-from distributions.tpnet import TensorParamNetConfig
-from models._tjd import TJDConfig
-from models.gpt2 import GPT2
-from models.llama import LLAMA
-from models.tjdgpt2 import TJDGPT2
-from models.tjdllama import TJDLLAMA
+from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions.tpnet import TensorParamNetConfig
+from tjdnet.models._tjd import TJDConfig
+from tjdnet.models.gpt2 import GPT2
+from tjdnet.models.llama import LLAMA
+from tjdnet.models.tjdgpt2 import TJDGPT2
+from tjdnet.models.tjdllama import TJDLLAMA
 
 
 import uuid

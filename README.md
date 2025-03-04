@@ -60,7 +60,7 @@ To add a custom model, create a new class that inherits from the base `TJD` clas
 
 
 ```python
-from models._tjd import TJD
+from tjdnet.models._tjd import TJD
 
 class SimpleModel(nn.Module):
     def __init__(self, vocab_size: int, n_embd: int):
