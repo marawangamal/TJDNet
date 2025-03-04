@@ -12,6 +12,7 @@ Speeding up language model inference via tensorized joint distributions. This co
 
 To install all requirements, run the following commands:
 ```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .  # Install TJD package
 pip install -e eval/human-eval # Install HumanEval

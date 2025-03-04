@@ -1,7 +1,13 @@
+"""Generates a spectrum plot of the output distribution for a language model.
+
+Example:
+    python gen_output_dist_spectrum.py --model meta-llama/Llama-2-7b-chat-hf
+"""
+
 from argparse import Namespace
 import argparse
 import os
-from typing import Any, Union
+from typing import Union
 from tqdm import tqdm
 
 import torch
@@ -74,22 +80,33 @@ def generate_output_distribution_spectrum(
     model: torch.nn.Module,
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     start_str: str = "\n",
+    checkpoint_steps: int = 100,  # Save progress every n tokens
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
+    # Ensure 'results' directory exists for checkpoint
+    os.makedirs("results", exist_ok=True)
+    checkpoint_path = "results/output_mat_checkpoint.pt"
+
+    # Initialize or resume
     vocab_size = len(tokenizer.get_vocab())
     output_mat = torch.zeros((vocab_size, vocab_size))
-    input_ids = torch.tensor(
-        tokenizer.encode(start_str, return_tensors="pt")
-    )  # (1, input_seq_len)
+    start_idx = 0
 
-    # Get dist over first output y_1
-    with torch.no_grad():
-        outputs = model(input_ids)
-    logits = outputs.logits
-    # P(y_1| x)  v-dimensional
-    probs = torch.nn.functional.softmax(logits[0, -1])  # (1, vocab_size)
+    if os.path.exists(checkpoint_path):
+        # If there's a checkpoint, load it
+        saved_mat, saved_idx = torch.load(checkpoint_path)
+        # Copy the saved matrix into our newly allocated matrix in case sizes match
+        output_mat[: saved_mat.shape[0], : saved_mat.shape[1]] = saved_mat
+        start_idx = saved_idx
+        print(f"Resuming from {checkpoint_path} at token index {start_idx}.")
+
+    input_ids = torch.tensor(tokenizer.encode(start_str, return_tensors="pt")).to(
+        device
+    )  # Shape: (1, seq_len)
+    model.to(device)
 
     for i in tqdm(
-        range(vocab_size),
+        range(start_idx, vocab_size),
         desc="Processing tokens",
         unit="token",
         leave=False,
@@ -98,13 +115,21 @@ def generate_output_distribution_spectrum(
         colour="green",
     ):
         with torch.no_grad():
+            # p(y2) = model(x, y1)
             outputs = model(
-                torch.cat([input_ids, torch.tensor([i]).reshape(1, 1)], dim=-1)
+                torch.cat(
+                    [input_ids, torch.tensor([i]).to(device).reshape(1, 1)], dim=-1
+                )
             )
         logits = outputs.logits
-        # P(y_1=j, y_2| x) v-dimensional
         probs = torch.nn.functional.softmax(logits[0, -1])
         output_mat[i] = probs[0]
+
+        # Periodically save checkpoint
+        if (i + 1) % checkpoint_steps == 0 or i + 1 == vocab_size:
+            torch.save((output_mat, i + 1), checkpoint_path)
+            if (i + 1) < vocab_size:
+                print(f"Checkpoint saved at index {i + 1}.")
 
     return output_mat
 
@@ -116,7 +141,7 @@ def main(args: Namespace):
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
-    # Generate output distribution spectrum
+    # Generate output distribution spectrum (resuming or starting fresh)
     print("Generating output distribution matrix...")
     output_mat = generate_output_distribution_spectrum(model, tokenizer)
 
