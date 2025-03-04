@@ -105,7 +105,8 @@ def generate_output_distribution_spectrum(
     )  # Shape: (1, seq_len)
     model.to(device)
 
-    for i in tqdm(
+    # Wrap the for-loop in 'with tqdm(...) as pbar:'
+    with tqdm(
         range(start_idx, vocab_size),
         desc="Processing tokens",
         unit="token",
@@ -113,23 +114,25 @@ def generate_output_distribution_spectrum(
         dynamic_ncols=True,
         smoothing=0.1,
         colour="green",
-    ):
-        with torch.no_grad():
-            # p(y2) = model(x, y1)
-            outputs = model(
-                torch.cat(
-                    [input_ids, torch.tensor([i]).to(device).reshape(1, 1)], dim=-1
+    ) as pbar:
+        for i in pbar:
+            with torch.no_grad():
+                # p(y2) = model(x, y1)
+                outputs = model(
+                    torch.cat(
+                        [input_ids, torch.tensor([i]).to(device).reshape(1, 1)], dim=-1
+                    )
                 )
-            )
-        logits = outputs.logits
-        probs = torch.nn.functional.softmax(logits[0, -1])
-        output_mat[i] = probs[0]
+            logits = outputs.logits
+            probs = torch.nn.functional.softmax(logits[0, -1])
+            output_mat[i] = probs[0]
 
-        # Periodically save checkpoint
-        if (i + 1) % checkpoint_steps == 0 or i + 1 == vocab_size:
-            torch.save((output_mat, i + 1), checkpoint_path)
-            if (i + 1) < vocab_size:
-                print(f"Checkpoint saved at index {i + 1}.")
+            # Periodically save checkpoint
+            if (i + 1) % checkpoint_steps == 0 or (i + 1) == vocab_size:
+                torch.save((output_mat, i + 1), checkpoint_path)
+                if (i + 1) < vocab_size:
+                    # Update tqdm postfix instead of printing
+                    pbar.set_postfix_str(f"Checkpoint saved at index {i+1}")
 
     return output_mat
 
