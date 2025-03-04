@@ -139,15 +139,15 @@ def benchmark_model_v2(
         }
 
     return {
-        "latency": {
+        "Latency [s]": {
             "mean": mean(latencies),
             "std": stdev(latencies) if len(latencies) > 1 else 0,
             "min": min(latencies),
             "max": max(latencies),
         },
-        "gpu_memory (allocated)": gpu_memory.get("allocated", {}),
-        "gpu_memory (reserved)": gpu_memory.get("reserved", {}),
-        "cpu_memory (rss)": cpu_memory.get("rss", {}),
+        "GPU Memory (allocated)[MB]": gpu_memory.get("allocated", {}),
+        "GPU Memory (reserved) [MB]": gpu_memory.get("reserved", {}),
+        "CPU Memory (rss) [MB]": cpu_memory.get("rss", {}),
     }
 
 
@@ -323,13 +323,13 @@ def main(args):
             ),
         },
         {
-            "name": "llama::cp::nlayers2::rank2::horizon2",
+            "name": "llama::cp::nlayers2::rank16::horizon2",
             "model_fn": lambda: TJDLLAMA(
                 TJDConfig(
                     base_dist=BaseDistConfig(
                         vocab_size=32000,
                         horizon=2,
-                        rank=2,
+                        rank=16,
                         param_net=TensorParamNetConfig(
                             num_layers=2,
                         ),
@@ -343,13 +343,13 @@ def main(args):
             ),
         },
         {
-            "name": "llama::cp::nlayers2::rank4::horizon4",
+            "name": "llama::cp::nlayers2::rank32::horizon2",
             "model_fn": lambda: TJDLLAMA(
                 TJDConfig(
                     base_dist=BaseDistConfig(
                         vocab_size=32000,
-                        horizon=4,
-                        rank=4,
+                        horizon=2,
+                        rank=32,
                         param_net=TensorParamNetConfig(
                             num_layers=2,
                         ),
@@ -380,12 +380,11 @@ def main(args):
             print(f"\nBenchmarking {exp['name']}...")
             model = exp["model_fn"]().to(args.device)
             benchmark_fn = exp["benchmark_fn"]
-            # Run experiment
             results[exp["name"]] = benchmark_model_v2(
                 model, benchmark_fn, benchmark_fn_kwargs={"input_ids": input_ids}
             )
-            # print(f"{exp['name']}: {results[exp['name']['latency']['mean']]}")
-
+            # Add empty Accuracy column
+            results[exp["name"]]["Accuracy"] = {"mean": 0, "std": 0}
             # Clean up to avoid memory accumulation between experiments
             del model
             if torch.cuda.is_available():
@@ -396,6 +395,8 @@ def main(args):
             print(f"Error benchmarking {exp['name']}: {str(e)}")
 
     # Print results
+    log_results(results, cols=["Model", "Latency [s]", "Accuracy"])
+    # Print results (detailed)
     log_results(results)
 
 

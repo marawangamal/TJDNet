@@ -75,12 +75,6 @@ def parse_args():
         default=1.0,
         help="Gradient clipping value for training.",
     )
-    parser.add_argument(
-        "--resume_from_checkpoint",
-        default=False,
-        action="store_true",
-        help="Whether to use a memory efficient loss function.",
-    )
 
     # ---------------
     # Model arguments
