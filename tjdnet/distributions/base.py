@@ -103,6 +103,14 @@ class BaseDist(BaseDistribution):
         p_tilde = p_tilde.reshape(-1)  # (B, V)
         return p_tilde, []
 
+    # def sample(
+    #     self,
+    #     last_hidden_state: torch.Tensor,
+    #     horizon: Optional[int] = None,
+    #     **kwargs,
+    # ) -> torch.Tensor:
+    #     raise NotImplementedError("sample method must be implemented")
+
     def generate(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
     ) -> torch.Tensor:

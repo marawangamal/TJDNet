@@ -134,6 +134,9 @@ def select_margin_cp_tensor(
             -1: keep mode as free index
             [0,V): select index v in mode
 
+    Note:
+        - The number of free indices in `ops` must be at most 1
+
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
             - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
@@ -143,7 +146,9 @@ def select_margin_cp_tensor(
     # Validation:
     assert len(cp_params.shape) == 3, "CP params tensor must be 3D (non-batched)"
     assert len(ops.shape) == 1, "Ops tensor must be 1D (non-batched)"
-    assert (ops >= -2).all() and (ops < cp_params.size(2)).all(), "Invalid ops tensor"
+    assert (ops >= -2).all() and (
+        ops < cp_params.size(2)
+    ).all(), "Invalid ops tensor: must be in range [-2, vocab_size)"
 
     rank_size, seq_len, vocab_size = cp_params.size()
 
@@ -153,7 +158,9 @@ def select_margin_cp_tensor(
     )  # (1,), (1,) selects index at which selects end
     bp_free, bp_margin = int(bp_free.item()), int(bp_margin.item())
     assert bp_free < bp_margin, "Invalid ops tensor (select/marginalize order)"
-    assert bp_margin - bp_free == 1, "Only one free index is supported"
+    assert (
+        bp_margin - bp_free == 1
+    ), "Invalid ops tensor: at most one free index allowed"
 
     cp_params = cp_params
     cp_params_select = cp_params[:, :bp_free, :]  # (R, bp_select, D)

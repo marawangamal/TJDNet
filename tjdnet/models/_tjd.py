@@ -235,42 +235,52 @@ class TJD(ABC, torch.nn.Module):
         """
         # Assert that batch size is 1
         assert input_ids.size(0) == 1, "Only batch size 1 is supported"
-        input_ids_curr = input_ids.clone()
         dvc = input_ids.device
+        horizon = self._get_horizon(horizon)
+        output_seq_ids = input_ids.clone()  # (B, T)
+
+        last_hidden_state = None
         with torch.no_grad():
-            for t in range(max_new_tokens):
-                last_hidden_state = self.get_last_hidden_state(input_ids)[
+            for time_step in range(0, max_new_tokens, horizon):
+                last_hidden_state = self.get_last_hidden_state(output_seq_ids)[
                     :, -1:, :
-                ]  # forward pass
-                ops_tensor = torch.tensor(
-                    [-1],
-                    device=dvc,
-                )
-                next_token_probs, _ = self.model_head.get_dist(
-                    hidden_state=last_hidden_state,
-                    ops=ops_tensor,
-                )  # (V,)
-
-                if do_sample:
-                    # Apply top-k filtering
-                    top_k_probs, top_k_indices = torch.topk(next_token_probs, top_k)
-                    next_token = top_k_indices[torch.multinomial(top_k_probs, 1)]
-                else:
-                    # Greedy decoding
-                    next_token = torch.argmax(next_token_probs, dim=-1).to(
-                        input_ids_curr.device
+                ]  # (batch_size, 1, n_embd)
+                y_hat = []
+                for h in range(horizon):
+                    ops_tensor = torch.tensor(
+                        y_hat + [-1] + [-2] * (horizon - h - 1),
+                        device=dvc,
                     )
-
-                # Check for EOS token
-                if next_token.item() == stop_token:
-                    break
+                    p_ops_tilde, _ = (  # P(y_{t+h} | y_{1:t+h-1})
+                        self.model_head.get_dist(  # Returns probility specified by `ops` tensor
+                            hidden_state=last_hidden_state,
+                            ops=ops_tensor,
+                            use_cache=False if h == 0 else True,
+                            save_cache=True,
+                        )
+                    )  # (V,)
+                    if do_sample:
+                        # Apply top-k filtering
+                        top_k_scores, top_k_indices = torch.topk(
+                            p_ops_tilde, k=min(top_k, p_ops_tilde.size(0))
+                        )
+                        top_k_probs = torch.softmax(top_k_scores, dim=0)  # (top_k,)
+                        sampled_indices = torch.multinomial(
+                            top_k_probs, num_samples=1
+                        )  # (1,)
+                        next_token = top_k_indices[sampled_indices].item()
+                    else:
+                        # Greedy decoding
+                        next_token = torch.argmax(p_ops_tilde, dim=-1).to(dvc)  # (1,)
+                    y_hat.append(next_token)
 
                 # Append next token to input sequence
-                input_ids_curr = torch.cat(
-                    [input_ids_curr, next_token.reshape(1, 1)], dim=-1
+                output_seq_ids = torch.cat(
+                    [output_seq_ids, torch.tensor(y_hat, device=dvc).reshape(1, 1)],
+                    dim=-1,
                 )
 
-        return input_ids_curr
+        return output_seq_ids
 
     def generate_v1(
         self,
