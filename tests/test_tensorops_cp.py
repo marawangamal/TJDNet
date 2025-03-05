@@ -84,6 +84,25 @@ class TestCPTensor(unittest.TestCase):
         # Assert: shape
         self.assertEqual(result.shape, (batch_size, vocab_size))
 
+    def test_select_margin_cp_tensor_batched_values(self):
+        batch_size, rank, seq_len, vocab_size = 2, 2, 4, 3
+        cp_params = torch.ones(batch_size, rank, seq_len, vocab_size)  # (R, T, D)
+
+        # Create ops tensor with all three operation types:
+        # [0, -1, -1, -2] means:
+        # - select index 0 in first position
+        # - marginalize last two positions
+        ops = torch.tensor([[0, -1, -2, -2], [0, 1, -1, -2]])
+        result_batched, _ = select_margin_cp_tensor_batched_wip(
+            cp_params, ops
+        )  # (rank, n_free, vocab_size)
+
+        self.assertTrue(
+            torch.allclose(
+                result_batched, torch.tensor([[18.0, 18.0, 18.0], [6.0, 6.0, 6.0]])
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
