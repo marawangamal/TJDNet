@@ -3,64 +3,51 @@
 Speeding up language model inference via tensorized joint distributions. This codebase implements TJDNet for GPT and LLAMA models but can be easily extended to other models.
 
 ## Requirements
-- Python 3.9
-- PyTorch
-- transformers
-- human-eval
 
-## Installation
+Python 3.9 (ensure this exact version or a compatible environment)
 
-To install all requirements, run the following commands:
+### Installation 
+To install all dependencies, run the following commands:
 ```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .  # Install TJD package
-pip install -e eval/human-eval # Install HumanEval
+```
+
+Optionally, you can also install human-eval
+```bash
+pip install -e eval/human-eval
 ```
 
 ## Training
-To train the MPS model in the paper, run this command (best checkpoint will be saved under `checkpoints`)
+To fine-tune Lllama7b using the Matrix Product State (MPS) head, run this command (best checkpoint will be saved under `checkpoints`)
 ```bash 
-python train.py --model_head mps --rank 2 --horizon 2
+python train.py --model llama7b --model_head mps --rank 2 --horizon 2
 ```
 
 ## Evaluation
-To evaluate on HumanEval, run the following commands
-
-1. Generate completetions (will be saved to samples.jsonl)
-    ```
-    python eval/generate_completions.py --ckpt checkpoints/<checkpoint directory name>
-    ```
-2. Evaluate completetions
-    ```
-    python eval/human-eval/human_eval/evaluate_functional_correctness.py samples.jsonl
-    ```
-
-
-## View datasets
-To view a sample from the shakespeare dataset run
-```bash
-python data/shakespeare.py
+To compute accuracy for all checkpoints of a given experiment run:
+```bash 
+python sripts/eval_acc.py --checkpoint/<experiment_folder>
 ```
 
-## Visualization
-1. Generate completetions (will be saved to samples.jsonl)
-    ```
-    python eval/generate_completions.py --dev --ckpt checkpoints/<checkpoint directory name>
-    ```
+## Results
 
-2. Visualize a code completion sample
-    ```
-    python eval/visualize.py samples.jsonl
-    ```
+Results obtained after training LLama7b on GSM8k for 10 epochs.
 
+| Model                                 | Latency [s]   | Accuracy      |                                                                                            
+|:--------------------------------------|:--------------|:--------------|
+| llama                                 | 1.491 ± 0.011 | 0.04 |
+| llama::cp::nlayers2::rank16::horizon2 | 0.757 ± 0.007 | 0.04 |
+| llama::cp::nlayers2::rank32::horizon2 | 0.775 ± 0.010 | - |
 
-## Using custom models
+## Creating a custom TJDModel
 
-To add a custom model, create a new class that inherits from the base `TJD` class. Here's how:
+To add a custom model, see examples under [here](/tjdnet/models/tjdgpt2.py). A custom TJD mdoel must inherit from the TJD class and defin `get_base_model` and `get_last_hidden_state` methods
 
 
 ```python
-from models._tjd import TJD
+from tjdnet.models._tjd import TJD
 
 class SimpleModel(nn.Module):
     def __init__(self, vocab_size: int, n_embd: int):
@@ -124,3 +111,29 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+
+
+<!-- 
+## Evaluation
+To evaluate on HumanEval, run the following commands
+
+1. Generate completetions (will be saved to samples.jsonl)
+    ```
+    python eval/generate_completions.py --ckpt checkpoints/<checkpoint directory name>
+    ```
+2. Evaluate completetions
+    ```
+    python eval/human-eval/human_eval/evaluate_functional_correctness.py samples.jsonl
+    ```
+
+## Visualization
+1. Generate completetions (will be saved to samples.jsonl)
+    ```
+    python eval/generate_completions.py --dev --ckpt checkpoints/<checkpoint directory name>
+    ```
+
+2. Visualize a code completion sample
+    ```
+    python eval/visualize.py samples.jsonl
+    ``` -->

@@ -53,10 +53,7 @@ def process_gsm8k_dataset(dataset, tokenizer, input_seq_len=512):
     )
 
     dataset = dataset.map(
-        lambda x: {
-            **tokenizer(x["text"], add_special_tokens=False),
-            "prompt_ids": tokenizer(x["prompt"])["input_ids"],
-        },
+        lambda x: tokenizer(x["text"], add_special_tokens=False),
         remove_columns=["text", "prompt"],
     )
     # TODO: maybe it can have a [SEP] token
@@ -109,6 +106,7 @@ def load_gsm8k_data(
     input_seq_len,
     test_size=0.01,
     max_num_samples=68000,
+    print_stats=False,
     **kwargs,
 ):
     train_dataset = load_dataset("openai/gsm8k", "main", split="train")
@@ -130,22 +128,25 @@ def load_gsm8k_data(
     val_dataset_filtered = val_dataset.filter(lambda x: is_valid_seq(x, input_seq_len))
 
     # Print statistics
-    print("\nSequence Length Filtering Statistics:")
-    print("-" * 40)
-    print(f"Training set:")
-    print(f"  Original samples: {orig_train_size}")
-    print(f"  Filtered samples: {len(train_dataset_filtered)}")
-    print(f"  Removed samples: {orig_train_size - len(train_dataset_filtered)}")
-    print(
-        f"  Percentage kept: {(len(train_dataset_filtered)/orig_train_size)*100:.2f}%"
-    )
+    if print_stats:
+        print("\nSequence Length Filtering Statistics:")
+        print("-" * 40)
+        print(f"Training set:")
+        print(f"  Original samples: {orig_train_size}")
+        print(f"  Filtered samples: {len(train_dataset_filtered)}")
+        print(f"  Removed samples: {orig_train_size - len(train_dataset_filtered)}")
+        print(
+            f"  Percentage kept: {(len(train_dataset_filtered)/orig_train_size)*100:.2f}%"
+        )
 
-    print(f"\nTest set:")
-    print(f"  Original samples: {orig_test_size}")
-    print(f"  Filtered samples: {len(val_dataset_filtered)}")
-    print(f"  Removed samples: {orig_test_size - len(val_dataset_filtered)}")
-    print(f"  Percentage kept: {(len(val_dataset_filtered)/orig_test_size)*100:.2f}%")
-    print("-" * 40)
+        print(f"\nTest set:")
+        print(f"  Original samples: {orig_test_size}")
+        print(f"  Filtered samples: {len(val_dataset_filtered)}")
+        print(f"  Removed samples: {orig_test_size - len(val_dataset_filtered)}")
+        print(
+            f"  Percentage kept: {(len(val_dataset_filtered)/orig_test_size)*100:.2f}%"
+        )
+        print("-" * 40)
 
     return {
         "train": train_dataset_filtered,  # Return filtered datasets instead of original

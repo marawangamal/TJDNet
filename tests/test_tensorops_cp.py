@@ -1,7 +1,11 @@
 import unittest
 import torch
 
-from tensorops.cp import select_from_cp_tensor, sum_cp_tensor, select_margin_cp_tensor
+from tjdnet.tensorops.cp import (
+    select_from_cp_tensor,
+    sum_cp_tensor,
+    select_margin_cp_tensor,
+)
 
 
 class TestCPTensor(unittest.TestCase):

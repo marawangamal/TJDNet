@@ -20,10 +20,11 @@ References:
 
 # python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
 
-import os.path as osp
 import os
-import wandb
+import os.path as osp
+import uuid
 
+import wandb
 from transformers import (
     DataCollatorForLanguageModeling,
     Trainer,
@@ -31,8 +32,8 @@ from transformers import (
 )
 
 
-from callbacks.eval_gsm8k import compute_accuracy
-from callbacks.generation import GenerationCallback
+from utils.callbacks.eval_gsm8k import compute_accuracy
+from utils.callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
 from data.sharegptv2 import load_sharegptv2_data
@@ -41,7 +42,7 @@ from data.syn_numbers import load_syn_num_data
 from data.syn_temp import load_syn_temp_data
 from data.wikitext import load_wikitext_data
 from utils import get_experiment_name
-from helpers import (
+from utils.train_helpers import (
     get_chat_template,
     get_git_info,
     get_model_and_tokenizer,
@@ -95,8 +96,8 @@ class TJDTrainer(Trainer):
                 num_beams=self.num_beams,
             )
             print("Eval accuracy:", acc)
-        if output and output.metrics:
-            output.metrics[f"eval_acc"] = acc
+            if output and output.metrics:
+                output.metrics[f"eval_acc"] = acc
         return output
 
 
@@ -110,15 +111,32 @@ def compute_metrics(eval_pred):
     }
 
 
+def generate_wandb_id():
+    """Generate a random wandb_id that's compatible with W&B requirements."""
+    # Generate a random UUID and take the first 8 characters
+    # This gives us plenty of uniqueness while keeping the ID short
+    random_id = str(uuid.uuid4()).replace("-", "")[:8]
+    return random_id
+
+
 def main():
     # Configuration
     args = parse_args()
+    if hasattr(args, "wandb_id") and args.wandb_id is None:
+        args.wandb_id = generate_wandb_id()
     exp_name = get_experiment_name(vars(args))
-    # Add timestamp to exp_name
-    # exp_name += f"_{int(time.time())}"  -- remove to facilitate resume_from_checkpoint
     ckpt_dir = osp.join("checkpoints", exp_name)
-    has_checkpoint = osp.exists(ckpt_dir)
     os.makedirs(ckpt_dir, exist_ok=True)
+
+    has_checkpoint = False
+    if osp.exists(ckpt_dir):
+        # Look for actual checkpoint files (like pytorch_model.bin or similar)
+        checkpoint_files = [
+            f for f in os.listdir(ckpt_dir) if f.startswith("checkpoint-")
+        ]
+        has_checkpoint = len(checkpoint_files) > 0
+        if has_checkpoint:
+            print(f"Resuming from checkpoint: {ckpt_dir}")
 
     set_seed(args.seed)
     save_args(args, ckpt_dir)
@@ -162,19 +180,22 @@ def main():
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
-        report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
+        # report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
+        report_to="wandb",
         # Checkpoints
-        save_strategy="best",  # Save model every epoch
+        # save_strategy="best",  # Save model every epoch
+        save_strategy="epoch",
         save_safetensors=False,
         save_total_limit=1,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
         # remove_unused_columns=False,
         # Memory optimization
-        # bf16=True,  # Enable bfloat16 mixed precision
+        # fp16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
         # optim="adafactor",  # Use Adafactor optimizer
+        # torch_empty_cache_steps=1,
         # no_cuda=True,  # Force CPU usage
     )
 
@@ -210,10 +231,10 @@ def main():
         eval_dataset=lm_dataset["eval"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[c for c in [generation_callback] if c is not None],
+        callbacks=[generation_callback] if args.compute_acc else None,
         # Evaluation
         tokenizer=tokenizer,
-        test_dataset=lm_dataset["test"],
+        test_dataset=lm_dataset["test"] if args.compute_acc else None,
         chat_template=chat_template,
         horizon=args.horizon_eval,
         top_k=args.top_k,
@@ -230,9 +251,7 @@ def main():
         metrics = trainer.evaluate()
         print("Evaluation metrics:", metrics)
     else:
-        trainer.train(
-            resume_from_checkpoint=args.resume_from_checkpoint and has_checkpoint
-        )
+        trainer.train(resume_from_checkpoint=has_checkpoint)
 
         # Save the model
         trainer.save_model(ckpt_dir)

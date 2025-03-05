@@ -5,4 +5,7 @@ datasets
 matplotlib
 wandb
 tensorly
+peft
 line_profiler
+pandas
+tabulate

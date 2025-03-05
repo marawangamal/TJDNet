@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name="foo",
     version="1.0",
-    packages=["models", "data"],
+    packages=["tjdnet", "data", "utils"],
     install_requires=[
         "torch>=2.0.0",
         "tqdm>=4.66.4",
