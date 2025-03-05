@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 from click import Option
 
 from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
@@ -14,7 +14,7 @@ from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.full import FullDist
 from tjdnet.distributions.mps import MPSDist
 from tjdnet.distributions.umps import UMPSDist
-from tjdnet.tensorops.common import get_windowed_input_ids
+from tjdnet.tensorops.common import get_windowed_input_ids, pop_tensor
 from utils.beam_search import beam_search, get_candidates
 
 import line_profiler
@@ -207,6 +207,66 @@ class TJD(ABC, torch.nn.Module):
         for param in self.model.parameters():
             param.requires_grad = False
 
+    # TODO: use stop_strings to match hf api
+    def generate_v3(
+        self,
+        input_ids: torch.Tensor,
+        stop_token: int,
+        max_new_tokens: int = 8,
+        do_sample: bool = True,
+        horizon: Optional[int] = None,
+        top_k: int = 50,
+        return_new_tokens: bool = True,  # Return only new tokens by default
+        **kwargs,
+    ):
+        horizon = self._get_horizon(horizon)
+        output_seqs_active = input_ids.clone()  # (B, T)
+        output_seqs_completed = []
+
+        hidden_state = None
+        with torch.no_grad():
+            for time_step in range(0, max_new_tokens, horizon):
+                hidden_state = self.get_last_hidden_state(
+                    output_seqs_active
+                )  # (b, t, d)
+                y_hat = self.model_head.sample(
+                    hidden_state,
+                    horizon,
+                    do_sample=do_sample,
+                    top_k=top_k,
+                )  # (batch_size, horizon)
+                output_seqs_active = torch.cat(
+                    [
+                        output_seqs_active,
+                        y_hat,
+                    ],
+                    dim=-1,
+                )
+
+                completed_mask = (output_seqs_active == stop_token).any(dim=1)
+                batch_ids = torch.where(completed_mask)[0]
+                output_seqs_active, popped = pop_tensor(output_seqs_active, batch_ids)
+                output_seqs_completed.extend(popped)
+
+        output = output_seqs_active
+        if len(output_seqs_completed) > 0:
+            output_seqs_completed = torch.nn.utils.rnn.pad_sequence(
+                (
+                    output_seqs_completed + [output_seqs_active[0]]
+                    if output_seqs_active.size(0) > 0
+                    else output_seqs_completed
+                ),
+                batch_first=True,
+                padding_value=stop_token,
+            )
+            output = torch.stack(
+                [output_seqs_completed[:-1], output_seqs_active], dim=0
+            )
+
+        if return_new_tokens:  # Remove input tokens
+            output = output[:, input_ids.size(1) :]
+        return output
+
     @line_profiler.profile
     def generate_v2(
         self,
@@ -378,9 +438,9 @@ class TJD(ABC, torch.nn.Module):
         *args,
         **kwargs,
     ):
-        return {1: self.generate_v1, 2: self.generate_v2}[self.gen_version](
-            *args, **kwargs
-        )
+        return {1: self.generate_v1, 2: self.generate_v2, 3: self.generate_v3}[
+            self.gen_version
+        ](*args, **kwargs)
 
     def forward(
         self,

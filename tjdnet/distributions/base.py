@@ -35,20 +35,6 @@ class BaseDist(BaseDistribution):
         self.rank = config.rank
         self.horizon = config.horizon
 
-    def init_params_v1(self, params: torch.Tensor) -> None:
-        """Initialize the parameters of `param_func` with a given tensor.
-
-        Args:
-            params (torch.Tensor): A tensor of shape (vocab_size, n_embd)
-        """
-        assert params.shape == (self.vocab_size, self.param_func.in_features), (
-            f"Expected params of shape {(self.param_func.out_features, self.param_func.in_features)}, "
-            f"but got {params.shape}"
-        )
-        with torch.no_grad():
-            self.param_func.weight.copy_(params)  # Set the weights
-            self.param_func.bias.zero_()  # Optionally reset biases to zero
-
     def init_params(
         self, pt_weight: torch.Tensor, pt_bias: Optional[torch.Tensor]
     ) -> None:
@@ -103,13 +89,45 @@ class BaseDist(BaseDistribution):
         p_tilde = p_tilde.reshape(-1)  # (B, V)
         return p_tilde, []
 
-    # def sample(
-    #     self,
-    #     last_hidden_state: torch.Tensor,
-    #     horizon: Optional[int] = None,
-    #     **kwargs,
-    # ) -> torch.Tensor:
-    #     raise NotImplementedError("sample method must be implemented")
+    def sample(
+        self,
+        last_hidden_state: torch.Tensor,
+        horizon: Optional[int] = None,
+        do_sample: bool = False,
+        top_k: int = 200,
+        **kwargs,
+    ) -> torch.Tensor:
+        horizon = self._get_horizon(horizon)
+        dvc = last_hidden_state.device
+        y_hat = []
+        model_head_params = self._get_params(last_hidden_state)  # (B, 1, V)
+        model_head_params = model_head_params.reshape(-1)  # (B, V)
+        for h in range(horizon):
+            ops_tensor = torch.tensor(
+                y_hat + [-1] + [-2] * (horizon - h - 1),
+                device=dvc,
+            )
+            p_ops_tilde, _ = (  # P(y_{t+h} | y_{1:t+h-1})
+                self.model_head.get_dist(  # Returns probility specified by `ops` tensor
+                    hidden_state=last_hidden_state,
+                    ops=ops_tensor,
+                    use_cache=False if h == 0 else True,
+                    save_cache=True,
+                )
+            )  # (V,)
+            if do_sample:
+                # Apply top-k filtering
+                top_k_scores, top_k_indices = torch.topk(
+                    p_ops_tilde, k=min(top_k, p_ops_tilde.size(0))
+                )
+                top_k_probs = torch.softmax(top_k_scores, dim=0)  # (top_k,)
+                sampled_indices = torch.multinomial(top_k_probs, num_samples=1)  # (1,)
+                next_token = top_k_indices[sampled_indices].item()
+            else:
+                # Greedy decoding
+                next_token = torch.argmax(p_ops_tilde, dim=-1).to(dvc)  # (1,)
+            y_hat.append(next_token)
+        raise NotImplementedError("sample method must be implemented")
 
     def generate(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs

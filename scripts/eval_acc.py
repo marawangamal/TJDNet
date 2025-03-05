@@ -137,7 +137,7 @@ def main():
             horizon=exp_args.horizon,
             top_k=exp_args.top_k,
             num_beams=exp_args.num_beams,
-            max_num_samples=None,
+            max_num_samples=200,
         )
         print(f"Eval accuracy: {acc} for checkpoint: {checkpoint}")
         results.append(acc)

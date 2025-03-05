@@ -8,6 +8,7 @@ from tjdnet.tensorops.cp import (
     sample_from_cp_tensor,
     select_from_cp_tensor,
     select_margin_cp_tensor,
+    select_margin_cp_tensor_batched,
     sum_cp_tensor,
 )
 
@@ -109,6 +110,97 @@ class CPDist(BaseDistribution):
             cp_params=params.reshape(self.rank, self.horizon, self.vocab_size),
             ops=ops,
         )
+
+    def sample_unbatched(
+        self,
+        last_hidden_state: torch.Tensor,
+        horizon: Optional[int] = None,
+        do_sample: bool = False,
+        top_k: int = 200,
+        **kwargs,
+    ) -> torch.Tensor:
+        horizon = self._get_horizon(horizon)
+        dvc = last_hidden_state.device
+        y_hat = []
+        model_head_params = self._get_params(last_hidden_state)  # (B, T, R, H*, V)
+        for h in range(horizon):
+            ops_tensor = torch.tensor(
+                y_hat + [-1] + [-2] * (horizon - h - 1),
+                device=dvc,
+            )
+            p_ops_tilde, _scale_factors = select_margin_cp_tensor(
+                cp_params=model_head_params.reshape(
+                    self.rank, self.horizon, self.vocab_size
+                ),
+                ops=ops_tensor,
+            )
+            if do_sample:
+                # Apply top-k filtering
+                top_k_scores, top_k_indices = torch.topk(
+                    p_ops_tilde, k=min(top_k, p_ops_tilde.size(0))
+                )
+                top_k_probs = torch.softmax(top_k_scores, dim=0)  # (top_k,)
+                sampled_indices = torch.multinomial(top_k_probs, num_samples=1)  # (1,)
+                next_token = top_k_indices[sampled_indices].item()
+            else:
+                # Greedy decoding
+                next_token = torch.argmax(p_ops_tilde, dim=-1).to(dvc)  # (1,)
+            y_hat.append(next_token)
+        return torch.tensor(y_hat, device=dvc)  # (H,)
+
+    def sample(
+        self,
+        hidden_state: torch.Tensor,
+        horizon: Optional[int] = None,
+        do_sample: bool = False,
+        top_k: int = 200,
+        **kwargs,
+    ) -> torch.Tensor:
+        horizon = self._get_horizon(horizon)
+        batch_size = hidden_state.size(0)
+        dvc = hidden_state.device
+        y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
+        model_head_params = self._get_params(hidden_state[:, -1:, :]).squeeze(
+            1
+        )  # (B, 1, R, H*, V) => (B, R, H*, V)
+        for h in range(horizon):
+            ops_tensor = torch.cat(
+                (
+                    y_hat,  # selection
+                    -1  # free leg
+                    * torch.ones(batch_size, 1, dtype=torch.long, device=dvc),
+                    -2  # marginalization
+                    * torch.ones(
+                        batch_size, (horizon - h - 1), dtype=torch.long, device=dvc
+                    ),
+                ),
+                dim=1,
+            )  # (B, T)
+            p_ops_tilde, _ = select_margin_cp_tensor_batched(
+                cp_params=model_head_params,
+                ops=ops_tensor,
+            )  # (B, V), (B, T)
+            if do_sample:
+                top_k_scores, top_k_indices = torch.topk(
+                    p_ops_tilde, k=min(top_k, p_ops_tilde.size(1)), dim=1
+                )  # (B, top_k)
+                top_k_probs = torch.softmax(top_k_scores, dim=1)  # (B, top_k)
+                sampled_indices = torch.stack(
+                    [
+                        torch.multinomial(top_k_probs[b], num_samples=1)
+                        for b in range(batch_size)
+                    ]
+                )  # (B, 1)
+                next_token = top_k_indices[
+                    torch.arange(batch_size), sampled_indices
+                ].squeeze(
+                    1
+                )  # (B,)
+            else:
+                # Greedy decoding
+                next_token = torch.argmax(p_ops_tilde, dim=-1).to(dvc)  # (B,)
+            y_hat = torch.cat([y_hat, next_token.unsqueeze(1)], dim=1)
+        return y_hat  # (B, H)
 
     def evaluate_at_points(
         self,

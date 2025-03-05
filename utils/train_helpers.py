@@ -451,7 +451,9 @@ def get_model_and_tokenizer(args):
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
         model_kwargs={"hf_model_name": hf_model_name},
-        gen_version=args.gen_version,
+        gen_version=(
+            args.gen_version if hasattr(args, "gen_version") else 2
+        ),  # Backward compatibility
     )
 
     model = {
