@@ -200,6 +200,9 @@ def parse_args():
         default=1,
         help="Number of beams to use during evaluation.",
     )
+    parser.add_argument(
+        "--gen_version", type=int, default=1, help="Generation method version"
+    )
     # Data Arguments
     parser.add_argument(
         "--dataset",
@@ -448,6 +451,7 @@ def get_model_and_tokenizer(args):
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
         model_kwargs={"hf_model_name": hf_model_name},
+        gen_version=args.gen_version,
     )
 
     model = {

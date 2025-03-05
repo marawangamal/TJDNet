@@ -19,8 +19,16 @@ import os
 import os.path as osp
 import json
 import argparse
+from git import Optional
 import torch
 from tqdm import tqdm
+
+from torch.utils.data import DataLoader
+from transformers import (
+    DataCollatorWithPadding,
+    Trainer,
+    TrainingArguments,
+)
 
 
 from utils.callbacks.eval_gsm8k import compute_accuracy
@@ -49,6 +57,30 @@ def load_weights(model, checkpoint_path):
     model.eval()
 
     return model
+
+
+# def compute_accuracy_v2(
+#     model,
+#     tokenizer,
+#     test_dataset,
+#     eos_token,
+#     chat_template,
+#     batch_size=32,
+#     device="cuda" if torch.cuda.is_available() else "cpu",
+# ):
+#     model.eval()
+#     # will set attention mask = 0 for tokens matching tokenizer.pad_token_id
+#     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+#     dataloader = DataLoader(
+#         test_dataset,
+#         shuffle=True,
+#         collate_fn=data_collator,
+#         batch_size=batch_size,
+#     )
+
+#     for batch in dataloader:
+#         batch = {k: v.to(device) for k, v in batch.items()}
+#         input_ids = batch["input_ids"]
 
 
 def main():
@@ -105,6 +137,7 @@ def main():
             horizon=exp_args.horizon,
             top_k=exp_args.top_k,
             num_beams=exp_args.num_beams,
+            max_num_samples=None,
         )
         print(f"Eval accuracy: {acc} for checkpoint: {checkpoint}")
         results.append(acc)

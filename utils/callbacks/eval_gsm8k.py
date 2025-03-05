@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 from transformers.trainer_callback import TrainerControl, TrainerState
 from transformers.training_args import TrainingArguments
@@ -99,7 +100,7 @@ def compute_accuracy(
     horizon=1,
     top_k=50,
     num_beams=1,
-    max_num_samples=50,
+    max_num_samples: Optional[int] = 50,
     prompt="",
 ):
     model.eval()
@@ -109,7 +110,11 @@ def compute_accuracy(
     # Create tqdm progress bar
     pbar = tqdm(
         enumerate(test_dataset),
-        total=min(len(test_dataset), max_num_samples),
+        total=(
+            min(len(test_dataset), max_num_samples)
+            if max_num_samples
+            else len(test_dataset)
+        ),
         desc="Computing accuracy",
         leave=False,
     )
@@ -136,7 +141,7 @@ def compute_accuracy(
             correct += chat_template.check_answer(pred, labels_decoded, eos_token)
             total += 1
             pbar.set_postfix({"accuracy": f"{correct / total:.4f}"})
-            if total >= max_num_samples:
+            if max_num_samples and total >= max_num_samples:
                 break
     return correct / total
 

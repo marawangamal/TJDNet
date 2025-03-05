@@ -2,7 +2,8 @@ from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from typing import Dict, Literal, Optional, Tuple
 from click import Option
-from peft import LoraConfig, TaskType, get_peft_model
+
+from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 
 
 import torch
@@ -73,6 +74,9 @@ class TJDConfig:
     # Generation parameters
     eos_token_id: Optional[int] = None
 
+    # Debugging
+    gen_version: int = 1
+
 
 class TJD(ABC, torch.nn.Module):
     """Joint Distribution Transformer model."""
@@ -95,6 +99,7 @@ class TJD(ABC, torch.nn.Module):
         self.vocab_size = config.base_dist.vocab_size
         self.n_embd = config.base_dist.param_net.in_dim
         self.eps = config.eps
+        self.gen_version = config.gen_version
 
         # DEBUG: LoraConfig
         if config.train_mode == "full":
@@ -111,7 +116,7 @@ class TJD(ABC, torch.nn.Module):
                 lora_dropout=0.1,
             )
             self.model = get_peft_model(
-                self.get_model(**config.model_kwargs), peft_config
+                self.get_model(**config.model_kwargs), peft_config  # type: ignore
             )
         else:
             raise ValueError(f"Invalid train_mode: {config.train_mode}")
@@ -267,7 +272,7 @@ class TJD(ABC, torch.nn.Module):
 
         return input_ids_curr
 
-    def generate(
+    def generate_v1(
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 8,
@@ -357,6 +362,15 @@ class TJD(ABC, torch.nn.Module):
             stop_token=stop_token,
         )
         return torch.tensor(best_seq, device=dvc).reshape(1, -1)
+
+    def generate(
+        self,
+        *args,
+        **kwargs,
+    ):
+        return {1: self.generate_v1, 2: self.generate_v2}[self.gen_version](
+            *args, **kwargs
+        )
 
     def forward(
         self,

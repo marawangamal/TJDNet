@@ -26,7 +26,10 @@ python train.py --model llama7b --model_head mps --rank 2 --horizon 2
 ```
 
 ## Evaluation
-
+To compute accuracy for all checkpoints of a given experiment run:
+```bash 
+python sripts/eval_acc.py --checkpoint/<experiment_folder>
+```
 
 ## Results
 
