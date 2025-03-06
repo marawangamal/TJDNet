@@ -105,15 +105,20 @@ class CPDist(BaseDistribution):
                         for b in range(batch_size)
                     ]
                 )  # (B, 1)
-                next_token = top_k_indices[
-                    torch.arange(batch_size), sampled_indices
-                ].squeeze(
-                    1
-                )  # (B,)
+                # next_token = top_k_indices[
+                #     torch.arange(batch_size), sampled_indices
+                # ].squeeze(
+                #     1
+                # )  # (B,)
+                next_token = torch.gather(
+                    top_k_indices, dim=1, index=sampled_indices
+                )  # (B, 1)
             else:
                 # Greedy decoding
-                next_token = torch.argmax(p_ops_tilde, dim=-1).to(dvc)  # (B,)
-            y_hat = torch.cat([y_hat, next_token.unsqueeze(1)], dim=1)
+                next_token = torch.argmax(p_ops_tilde, dim=-1, keepdim=True).to(
+                    dvc
+                )  # (B, 1)
+            y_hat = torch.cat([y_hat, next_token], dim=1)
         return y_hat  # (B, H)
 
     def evaluate_at_points(

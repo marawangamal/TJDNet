@@ -85,6 +85,7 @@ class TJDTrainer(Trainer):
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
         # TODO: Use dataloader instead of dataset
+        # TODO: Refactor -- utils/callbacks/eval_gsm8k.py ==> utils/accuracy.py
         if self.test_dataset:
             acc = compute_accuracy(
                 self.model,
@@ -177,7 +178,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        # eval_on_start=True,
+        eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
@@ -197,7 +198,7 @@ def main():
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
         # optim="adafactor",  # Use Adafactor optimizer
         # torch_empty_cache_steps=1,
-        # no_cuda=True,  # Force CPU usage
+        no_cuda=True,  # Force CPU usage
     )
 
     if training_args.local_rank == 0:  # main process

@@ -427,7 +427,11 @@ def get_model_and_tokenizer(args):
 
     if args.tokenizer_type == "word":
         tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
-        tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+        # BUG: cant simply add pad token -- unless we retrain a model embedding layer
+        # tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+        tokenizer.pad_token = "$"
+        tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+        tokenizer.padding_side = "left"
     else:
         raise NotImplementedError("CharTokenizer removed for now.")
 

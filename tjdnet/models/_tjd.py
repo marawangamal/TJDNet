@@ -207,9 +207,11 @@ class TJD(ABC, torch.nn.Module):
             param.requires_grad = False
 
     # TODO: use stop_strings to match hf api
+    # TODO: fix output_seqs_completed logic
     def generate_v3(
         self,
         input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
         stop_token: int,
         max_new_tokens: int = 8,
         do_sample: bool = True,
@@ -225,8 +227,19 @@ class TJD(ABC, torch.nn.Module):
         hidden_state = None
         with torch.no_grad():
             for time_step in range(0, max_new_tokens, horizon):
+                # Need to append 1s column after each generation step
+                _attention_mask = torch.cat(
+                    (
+                        attention_mask,
+                        torch.ones(
+                            (output_seqs_active.size(0), time_step),
+                            device=attention_mask.device,
+                        ),
+                    ),
+                    dim=1,
+                )
                 hidden_state = self.get_last_hidden_state(
-                    output_seqs_active
+                    input_ids=output_seqs_active, attention_mask=_attention_mask
                 )  # (b, t, d)
                 y_hat = self.model_head.sample(
                     hidden_state,
