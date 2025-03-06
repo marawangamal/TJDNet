@@ -5,7 +5,6 @@ import torch.autograd.profiler as profiler
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.tensorops.cp import (
-    sample_from_cp_tensor,
     select_from_cp_tensor,
     select_margin_cp_tensor,
     select_margin_cp_tensor_batched,
@@ -37,54 +36,6 @@ class CPDist(BaseDistribution):
         if horizon is not None:
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
-
-    def generate(
-        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
-    ) -> torch.Tensor:
-        """Generate sequences given an input tensor.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-            input_ids (torch.Tensor): Previous tokens of shape (B, T)
-        """
-        # Cannot generate sequences longer than `horizon`
-        batch_size, seq_len, _ = last_hidden_state.size()
-        assert batch_size == 1, "Only batch size 1 is supported"
-        horizon = self._get_horizon(horizon)
-        # print(f"Generating {horizon} tokens")
-        params = self._get_params(
-            last_hidden_state[:, -1:, :],
-            horizon,
-        )  # (B, 1, R, H, V) we only need the Tth hidden state
-
-        # OPTION 1: Explicitly materialize the CP tensor
-        # p_tilde = materialize_cp_tensor(
-        #     # (B, 1, R, H, V) => (B, H, V, R)
-        #     params.reshape(
-        #         -1,
-        #         self.rank,
-        #         horizon,
-        #         self.vocab_size,
-        #     )
-        # )  # (B, V, V, ..., V) `horizon` times
-        # return torch.stack(
-        #     [sample_from_tensor_dist(p_tilde_b, num_samples=1) for p_tilde_b in p_tilde]
-        # ).reshape(
-        #     batch_size, horizon
-        # )  # (B, H)
-
-        # OPTION 2: Sample directly using CP representation
-        return torch.stack(
-            [
-                sample_from_cp_tensor(
-                    params.reshape(
-                        self.rank,
-                        horizon,
-                        self.vocab_size,
-                    )
-                )
-            ]
-        )  # (B, H)
 
     def get_dist(
         self,

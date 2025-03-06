@@ -4,6 +4,10 @@ from tjdnet.models._tjd import TJD, TJDConfig
 from transformers import GPT2LMHeadModel
 
 
+# TODO: instead of subclassing to make a new model, should just have TJD model accept 3 funcs in its args
+# 1. get_last_hidden_state
+# 2. get_pretrained_lm_head_weights
+# 3. get_model
 class TJDGPT2(TJD):
     def __init__(self, config: TJDConfig, **kwargs):
         config.base_dist.param_net.in_dim = 768

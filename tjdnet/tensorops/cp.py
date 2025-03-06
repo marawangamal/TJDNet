@@ -1,8 +1,6 @@
-from typing import List, Tuple, Union
-from numpy import mask_indices
+from typing import List, Tuple
 import torch
 import tensorly as tl
-import line_profiler
 
 from tjdnet.tensorops.common import get_breakpoints
 
@@ -32,88 +30,6 @@ def select_from_cp_tensor(
     return result.prod(dim=2).sum(dim=1)  # (B,)
 
 
-def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
-    """Sum all elements of a CP tensor representation (batched).
-
-    Args:
-        tensor (torch.Tensor): CP represention of shape (B, R, T, D)
-
-    Returns:
-        torch.Tensor: Summed tensor of shape (B)
-    """
-    _, _, seq_len, _ = cp_params.size()
-    result = None
-    for t in range(seq_len):
-        if result is None:
-            result = cp_params[:, :, t, :].sum(dim=-1)  # (B, R)
-        else:
-            result = (cp_params[:, :, t, :] * result.unsqueeze(2)).sum(dim=-1)  # (B, R)
-    if result is None:
-        raise ValueError("Empty tensor")
-    return result.sum(dim=1)  # (B, R) -> (B)
-
-
-def materialize_cp_tensor(
-    x: torch.Tensor,
-):
-    """Performs outer product of a tensor with itself.
-
-    Args:
-        x (torch.Tensor): Tensor of shape (B, R, H, V)
-
-    Returns:
-        torch.Tensor: Tensor of shape (B, V**H)
-
-    Note:
-        B: Batch size
-        H: Number of CP factors
-        V: CP factor dimension
-        R: CP rank
-
-    """
-
-    # (B, 1, R, H, V)
-    B, R, H, V = x.size()
-    contractions = []
-    weights = torch.ones(R, device=x.device)
-    for b in range(B):
-        res = tl.cp_to_tensor(
-            (weights, [x[b, :, h].T for h in range(H)])
-        )  # List of tensors of shape (V, R)
-        contractions.append(res)
-    return torch.stack(contractions, dim=0)  # (B, V, V, ..., V)  H times
-
-
-def sample_from_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
-    """Samples from a CP tensor representation of probabilities.
-
-    Args:
-        cp_params (torch.Tensor): CP tensor factors of shape (R, T, D) where:
-
-    Raises:
-        NotImplementedError: _description_
-
-    Returns:
-        torch.Tensor: Sampled tensor of shape (T,)
-    """
-    selected_indices = []
-    for t in range(cp_params.size(1)):
-        # Unnormalized P(y_t | y_{<t})
-        # BUG: should not return rank dimensions
-        p_tilde_yt_given_prev, _ = select_margin_cp_tensor(
-            cp_params,
-            ops=torch.tensor(
-                selected_indices + [-1] + [-2] * (cp_params.size(1) - t - 1),
-                device=cp_params.device,
-            ),
-        )  # (R, 1, D)
-        # Sample from P(y_t | y_{<t})
-        selected_index = torch.multinomial(p_tilde_yt_given_prev, num_samples=1).item()
-        selected_indices.append(selected_index)
-    return torch.tensor(selected_indices, device=cp_params.device)
-
-
-# TODO: Redo using cp_to_tensor func
 def select_margin_cp_tensor(
     cp_params: torch.Tensor, ops: torch.Tensor, use_scale_factors=False
 ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
@@ -272,3 +188,55 @@ def select_margin_cp_tensor_batched(
     # Final result
     result = res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)  # (B, R, D)
     return result.sum(dim=1), []
+
+
+def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
+    """Sum all elements of a CP tensor representation (batched).
+
+    Args:
+        tensor (torch.Tensor): CP represention of shape (B, R, T, D)
+
+    Returns:
+        torch.Tensor: Summed tensor of shape (B)
+    """
+    _, _, seq_len, _ = cp_params.size()
+    result = None
+    for t in range(seq_len):
+        if result is None:
+            result = cp_params[:, :, t, :].sum(dim=-1)  # (B, R)
+        else:
+            result = (cp_params[:, :, t, :] * result.unsqueeze(2)).sum(dim=-1)  # (B, R)
+    if result is None:
+        raise ValueError("Empty tensor")
+    return result.sum(dim=1)  # (B, R) -> (B)
+
+
+def materialize_cp_tensor(
+    x: torch.Tensor,
+):
+    """Performs outer product of a tensor with itself.
+
+    Args:
+        x (torch.Tensor): Tensor of shape (B, R, H, V)
+
+    Returns:
+        torch.Tensor: Tensor of shape (B, V**H)
+
+    Note:
+        B: Batch size
+        H: Number of CP factors
+        V: CP factor dimension
+        R: CP rank
+
+    """
+
+    # (B, 1, R, H, V)
+    B, R, H, V = x.size()
+    contractions = []
+    weights = torch.ones(R, device=x.device)
+    for b in range(B):
+        res = tl.cp_to_tensor(
+            (weights, [x[b, :, h].T for h in range(H)])
+        )  # List of tensors of shape (V, R)
+        contractions.append(res)
+    return torch.stack(contractions, dim=0)  # (B, V, V, ..., V)  H times

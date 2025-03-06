@@ -84,6 +84,7 @@ class TJDTrainer(Trainer):
 
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
+        # TODO: Use dataloader instead of dataset
         if self.test_dataset:
             acc = compute_accuracy(
                 self.model,
@@ -176,7 +177,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        eval_on_start=True,
+        # eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting

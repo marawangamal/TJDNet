@@ -247,7 +247,7 @@ class TJD(ABC, torch.nn.Module):
                 output_seqs_active, popped = pop_tensor(output_seqs_active, batch_ids)
                 output_seqs_completed.extend(popped)
 
-                if output_seqs_active.size(1) == 0:
+                if output_seqs_active.size(0) == 0:
                     break  # Stop if all sequences have completed
 
         output = output_seqs_active
