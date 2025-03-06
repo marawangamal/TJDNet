@@ -1,6 +1,6 @@
 """
 Hardware Requirements (for Llama-based models):
-    - GPUs: 4x NVIDIA A100 80GB GPUs 
+    - GPUs: 4x NVIDIA A100 80GB GPUs
     - CPU RAM: 128GB minimum
     - Storage: Recommend 1TB+ SSD for dataset and checkpoints
 
@@ -13,7 +13,7 @@ Usage:
     - Uses PyTorch Distributed Data Parallel (DDP) for multi-GPU training
     - Automatic mixed precision (AMP) enabled for memory efficiency
     - Gradient checkpointing available for large models
-    
+
 References:
     - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
 """
@@ -176,7 +176,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        # eval_on_start=True,
+        eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting

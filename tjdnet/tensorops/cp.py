@@ -198,40 +198,6 @@ def select_margin_cp_tensor_batched(
 ):
     """Performs selection and marginalization operations on a CP tensor representation.
 
-    Given a CP params tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
-    applies a sequence of operations on each mode:
-        - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ
-        - Marginalization: For op = -2, sums all elements in aᵢⱼ
-        - Free index: For op = -1, keeps aᵢⱼ unchanged
-
-    Args:
-        cp_params (torch.Tensor): CP tensor factors of shape (B, R, T, D) where:
-            R: CP rank
-            T: number of tensor modes/dimensions
-            D: dimension of each mode
-        ops (torch.Tensor): Operation codes of shape (B,T) specifying:
-            -2: marginalize mode (sum reduction)
-            -1: keep mode as free index
-            [0,V): select index v in mode
-
-    Note:
-        - The number of free indices in `ops` must be at most 1
-
-    Returns:
-        - torch.Tensor: Result tensor of shape (B, D)
-        - torch.Tensor: Scale factors list of shape (B, T)
-    """
-    dvc = cp_params.device
-    return torch.rand(cp_params.size(0), cp_params.size(3), device=dvc), torch.rand(
-        cp_params.size(0), cp_params.size(2), device=dvc
-    )
-
-
-def select_margin_cp_tensor_batched_wip(
-    cp_params: torch.Tensor, ops: torch.Tensor, use_scale_factors=False
-):
-    """Performs selection and marginalization operations on a CP tensor representation.
-
     Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
     applies a sequence of operations on each mode:
         - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ

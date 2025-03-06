@@ -4,9 +4,8 @@ import torch
 from tjdnet.tensorops.common import get_breakpoints
 from tjdnet.tensorops.cp import (
     select_from_cp_tensor,
+    select_margin_cp_tensor_batched,
     sum_cp_tensor,
-    select_margin_cp_tensor,
-    select_margin_cp_tensor_batched_wip,
 )
 
 
@@ -77,7 +76,7 @@ class TestCPTensor(unittest.TestCase):
         # - select index 0 in first position
         # - marginalize last two positions
         ops = torch.tensor([[0, -1, -2, -2], [0, 1, -1, -2]])
-        result, _ = select_margin_cp_tensor_batched_wip(
+        result, _ = select_margin_cp_tensor_batched(
             cp_params, ops
         )  # (rank, n_free, vocab_size)
 
@@ -93,7 +92,7 @@ class TestCPTensor(unittest.TestCase):
         # - select index 0 in first position
         # - marginalize last two positions
         ops = torch.tensor([[0, -1, -2, -2], [0, 1, -1, -2]])
-        result_batched, _ = select_margin_cp_tensor_batched_wip(
+        result_batched, _ = select_margin_cp_tensor_batched(
             cp_params, ops
         )  # (rank, n_free, vocab_size)
 

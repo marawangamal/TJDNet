@@ -1,14 +1,13 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from typing import Dict, List, Literal, Optional, Tuple
-from click import Option
+from typing import Dict, Literal, Optional, Tuple, Type
 
 from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 
 
 import torch
 
-from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.distributions.base import BaseDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.full import FullDist
@@ -20,7 +19,7 @@ from utils.beam_search import beam_search, get_candidates
 import line_profiler
 
 
-DIST_MAP = {
+DIST_MAP: Dict[str, Type[BaseDistribution]] = {
     "full": FullDist,
     "cp": CPDist,
     "mps": MPSDist,

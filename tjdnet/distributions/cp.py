@@ -111,43 +111,6 @@ class CPDist(BaseDistribution):
             ops=ops,
         )
 
-    def sample_unbatched(
-        self,
-        last_hidden_state: torch.Tensor,
-        horizon: Optional[int] = None,
-        do_sample: bool = False,
-        top_k: int = 200,
-        **kwargs,
-    ) -> torch.Tensor:
-        horizon = self._get_horizon(horizon)
-        dvc = last_hidden_state.device
-        y_hat = []
-        model_head_params = self._get_params(last_hidden_state)  # (B, T, R, H*, V)
-        for h in range(horizon):
-            ops_tensor = torch.tensor(
-                y_hat + [-1] + [-2] * (horizon - h - 1),
-                device=dvc,
-            )
-            p_ops_tilde, _scale_factors = select_margin_cp_tensor(
-                cp_params=model_head_params.reshape(
-                    self.rank, self.horizon, self.vocab_size
-                ),
-                ops=ops_tensor,
-            )
-            if do_sample:
-                # Apply top-k filtering
-                top_k_scores, top_k_indices = torch.topk(
-                    p_ops_tilde, k=min(top_k, p_ops_tilde.size(0))
-                )
-                top_k_probs = torch.softmax(top_k_scores, dim=0)  # (top_k,)
-                sampled_indices = torch.multinomial(top_k_probs, num_samples=1)  # (1,)
-                next_token = top_k_indices[sampled_indices].item()
-            else:
-                # Greedy decoding
-                next_token = torch.argmax(p_ops_tilde, dim=-1).to(dvc)  # (1,)
-            y_hat.append(next_token)
-        return torch.tensor(y_hat, device=dvc)  # (H,)
-
     def sample(
         self,
         hidden_state: torch.Tensor,
