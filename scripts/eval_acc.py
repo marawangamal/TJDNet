@@ -31,7 +31,7 @@ from transformers import (
 )
 
 
-from utils.callbacks.eval_gsm8k import compute_accuracy
+from utils.accuracy import compute_accuracy
 from utils.train_helpers import (
     get_model_and_tokenizer,
     get_chat_template,

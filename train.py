@@ -32,7 +32,7 @@ from transformers import (
 )
 
 
-from utils.callbacks.eval_gsm8k import compute_accuracy
+from utils.accuracy import compute_accuracy
 from utils.callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
