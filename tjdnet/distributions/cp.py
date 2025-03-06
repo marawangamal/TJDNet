@@ -4,12 +4,7 @@ import torch
 import torch.autograd.profiler as profiler
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
-from tjdnet.tensorops.cp import (
-    select_from_cp_tensor,
-    select_margin_cp_tensor,
-    select_margin_cp_tensor_batched,
-    sum_cp_tensor,
-)
+from tjdnet.tensorops.cp import select_margin_cp_tensor_batched, sum_cp_tensor
 
 
 class CPDist(BaseDistribution):
@@ -57,10 +52,14 @@ class CPDist(BaseDistribution):
         params = self._get_params_from_cache(
             hidden_state.reshape(1, 1, -1), use_cache, save_cache
         )  # (1, 1, R, H, V)
-        return select_margin_cp_tensor(
-            cp_params=params.reshape(self.rank, self.horizon, self.vocab_size),
-            ops=ops,
-        )
+        # return select_margin_cp_tensor(
+        #     cp_params=params.reshape(self.rank, self.horizon, self.vocab_size),
+        #     ops=ops,
+        # )
+        return select_margin_cp_tensor_batched(
+            cp_params=params.reshape(1, self.rank, self.horizon, self.vocab_size),
+            ops=ops.unsqueeze(0),
+        )  # (1, V), (1, T)
 
     def sample(
         self,
@@ -137,14 +136,19 @@ class CPDist(BaseDistribution):
         horizon = points.size(-1)
         params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
         # (B, T, R, H, V) => (B, T)
-        with profiler.record_function("select_from_cp_tensor"):
-            p_tilde = select_from_cp_tensor(
-                params.reshape(
-                    batch_size * seq_len, self.rank, horizon, self.vocab_size
-                ),
-                points.reshape(batch_size * seq_len, horizon),
-            )
-            return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
+        # p_tilde = select_from_cp_tensor(
+        #     params.reshape(
+        #         batch_size * seq_len, self.rank, horizon, self.vocab_size
+        #     ),
+        #     points.reshape(batch_size * seq_len, horizon),
+        # )
+        p_tilde, _ = select_margin_cp_tensor_batched(
+            cp_params=params.reshape(
+                batch_size * seq_len, self.rank, horizon, self.vocab_size
+            ),
+            ops=points.reshape(batch_size * seq_len, horizon),
+        )  # (BT,), (BT, T)
+        return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
@@ -195,10 +199,16 @@ class CPDist(BaseDistribution):
         batch_size, seq_len, _ = last_hidden_state.size()
         horizon = points.size(-1)
         params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        p_tilde = select_from_cp_tensor(
-            params.reshape(batch_size * seq_len, self.rank, horizon, self.vocab_size),
-            points.reshape(batch_size * seq_len, horizon),
-        )
+        # p_tilde = select_from_cp_tensor(
+        #     params.reshape(batch_size * seq_len, self.rank, horizon, self.vocab_size),
+        #     points.reshape(batch_size * seq_len, horizon),
+        # )
+        p_tilde, _ = select_margin_cp_tensor_batched(
+            cp_params=params.reshape(
+                batch_size * seq_len, self.rank, horizon, self.vocab_size
+            ),
+            ops=points.reshape(batch_size * seq_len, horizon),
+        )  # (BT,), (BT, T)
         norm_consts = sum_cp_tensor(
             cp_params=params.reshape(
                 batch_size * seq_len, self.rank, horizon, self.vocab_size

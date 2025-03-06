@@ -7,6 +7,153 @@ from tjdnet.tensorops.common import get_breakpoints
 tl.set_backend("pytorch")
 
 
+def select_margin_cp_tensor_batched(
+    cp_params: torch.Tensor, ops: torch.Tensor, use_scale_factors=False
+):
+    """Performs selection and marginalization operations on a CP tensor representation.
+
+    Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
+    applies a sequence of operations on each mode:
+        - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ
+        - Marginalization: For op = -2, sums all elements in aᵢⱼ
+        - Free index: For op = -1, keeps aᵢⱼ unchanged
+
+    Args:
+        cp_params (torch.Tensor): CP tensor factors of shape (B, R, T, D) where:
+            B: Batch size
+            R: CP rank
+            T: number of tensor modes/dimensions
+            D: dimension of each mode
+        ops (torch.Tensor): Operation codes of shape (T,) specifying:
+            -2: marginalize mode (sum reduction)
+            -1: keep mode as free index
+            [0,V): select index v in mode
+
+    Note:
+        - The number of free indices in `ops` must be at most 1
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]:
+            - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
+            - Scale factors list of shape (T,)
+    """
+
+    # Validation:
+    assert len(cp_params.shape) == 4, "CP params tensor must be $D (batched)"
+    assert len(ops.shape) == 2, "Invalid ops tensor: must be 2D (batched)"
+    assert (ops >= -2).all() and (
+        ops < cp_params.size(3)
+    ).all(), "Invalid ops tensor: must be in range [-2, vocab_size)"
+    assert ops.size(0) == cp_params.size(0), "Batch size mismatch"
+
+    batch_size, rank, horizon, vocab_size = cp_params.size()
+
+    # Get breakpoints for 1st free leg and 1st margin leg
+    bp_free, bp_margin = get_breakpoints(ops)  # (batch_size,), (batch_size,)
+
+    res_left = torch.ones(batch_size, rank, device=cp_params.device)
+    res_right = torch.ones(batch_size, rank, device=cp_params.device)
+    res_free = torch.ones(batch_size, rank, vocab_size, device=cp_params.device)
+
+    core_margins = cp_params.sum(dim=-1)  # (B, R, T)
+
+    for t in range(horizon):
+        mask_select = t < bp_free
+        mask_margin = t >= bp_margin
+        mask_free = ~mask_select & ~mask_margin
+
+        # Select
+        if mask_select.any():
+            res_left[mask_select] = res_left[mask_select] * (
+                torch.gather(
+                    cp_params[mask_select, :, t, :].reshape(-1, vocab_size),
+                    dim=-1,
+                    index=ops[mask_select, t]  # (batch_size',)
+                    .reshape(-1, 1, 1)
+                    .repeat(1, rank, 1)
+                    .reshape(-1, 1),
+                )
+            ).reshape(
+                -1, rank
+            )  # (batch_size', R)
+
+        # Marginalize
+        if mask_margin.any():
+            res_right[mask_margin] = (
+                res_right[mask_margin] * core_margins[mask_margin, :, t]
+            )
+
+        # Free
+        if mask_free.any():
+            res_free[mask_free] = cp_params[mask_free, :, t, :]
+
+    # Final result
+
+    # Special case: no free or margin legs (pure select)
+    if torch.all(bp_free == horizon):
+        return res_left.sum(dim=-1), []  # (B,)
+
+    result = res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)  # (B, R, D)
+    return result.sum(dim=1), []
+
+
+def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
+    """Sum all elements of a CP tensor representation (batched).
+
+    Args:
+        tensor (torch.Tensor): CP represention of shape (B, R, T, D)
+
+    Returns:
+        torch.Tensor: Summed tensor of shape (B)
+    """
+    _, _, seq_len, _ = cp_params.size()
+    result = None
+    for t in range(seq_len):
+        if result is None:
+            result = cp_params[:, :, t, :].sum(dim=-1)  # (B, R)
+        else:
+            result = (cp_params[:, :, t, :] * result.unsqueeze(2)).sum(dim=-1)  # (B, R)
+    if result is None:
+        raise ValueError("Empty tensor")
+    return result.sum(dim=1)  # (B, R) -> (B)
+
+
+# --------------
+# Older versions
+# --------------
+
+
+def materialize_cp_tensor(
+    x: torch.Tensor,
+):
+    """Performs outer product of a tensor with itself.
+
+    Args:
+        x (torch.Tensor): Tensor of shape (B, R, H, V)
+
+    Returns:
+        torch.Tensor: Tensor of shape (B, V**H)
+
+    Note:
+        B: Batch size
+        H: Number of CP factors
+        V: CP factor dimension
+        R: CP rank
+
+    """
+
+    # (B, 1, R, H, V)
+    B, R, H, V = x.size()
+    contractions = []
+    weights = torch.ones(R, device=x.device)
+    for b in range(B):
+        res = tl.cp_to_tensor(
+            (weights, [x[b, :, h].T for h in range(H)])
+        )  # List of tensors of shape (V, R)
+        contractions.append(res)
+    return torch.stack(contractions, dim=0)  # (B, V, V, ..., V)  H times
+
+
 def select_from_cp_tensor(
     cp_params: torch.Tensor, indices: torch.Tensor
 ) -> torch.Tensor:
@@ -107,136 +254,3 @@ def select_margin_cp_tensor(
     # Multiply free factors
     result = result.reshape(rank_size, 1, 1) * cp_params_free  # (R, n_free, D)
     return result.sum(dim=0).reshape(-1), []
-
-
-def select_margin_cp_tensor_batched(
-    cp_params: torch.Tensor, ops: torch.Tensor, use_scale_factors=False
-):
-    """Performs selection and marginalization operations on a CP tensor representation.
-
-    Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
-    applies a sequence of operations on each mode:
-        - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ
-        - Marginalization: For op = -2, sums all elements in aᵢⱼ
-        - Free index: For op = -1, keeps aᵢⱼ unchanged
-
-    Args:
-        cp_params (torch.Tensor): CP tensor factors of shape (B, R, T, D) where:
-            B: Batch size
-            R: CP rank
-            T: number of tensor modes/dimensions
-            D: dimension of each mode
-        ops (torch.Tensor): Operation codes of shape (T,) specifying:
-            -2: marginalize mode (sum reduction)
-            -1: keep mode as free index
-            [0,V): select index v in mode
-
-    Note:
-        - The number of free indices in `ops` must be at most 1
-
-    Returns:
-        Tuple[torch.Tensor, torch.Tensor]:
-            - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
-            - Scale factors list of shape (T,)
-    """
-
-    # Validation:
-    assert len(cp_params.shape) == 4, "CP params tensor must be $D (batched)"
-    assert len(ops.shape) == 2, "Ops tensor must be 2D (batched)"
-    assert (ops >= -2).all() and (
-        ops < cp_params.size(2)
-    ).all(), "Invalid ops tensor: must be in range [-2, vocab_size)"
-
-    batch_size, rank, horizon, vocab_size = cp_params.size()
-
-    # Get breakpoints for 1st free leg and 1st margin leg
-    bp_free, bp_margin = get_breakpoints(ops)  # (batch_size,), (batch_size,)
-
-    res_left = torch.ones(batch_size, rank, device=cp_params.device)
-    res_right = torch.ones(batch_size, rank, device=cp_params.device)
-    res_free = torch.zeros(batch_size, rank, vocab_size, device=cp_params.device)
-
-    core_margins = cp_params.sum(dim=-1)  # (B, R, T)
-
-    for t in range(horizon):
-        mask_select = t < bp_free
-        mask_margin = t >= bp_margin
-        mask_free = ~mask_select & ~mask_margin
-
-        # Select
-        res_left[mask_select] = res_left[mask_select] * (
-            torch.gather(
-                cp_params[mask_select, :, t, :].reshape(-1, vocab_size),
-                dim=-1,
-                index=ops[mask_select, t]  # (batch_size',)
-                .reshape(-1, 1, 1)
-                .repeat(1, rank, 1)
-                .reshape(-1, 1),
-            )
-        ).reshape(
-            -1, rank
-        )  # (batch_size', R)
-
-        # Marginalize
-        res_right[mask_margin] = (
-            res_right[mask_margin] * core_margins[mask_margin, :, t]
-        )
-
-        # Free
-        res_free[mask_free] = cp_params[mask_free, :, t, :]
-
-    # Final result
-    result = res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)  # (B, R, D)
-    return result.sum(dim=1), []
-
-
-def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
-    """Sum all elements of a CP tensor representation (batched).
-
-    Args:
-        tensor (torch.Tensor): CP represention of shape (B, R, T, D)
-
-    Returns:
-        torch.Tensor: Summed tensor of shape (B)
-    """
-    _, _, seq_len, _ = cp_params.size()
-    result = None
-    for t in range(seq_len):
-        if result is None:
-            result = cp_params[:, :, t, :].sum(dim=-1)  # (B, R)
-        else:
-            result = (cp_params[:, :, t, :] * result.unsqueeze(2)).sum(dim=-1)  # (B, R)
-    if result is None:
-        raise ValueError("Empty tensor")
-    return result.sum(dim=1)  # (B, R) -> (B)
-
-
-def materialize_cp_tensor(
-    x: torch.Tensor,
-):
-    """Performs outer product of a tensor with itself.
-
-    Args:
-        x (torch.Tensor): Tensor of shape (B, R, H, V)
-
-    Returns:
-        torch.Tensor: Tensor of shape (B, V**H)
-
-    Note:
-        B: Batch size
-        H: Number of CP factors
-        V: CP factor dimension
-        R: CP rank
-
-    """
-
-    # (B, 1, R, H, V)
-    B, R, H, V = x.size()
-    contractions = []
-    weights = torch.ones(R, device=x.device)
-    for b in range(B):
-        res = tl.cp_to_tensor(
-            (weights, [x[b, :, h].T for h in range(H)])
-        )  # List of tensors of shape (V, R)
-        contractions.append(res)
-    return torch.stack(contractions, dim=0)  # (B, V, V, ..., V)  H times
