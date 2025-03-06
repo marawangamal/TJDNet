@@ -91,11 +91,9 @@ class TJDTrainer(Trainer):
                 self.model,
                 tokenizer=self.tokenizer,
                 test_dataset=self.test_dataset,
-                eos_token=self.eos_token,
                 chat_template=self.chat_template,
                 horizon=self.horizon,
                 top_k=self.top_k,
-                num_beams=self.num_beams,
             )
             print("Eval accuracy:", acc)
             if output and output.metrics:
@@ -178,7 +176,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        eval_on_start=True,
+        # eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
@@ -198,7 +196,7 @@ def main():
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
         # optim="adafactor",  # Use Adafactor optimizer
         # torch_empty_cache_steps=1,
-        no_cuda=True,  # Force CPU usage
+        # no_cuda=True,  # Force CPU usage
     )
 
     if training_args.local_rank == 0:  # main process

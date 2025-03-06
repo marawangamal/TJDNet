@@ -88,9 +88,9 @@ def compute_accuracy(
     top_k=50,
     do_sample=True,
     batch_size=32,
+    max_num_samples: Optional[int] = None,
     **kwargs,
 ):
-
     dataloader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=batch_size,
@@ -100,27 +100,50 @@ def compute_accuracy(
     model.eval()
     correct = 0
     total = 0
-    for batch in dataloader:
-        batch = {k: v.to(model.device) for k, v in batch.items()}
-        outputs = model.generate(
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            max_new_tokens=max_new_tokens,
-            top_k=top_k,
-            do_sample=do_sample,
-            horizon=horizon,
-            stop_token=tokenizer.eos_token_id,  # For tjd models this causes stopping when end token is reached
-        )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
 
-        # Batched decoding
-        y_pred = tokenizer.batch_decode(outputs)
-        y_true = tokenizer.batch_decode(batch["labels"])
+    # Create tqdm progress bar
+    total_samples = len(test_dataset)
+    if max_num_samples:
+        total_samples = min(total_samples, max_num_samples)
 
-        # Compute accuracy
-        correct += sum(
-            [chat_template.check_answer(y_pred, y_true, tokenizer.eos_token)]
-        )
-        total += len(batch["input_ids"])
+    pbar = tqdm(
+        dataloader,
+        total=(total_samples + batch_size - 1) // batch_size,  # Ceiling division
+        desc="Computing accuracy",
+        leave=False,
+    )
+
+    with torch.no_grad():
+        for batch in pbar:
+            batch = {k: v.to(model.device) for k, v in batch.items()}
+            outputs = model.generate(
+                input_ids=batch["input_ids"],
+                attention_mask=batch["attention_mask"],
+                max_new_tokens=max_new_tokens,
+                top_k=top_k,
+                do_sample=do_sample,
+                horizon=horizon,
+                stop_token=tokenizer.eos_token_id,  # For tjd models this causes stopping when end token is reached
+            )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
+
+            # Batched decoding
+            y_pred = tokenizer.batch_decode(outputs)
+            y_true = tokenizer.batch_decode(batch["labels"])
+
+            # Compute accuracy
+            batch_correct = sum(
+                [chat_template.check_answer(y_pred, y_true, tokenizer.eos_token)]
+            )
+            correct += batch_correct
+            batch_size_actual = len(batch["input_ids"])
+            total += batch_size_actual
+
+            # Update progress bar
+            pbar.set_postfix({"accuracy": f"{correct / total:.4f}"})
+
+            if max_num_samples and total >= max_num_samples:
+                break
+
     return correct / total
 
 
