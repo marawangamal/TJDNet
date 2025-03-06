@@ -94,6 +94,7 @@ class TJDTrainer(Trainer):
                 chat_template=self.chat_template,
                 horizon=self.horizon,
                 top_k=self.top_k,
+                # eos_token=self.eos_token,
             )
             print("Eval accuracy:", acc)
             if output and output.metrics:
@@ -231,7 +232,7 @@ def main():
         eval_dataset=lm_dataset["eval"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[generation_callback] if args.compute_acc else None,
+        # callbacks=[generation_callback] if args.compute_acc else None,
         # Evaluation
         tokenizer=tokenizer,
         test_dataset=lm_dataset["test"] if args.compute_acc else None,

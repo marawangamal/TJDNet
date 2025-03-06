@@ -87,7 +87,7 @@ def compute_accuracy(
     horizon=1,
     top_k=50,
     do_sample=True,
-    batch_size=32,
+    batch_size=128,
     max_num_samples: Optional[int] = None,
     **kwargs,
 ):
@@ -113,6 +113,8 @@ def compute_accuracy(
         leave=False,
     )
 
+    y_pred = []
+    y_true = []
     with torch.no_grad():
         for batch in pbar:
             batch = {k: v.to(model.device) for k, v in batch.items()}
@@ -132,7 +134,12 @@ def compute_accuracy(
 
             # Compute accuracy
             batch_correct = sum(
-                [chat_template.check_answer(y_pred, y_true, tokenizer.eos_token)]
+                [
+                    chat_template.check_answer(
+                        y_pred[b], y_true[b], tokenizer.eos_token
+                    )
+                    for b in range(len(y_pred))
+                ]
             )
             correct += batch_correct
             batch_size_actual = len(batch["input_ids"])
@@ -143,6 +150,11 @@ def compute_accuracy(
 
             if max_num_samples and total >= max_num_samples:
                 break
+
+    # Print example
+    print("Example:")
+    print("y_true:", y_true[0])
+    print("y_pred:", y_pred[0])
 
     return correct / total
 
