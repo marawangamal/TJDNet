@@ -3,66 +3,6 @@ import torch
 from tqdm import tqdm
 
 
-from utils.train_helpers import get_test_samples
-
-
-def compute_accuracy_v1(
-    model,
-    tokenizer,
-    test_dataset,
-    eos_token,
-    chat_template,
-    max_new_tokens=125,
-    horizon=1,
-    top_k=50,
-    num_beams=1,
-    max_num_samples: Optional[int] = 50,
-    prompt="",
-    batchsize=1,
-):
-    model.eval()
-    correct = 0
-    total = 0
-
-    # Create tqdm progress bar
-    pbar = tqdm(
-        enumerate(test_dataset),
-        total=(
-            min(len(test_dataset), max_num_samples)
-            if max_num_samples
-            else len(test_dataset)
-        ),
-        desc="Computing accuracy",
-        leave=False,
-    )
-
-    with torch.no_grad():
-        for i, batch in pbar:
-            # TODO: issue is that the input_ids contain the answer, so the model is cheating
-            inputs_decoded = tokenizer.decode(batch["prompt_ids"])
-            labels_decoded = tokenizer.decode(batch["input_ids"])
-            pred = get_test_samples(
-                model,
-                tokenizer,
-                prompt=prompt + inputs_decoded,
-                max_new_tokens=max_new_tokens,
-                horizon=horizon,
-                top_k=top_k,
-                num_beams=num_beams,
-            )
-
-            # Parse the sample
-            # ground_truth = chat_template.safe_parse(labels_decoded, eos_token)
-            # pred = chat_template.safe_parse(pred, eos_token)
-            # correct += ground_truth == pred and ground_truth is not None
-            correct += chat_template.check_answer(pred, labels_decoded, eos_token)
-            total += 1
-            pbar.set_postfix({"accuracy": f"{correct / total:.4f}"})
-            if max_num_samples and total >= max_num_samples:
-                break
-    return correct / total
-
-
 # TODO: rename prompt_ids
 def collate_fn(batch, tokenizer):
     batch_dict = {"input_ids": [item["prompt_ids"] for item in batch]}
@@ -157,8 +97,3 @@ def compute_accuracy(
     print("y_pred:", y_pred[0])
 
     return correct / total
-
-
-def get_int_answer(tokenizer, ids):
-    labels_decoded = tokenizer.decode(ids)
-    return int(labels_decoded.split("####")[1].split(tokenizer.sep_token)[0].strip())
