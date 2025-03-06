@@ -56,10 +56,11 @@ class CPDist(BaseDistribution):
         #     cp_params=params.reshape(self.rank, self.horizon, self.vocab_size),
         #     ops=ops,
         # )
-        return select_margin_cp_tensor_batched(
+        p_tilde, _ = select_margin_cp_tensor_batched(
             cp_params=params.reshape(1, self.rank, self.horizon, self.vocab_size),
             ops=ops.unsqueeze(0),
         )  # (1, V), (1, T)
+        return p_tilde.squeeze(0), []  # (V,)
 
     def sample(
         self,

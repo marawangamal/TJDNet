@@ -242,10 +242,11 @@ class TJD(ABC, torch.nn.Module):
                     dim=-1,
                 )
 
-                completed_mask = (output_seqs_active == stop_token).any(dim=1)
-                batch_ids = torch.where(completed_mask)[0]
-                output_seqs_active, popped = pop_tensor(output_seqs_active, batch_ids)
-                output_seqs_completed.extend(popped)
+                # Check for stop token
+                # completed_mask = (output_seqs_active == stop_token).any(dim=1)
+                # batch_ids = torch.where(completed_mask)[0]
+                # output_seqs_active, popped = pop_tensor(output_seqs_active, batch_ids)
+                # output_seqs_completed.extend(popped)
 
                 if output_seqs_active.size(0) == 0:
                     break  # Stop if all sequences have completed
@@ -269,6 +270,7 @@ class TJD(ABC, torch.nn.Module):
             output = output[:, input_ids.size(1) :]
         return output
 
+    # TODO: use stop token
     @line_profiler.profile
     def generate_v2(
         self,
@@ -279,6 +281,7 @@ class TJD(ABC, torch.nn.Module):
         horizon: Optional[int] = None,
         top_k: int = 50,
         stop_token: Optional[int] = None,
+        return_new_tokens: bool = True,  # Return only new tokens by default
         **kwargs,
     ):
         """Generate sequences given an input tensor.
@@ -342,6 +345,8 @@ class TJD(ABC, torch.nn.Module):
                     dim=-1,
                 )
 
+        if return_new_tokens:  # Remove input tokens
+            output_seq_ids = output_seq_ids[:, input_ids.size(1) :]
         return output_seq_ids
 
     def generate_v1(

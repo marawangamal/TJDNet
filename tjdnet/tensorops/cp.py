@@ -97,6 +97,7 @@ def select_margin_cp_tensor_batched(
     return result.sum(dim=1), []
 
 
+# TODO: replace with `select_margin_cp_tensor_batched`
 def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     """Sum all elements of a CP tensor representation (batched).
 
