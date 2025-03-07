@@ -50,6 +50,7 @@ from utils.train_helpers import (
     parse_args,
     save_args,
     set_seed,
+    validate_args,
 )
 
 
@@ -63,6 +64,7 @@ class TJDTrainer(Trainer):
         top_k,
         num_beams,
         eos_token,
+        acc_batch_size=1,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -74,6 +76,7 @@ class TJDTrainer(Trainer):
         self.num_beams = num_beams
         self.eos_token = eos_token
         self.tokenizer = tokenizer
+        self.acc_batch_size = acc_batch_size
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
@@ -94,6 +97,7 @@ class TJDTrainer(Trainer):
                 chat_template=self.chat_template,
                 horizon=self.horizon,
                 top_k=self.top_k,
+                batch_size=self.acc_batch_size,
                 # eos_token=self.eos_token,
             )
             print("Eval accuracy:", acc)
@@ -245,6 +249,7 @@ def main():
             if args.tokenizer_type == "word"
             else tokenizer.sep_token
         ),
+        acc_batch_size=args.acc_batch_size,
     )
 
     if args.eval_only:
