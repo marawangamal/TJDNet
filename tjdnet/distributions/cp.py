@@ -5,6 +5,7 @@ import torch.autograd.profiler as profiler
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched, sum_cp_tensor
+from tjdnet.utils import sample_topk
 
 
 class CPDist(BaseDistribution):
@@ -95,29 +96,9 @@ class CPDist(BaseDistribution):
                 ops=ops_tensor,
             )  # (B, V), (B, T)
             if do_sample:
-                top_k_scores, top_k_indices = torch.topk(
-                    p_ops_tilde, k=min(top_k, p_ops_tilde.size(1)), dim=1
-                )  # (B, top_k)
-                top_k_probs = torch.softmax(top_k_scores, dim=1)  # (B, top_k)
-                sampled_indices = torch.stack(
-                    [
-                        torch.multinomial(top_k_probs[b], num_samples=1)
-                        for b in range(batch_size)
-                    ]
-                )  # (B, 1)
-                # next_token = top_k_indices[
-                #     torch.arange(batch_size), sampled_indices
-                # ].squeeze(
-                #     1
-                # )  # (B,)
-                next_token = torch.gather(
-                    top_k_indices, dim=1, index=sampled_indices
-                )  # (B, 1)
-            else:
-                # Greedy decoding
-                next_token = torch.argmax(p_ops_tilde, dim=-1, keepdim=True).to(
-                    dvc
-                )  # (B, 1)
+                next_token = sample_topk(p_ops_tilde, top_k, num_samples=1)
+            else:  # greedy sampling
+                next_token = sample_topk(p_ops_tilde, 1, num_samples=1)
             y_hat = torch.cat([y_hat, next_token], dim=1)
         return y_hat  # (B, H)
 

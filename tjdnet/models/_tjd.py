@@ -208,11 +208,11 @@ class TJD(ABC, torch.nn.Module):
 
     # TODO: use stop_strings to match hf api
     # TODO: fix output_seqs_completed logic
-    def generate_v3(
+    def generate(
         self,
         input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        stop_token: int,
+        attention_mask: Optional[torch.Tensor] = None,
+        stop_token: Optional[int] = None,
         max_new_tokens: int = 8,
         do_sample: bool = True,
         horizon: Optional[int] = None,
@@ -228,15 +228,19 @@ class TJD(ABC, torch.nn.Module):
         with torch.no_grad():
             for time_step in range(0, max_new_tokens, horizon):
                 # Need to append 1s column after each generation step
-                _attention_mask = torch.cat(
-                    (
-                        attention_mask,
-                        torch.ones(
-                            (output_seqs_active.size(0), time_step),
-                            device=attention_mask.device,
+                _attention_mask = (
+                    torch.cat(
+                        (
+                            attention_mask,
+                            torch.ones(
+                                (output_seqs_active.size(0), time_step),
+                                device=attention_mask.device,
+                            ),
                         ),
-                    ),
-                    dim=1,
+                        dim=1,
+                    )
+                    if attention_mask is not None
+                    else None
                 )
                 hidden_state = self.get_last_hidden_state(
                     input_ids=output_seqs_active, attention_mask=_attention_mask
@@ -261,27 +265,27 @@ class TJD(ABC, torch.nn.Module):
                 # output_seqs_active, popped = pop_tensor(output_seqs_active, batch_ids)
                 # output_seqs_completed.extend(popped)
 
-                if output_seqs_active.size(0) == 0:
-                    break  # Stop if all sequences have completed
+                # if output_seqs_active.size(0) == 0:
+                #     break  # Stop if all sequences have completed
 
-        output = output_seqs_active
-        if len(output_seqs_completed) > 0:
-            output_seqs_completed = torch.nn.utils.rnn.pad_sequence(
-                (
-                    output_seqs_completed + [output_seqs_active[0]]
-                    if output_seqs_active.size(0) > 0
-                    else output_seqs_completed
-                ),
-                batch_first=True,
-                padding_value=stop_token,
-            )
-            output = torch.stack(
-                [output_seqs_completed[:-1], output_seqs_active], dim=0
-            )
+        # output = output_seqs_active
+        # if len(output_seqs_completed) > 0:
+        #     output_seqs_completed = torch.nn.utils.rnn.pad_sequence(
+        #         (
+        #             output_seqs_completed + [output_seqs_active[0]]
+        #             if output_seqs_active.size(0) > 0
+        #             else output_seqs_completed
+        #         ),
+        #         batch_first=True,
+        #         padding_value=stop_token,
+        #     )
+        #     output = torch.stack(
+        #         [output_seqs_completed[:-1], output_seqs_active], dim=0
+        #     )
 
         if return_new_tokens:  # Remove input tokens
-            output = output[:, input_ids.size(1) :]
-        return output
+            output_seqs_active = output_seqs_active[:, input_ids.size(1) :]
+        return output_seqs_active
 
     # TODO: use stop token
     @line_profiler.profile
@@ -453,14 +457,14 @@ class TJD(ABC, torch.nn.Module):
         )
         return torch.tensor(best_seq, device=dvc).reshape(1, -1)
 
-    def generate(
-        self,
-        *args,
-        **kwargs,
-    ):
-        return {1: self.generate_v1, 2: self.generate_v2, 3: self.generate_v3}[
-            self.gen_version
-        ](*args, **kwargs)
+    # def generate(
+    #     self,
+    #     *args,
+    #     **kwargs,
+    # ):
+    #     return {1: self.generate_v1, 2: self.generate_v2, 3: self.generate_v3}[
+    #         self.gen_version
+    #     ](*args, **kwargs)
 
     def forward(
         self,

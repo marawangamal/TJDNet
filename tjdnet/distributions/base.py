@@ -4,6 +4,7 @@ import line_profiler
 
 from tjdnet.distributions._base import BaseDistribution, BaseDistConfig
 from tjdnet.tensorops.common import sample_from_tensor_dist
+from tjdnet.utils import sample_topk
 
 
 class BaseDist(BaseDistribution):
@@ -75,12 +76,14 @@ class BaseDist(BaseDistribution):
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         p_tilde = self.param_func(last_hidden_state)
-        return p_tilde
+        return p_tilde  # (B, T, V)
 
     def get_dist(
         self,
         hidden_state: torch.Tensor,
         ops: torch.Tensor,
+        use_cache: bool,
+        save_cache: bool,
         **kwargs,
     ):
         """Get distribution specified by ops."""
@@ -91,43 +94,19 @@ class BaseDist(BaseDistribution):
 
     def sample(
         self,
-        last_hidden_state: torch.Tensor,
+        hidden_state: torch.Tensor,  # (B, T, D)
         horizon: Optional[int] = None,
         do_sample: bool = False,
         top_k: int = 200,
         **kwargs,
-    ) -> torch.Tensor:
-        horizon = self._get_horizon(horizon)
-        dvc = last_hidden_state.device
-        y_hat = []
-        model_head_params = self._get_params(last_hidden_state)  # (B, 1, V)
-        model_head_params = model_head_params.reshape(-1)  # (B, V)
-        for h in range(horizon):
-            ops_tensor = torch.tensor(
-                y_hat + [-1] + [-2] * (horizon - h - 1),
-                device=dvc,
-            )
-            p_ops_tilde, _ = (  # P(y_{t+h} | y_{1:t+h-1})
-                self.model_head.get_dist(  # Returns probility specified by `ops` tensor
-                    hidden_state=last_hidden_state,
-                    ops=ops_tensor,
-                    use_cache=False if h == 0 else True,
-                    save_cache=True,
-                )
-            )  # (V,)
-            if do_sample:
-                # Apply top-k filtering
-                top_k_scores, top_k_indices = torch.topk(
-                    p_ops_tilde, k=min(top_k, p_ops_tilde.size(0))
-                )
-                top_k_probs = torch.softmax(top_k_scores, dim=0)  # (top_k,)
-                sampled_indices = torch.multinomial(top_k_probs, num_samples=1)  # (1,)
-                next_token = top_k_indices[sampled_indices].item()
-            else:
-                # Greedy decoding
-                next_token = torch.argmax(p_ops_tilde, dim=-1).to(dvc)  # (1,)
-            y_hat.append(next_token)
-        raise NotImplementedError("sample method must be implemented")
+    ):
+        if horizon and horizon > 1:
+            raise ValueError("Horizon must be 1 for base distribution")
+        model_head_params = self._get_params(hidden_state[:, -1:, :])  # (B, 1, V)
+        p_tilde = sample_topk(
+            model_head_params.squeeze(1), top_k=top_k if do_sample else 1  # topk/greedy
+        )
+        return p_tilde
 
     def generate(
         self, last_hidden_state: torch.Tensor, horizon: int, **kwargs

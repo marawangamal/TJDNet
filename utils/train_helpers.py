@@ -201,7 +201,7 @@ def parse_args():
         help="Number of beams to use during evaluation.",
     )
     parser.add_argument(
-        "--gen_version", type=int, default=1, help="Generation method version"
+        "--gen_version", type=int, default=3, help="Generation method version"
     )
     # Data Arguments
     parser.add_argument(

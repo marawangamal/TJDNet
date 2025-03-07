@@ -1,26 +1,30 @@
-from typing import Optional
+import token
+from typing import Optional, Union
 
 from typing import Optional
+from sympy import true
 import wandb
 
 from transformers import TrainerCallback
-from utils.train_helpers import get_test_samples
 from data.common import BaseChatTemplate
+from tjdnet.models._tjd import TJD
+
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
 # TODO: dont need to pass model and tokenizer in init
 class GenerationCallback(TrainerCallback):
     def __init__(
         self,
-        model,
-        tokenizer,
-        generate_strategy="steps",
-        generate_steps=1000,
-        max_new_tokens=100,
-        horizon=1,
+        model: TJD,
+        tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
+        generate_strategy: str = "steps",
+        generate_steps: int = 1000,
+        max_new_tokens: int = 100,
+        horizon: int = 1,
         chat_template: Optional[BaseChatTemplate] = None,
-        top_k=50,
-        num_beams=1,
+        top_k: int = 50,
+        num_beams: int = 1,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -53,19 +57,18 @@ class GenerationCallback(TrainerCallback):
             print(f"num_train_epochs: {state.num_train_epochs}")
             self.model.eval()
 
-            samples = {}
             for i, prompt in enumerate(self.prompts):
-                sample = get_test_samples(
-                    self.model,
-                    self.tokenizer,
-                    prompt=prompt,
-                    max_new_tokens=self.max_new_tokens,
-                    horizon=self.horizon,
-                    top_k=self.top_k,
-                    num_beams=self.num_beams,
+                inputs = self.tokenizer(prompt, return_tensors="pt").input_ids.to(
+                    self.model.device
                 )
-                samples[f"prompt_{i+1}"] = prompt
-                samples[f"generation_{i+1}"] = sample
+                outputs = self.model.generate(
+                    input_ids=inputs,  # (batch_size, max_seq_len)
+                    max_new_tokens=self.max_new_tokens,
+                    top_k=self.top_k,
+                    do_sample=True,
+                    horizon=self.horizon,
+                )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
+                sample = self.tokenizer.decode(outputs[0])
                 print(f"\nPrompt: {prompt}\nOutput: {sample}\n")
                 wandb.log(
                     {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},

@@ -50,7 +50,6 @@ from utils.train_helpers import (
     parse_args,
     save_args,
     set_seed,
-    validate_args,
 )
 
 
@@ -236,7 +235,7 @@ def main():
         eval_dataset=lm_dataset["eval"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        # callbacks=[generation_callback] if args.compute_acc else None,
+        callbacks=[generation_callback] if args.compute_acc else None,
         # Evaluation
         tokenizer=tokenizer,
         test_dataset=lm_dataset["test"] if args.compute_acc else None,
