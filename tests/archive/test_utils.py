@@ -1,9 +1,5 @@
 import unittest
 import torch
-from TJDNet.utils import (
-    umps_select_marginalize_batched,
-    window_input_ids,
-)
 
 
 class TestTTDist(unittest.TestCase):

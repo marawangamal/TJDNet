@@ -30,12 +30,6 @@ class TestModels(unittest.TestCase):
         y_pad = model.model(
             input_ids=x_pad, attention_mask=x_pad_mask
         ).last_hidden_state
-        # position_ids = (
-        #     torch.cat((torch.arange(15, 20), torch.arange(0, 15)))
-        #     .reshape(1, -1)
-        #     .to(device)
-        # )
-        # expected
         torch.allclose(y[0, 0], y_pad[0, 5], atol=1e-4)
         torch.allclose(y[0, -1], y_pad[0, -1], atol=1e-4)
 

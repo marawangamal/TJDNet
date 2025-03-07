@@ -166,6 +166,12 @@ def mps_to_tensor(
     return result.reshape(full_shape)
 
 
+def get_inactive_indices(tens: torch.Tensor, stop_token_id: int):
+    completed_mask = (tens == stop_token_id).any(dim=1)
+    batch_ids = torch.where(completed_mask)[0]
+    return batch_ids
+
+
 def pop_tensor(tensor: torch.Tensor, indices: torch.Tensor):
     """
     Remove rows specified by indices from a tensor and return both the reduced tensor and the removed rows.

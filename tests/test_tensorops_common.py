@@ -1,6 +1,11 @@
 import unittest
 import torch
-from tjdnet.tensorops.common import batch_multi_dim_index, get_flat_index
+from tjdnet.tensorops.common import (
+    batch_multi_dim_index,
+    get_flat_index,
+    get_inactive_indices,
+    pop_tensor,
+)
 
 
 class TestTTDist(unittest.TestCase):
@@ -30,6 +35,26 @@ class TestTTDist(unittest.TestCase):
         result = batch_multi_dim_index(tens, indices)
         expected = torch.tensor([2, 7])
         self.assertTrue(torch.all(result == expected))
+
+    def test_pop_tensor(self):
+        # set seed for reproducibility
+        torch.manual_seed(0)
+        batch_size, seq_len = 30, 5
+        stop_token_id = 100
+        output_seqs = torch.randint(0, 100, (batch_size, seq_len))
+        output_seqs[:10, -1] = stop_token_id
+
+        inactive_indices = get_inactive_indices(output_seqs, stop_token_id)
+        output_seqs_active, popped_tensors = pop_tensor(
+            output_seqs, indices=inactive_indices
+        )
+
+        # 1. Check inactive indices == 0:10
+        expected_inactive_indices = torch.arange(10)
+        self.assertTrue(torch.all(inactive_indices == expected_inactive_indices))
+
+        # 2. Check that output_seqs_active is same as output_seqs[10:]
+        self.assertTrue(torch.all(output_seqs_active == output_seqs[10:]))
 
 
 if __name__ == "__main__":
