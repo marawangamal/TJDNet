@@ -338,6 +338,9 @@ class TJD(ABC, torch.nn.Module):
         horizon = self._get_horizon(horizon)
         output_seqs_active = input_ids.clone()  # (B, T)
         output_seqs_completed = []
+        attention_mask_active = (
+            attention_mask.clone() if attention_mask is not None else None
+        )
 
         hidden_state = None
         with torch.no_grad():
@@ -346,15 +349,15 @@ class TJD(ABC, torch.nn.Module):
                 _attention_mask = (
                     torch.cat(
                         (
-                            attention_mask,
+                            attention_mask_active,
                             torch.ones(
                                 (output_seqs_active.size(0), time_step),
-                                device=attention_mask.device,
+                                device=attention_mask_active.device,
                             ),
                         ),
                         dim=1,
                     )
-                    if attention_mask is not None
+                    if attention_mask_active is not None
                     else None
                 )
                 hidden_state = self.get_last_hidden_state(
@@ -380,6 +383,10 @@ class TJD(ABC, torch.nn.Module):
                     output_seqs_active, popped = pop_tensor(
                         output_seqs_active, indices=inactive_indices
                     )
+                    if attention_mask_active is not None:
+                        attention_mask_active, _ = pop_tensor(
+                            attention_mask_active, indices=inactive_indices
+                        )
                     output_seqs_completed.extend(popped)
 
                 # Check for stop token

@@ -97,7 +97,7 @@ def main():
     checkpoints = [
         osp.join(args.checkpoint, c)
         for c in os.listdir(args.checkpoint)
-        if c != "args.json"
+        if c.startswith("checkpoint")
     ]
     exp_args_dict = json.load(open(os.path.join(args.checkpoint, "args.json")))
 
@@ -141,6 +141,8 @@ def main():
         f.write("checkpoint,accuracy\n")
         for checkpoint, acc in zip(checkpoints, results):
             f.write(f"{checkpoint},{acc}\n")
+
+    print(f"Results saved to {results_file}")
 
 
 if __name__ == "__main__":
