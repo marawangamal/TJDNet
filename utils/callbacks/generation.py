@@ -67,9 +67,10 @@ class GenerationCallback(TrainerCallback):
                     top_k=self.top_k,
                     do_sample=True,
                     horizon=self.horizon,
+                    stop_token=self.tokenizer.eos_token_id,  # type: ignore
                 )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
                 sample = self.tokenizer.decode(outputs[0])
-                print(f"\nPrompt: {prompt}\nOutput: {sample}\n")
+                print(f"\nPrompt:\n{prompt}\nOutput:\n{sample}\n")
                 wandb.log(
                     {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},
                     step=state.global_step,
