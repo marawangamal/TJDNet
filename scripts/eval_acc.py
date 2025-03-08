@@ -19,17 +19,8 @@ import os
 import os.path as osp
 import json
 import argparse
-from git import Optional
 import torch
 from tqdm import tqdm
-
-from torch.utils.data import DataLoader
-from transformers import (
-    DataCollatorWithPadding,
-    Trainer,
-    TrainingArguments,
-)
-
 
 from utils.accuracy import compute_accuracy
 from utils.train_helpers import (
@@ -59,30 +50,6 @@ def load_weights(model, checkpoint_path):
     return model
 
 
-# def compute_accuracy_v2(
-#     model,
-#     tokenizer,
-#     test_dataset,
-#     eos_token,
-#     chat_template,
-#     batch_size=32,
-#     device="cuda" if torch.cuda.is_available() else "cpu",
-# ):
-#     model.eval()
-#     # will set attention mask = 0 for tokens matching tokenizer.pad_token_id
-#     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-#     dataloader = DataLoader(
-#         test_dataset,
-#         shuffle=True,
-#         collate_fn=data_collator,
-#         batch_size=batch_size,
-#     )
-
-#     for batch in dataloader:
-#         batch = {k: v.to(device) for k, v in batch.items()}
-#         input_ids = batch["input_ids"]
-
-
 def main():
     # Parse just our evaluation-specific arguments
     parser = argparse.ArgumentParser(description="Evaluate model checkpoints")
@@ -98,6 +65,32 @@ def main():
         type=str,
         default="cuda" if torch.cuda.is_available() else "cpu",
         help="Device to use for evaluation",
+    )
+    parser.add_argument(
+        "-b",
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Batch size for evaluation",
+    )
+    parser.add_argument(
+        "-s",
+        "--max_num_samples",
+        type=int,
+        default=None,
+        help="Maximum number of samples to evaluate",
+    )
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=125,
+        help="Maximum number of tokens to generate",
+    )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=200,
+        help="Top-k value for sampling",
     )
     args = parser.parse_args()
 
@@ -132,12 +125,12 @@ def main():
             model,
             tokenizer=tokenizer,
             test_dataset=lm_dataset["test"],
-            eos_token=tokenizer.eos_token,
             chat_template=chat_template,
             horizon=exp_args.horizon,
-            top_k=exp_args.top_k,
-            num_beams=exp_args.num_beams,
-            max_num_samples=200,
+            top_k=args.top_k,
+            max_new_tokens=args.max_new_tokens,
+            batch_size=args.batch_size,
+            max_num_samples=args.max_num_samples,
         )
         print(f"Eval accuracy: {acc} for checkpoint: {checkpoint}")
         results.append(acc)

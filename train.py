@@ -187,10 +187,9 @@ def main():
         # report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
         report_to="wandb",
         # Checkpoints
-        # save_strategy="best",  # Save model every epoch
-        save_strategy="epoch",
-        save_safetensors=False,
+        save_strategy="best",  # Save model every epoch
         save_total_limit=1,
+        save_safetensors=False,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
         # remove_unused_columns=False,
