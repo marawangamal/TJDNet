@@ -1,6 +1,6 @@
 """
 Hardware Requirements (for Llama-based models):
-    - GPUs: 4x NVIDIA A100 80GB GPUs 
+    - GPUs: 4x NVIDIA A100 80GB GPUs
     - CPU RAM: 128GB minimum
     - Storage: Recommend 1TB+ SSD for dataset and checkpoints
 
@@ -13,7 +13,7 @@ Usage:
     - Uses PyTorch Distributed Data Parallel (DDP) for multi-GPU training
     - Automatic mixed precision (AMP) enabled for memory efficiency
     - Gradient checkpointing available for large models
-    
+
 References:
     - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
 """
@@ -32,7 +32,7 @@ from transformers import (
 )
 
 
-from utils.callbacks.eval_gsm8k import compute_accuracy
+from utils.accuracy import compute_accuracy
 from utils.callbacks.generation import GenerationCallback
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
@@ -63,6 +63,7 @@ class TJDTrainer(Trainer):
         top_k,
         num_beams,
         eos_token,
+        acc_batch_size=1,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -74,6 +75,7 @@ class TJDTrainer(Trainer):
         self.num_beams = num_beams
         self.eos_token = eos_token
         self.tokenizer = tokenizer
+        self.acc_batch_size = acc_batch_size
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
@@ -84,16 +86,18 @@ class TJDTrainer(Trainer):
 
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
+        # TODO: Use dataloader instead of dataset
+        # TODO: Refactor -- utils/callbacks/eval_gsm8k.py ==> utils/accuracy.py
         if self.test_dataset:
             acc = compute_accuracy(
                 self.model,
                 tokenizer=self.tokenizer,
                 test_dataset=self.test_dataset,
-                eos_token=self.eos_token,
                 chat_template=self.chat_template,
                 horizon=self.horizon,
                 top_k=self.top_k,
-                num_beams=self.num_beams,
+                batch_size=self.acc_batch_size,
+                # eos_token=self.eos_token,
             )
             print("Eval accuracy:", acc)
             if output and output.metrics:
@@ -183,10 +187,9 @@ def main():
         # report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
         report_to="wandb",
         # Checkpoints
-        # save_strategy="best",  # Save model every epoch
-        save_strategy="epoch",
-        save_safetensors=False,
+        save_strategy="best",  # Save model every epoch
         save_total_limit=1,
+        save_safetensors=False,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
         # remove_unused_columns=False,
@@ -244,6 +247,7 @@ def main():
             if args.tokenizer_type == "word"
             else tokenizer.sep_token
         ),
+        acc_batch_size=args.acc_batch_size,
     )
 
     if args.eval_only:

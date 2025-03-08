@@ -164,3 +164,43 @@ def mps_to_tensor(
         result = result.reshape(-1, core.size(1))
     result = torch.einsum("kr,r -> k", result, beta)
     return result.reshape(full_shape)
+
+
+def get_inactive_indices(tens: torch.Tensor, stop_token_id: int):
+    completed_mask = (tens == stop_token_id).any(dim=1)
+    batch_ids = torch.where(completed_mask)[0]
+    return batch_ids
+
+
+def pop_tensor(tensor: torch.Tensor, indices: torch.Tensor):
+    """
+    Remove rows specified by indices from a tensor and return both the reduced tensor and the removed rows.
+
+    Args:
+        tensor (torch.Tensor): Input tensor with shape (d1, d2, ...)
+        indices (torch.Tensor): 1D tensor of indices to remove
+
+    Returns:
+        tuple: (remaining_tensor, list_of_popped_tensors)
+            - remaining_tensor: Tensor with specified rows removed
+            - list_of_popped_tensors: List of tensors that were removed
+    """
+    device = tensor.device
+    batch_size = tensor.size(0)
+
+    # If no indices to pop, return original tensor and empty list
+    if indices.numel() == 0:
+        return tensor, []
+
+    # Create a mask for rows to keep
+    keep_mask = torch.ones(batch_size, dtype=torch.bool, device=device)
+    keep_mask[indices] = False
+
+    # Extract the popped tensors before removing them
+    # TODO: use torch.gather
+    popped_tensors = [tensor[i] for i in indices]
+
+    # Keep only the non-popped rows
+    remaining_tensor = tensor[keep_mask]
+
+    return remaining_tensor, popped_tensors

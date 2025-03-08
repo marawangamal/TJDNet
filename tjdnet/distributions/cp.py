@@ -4,12 +4,8 @@ import torch
 import torch.autograd.profiler as profiler
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
-from tjdnet.tensorops.cp import (
-    sample_from_cp_tensor,
-    select_from_cp_tensor,
-    select_margin_cp_tensor,
-    sum_cp_tensor,
-)
+from tjdnet.tensorops.cp import select_margin_cp_tensor_batched, sum_cp_tensor
+from tjdnet.utils import sample_topk
 
 
 class CPDist(BaseDistribution):
@@ -37,54 +33,6 @@ class CPDist(BaseDistribution):
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
 
-    def generate(
-        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
-    ) -> torch.Tensor:
-        """Generate sequences given an input tensor.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-            input_ids (torch.Tensor): Previous tokens of shape (B, T)
-        """
-        # Cannot generate sequences longer than `horizon`
-        batch_size, seq_len, _ = last_hidden_state.size()
-        assert batch_size == 1, "Only batch size 1 is supported"
-        horizon = self._get_horizon(horizon)
-        # print(f"Generating {horizon} tokens")
-        params = self._get_params(
-            last_hidden_state[:, -1:, :],
-            horizon,
-        )  # (B, 1, R, H, V) we only need the Tth hidden state
-
-        # OPTION 1: Explicitly materialize the CP tensor
-        # p_tilde = materialize_cp_tensor(
-        #     # (B, 1, R, H, V) => (B, H, V, R)
-        #     params.reshape(
-        #         -1,
-        #         self.rank,
-        #         horizon,
-        #         self.vocab_size,
-        #     )
-        # )  # (B, V, V, ..., V) `horizon` times
-        # return torch.stack(
-        #     [sample_from_tensor_dist(p_tilde_b, num_samples=1) for p_tilde_b in p_tilde]
-        # ).reshape(
-        #     batch_size, horizon
-        # )  # (B, H)
-
-        # OPTION 2: Sample directly using CP representation
-        return torch.stack(
-            [
-                sample_from_cp_tensor(
-                    params.reshape(
-                        self.rank,
-                        horizon,
-                        self.vocab_size,
-                    )
-                )
-            ]
-        )  # (B, H)
-
     def get_dist(
         self,
         hidden_state: torch.Tensor,
@@ -105,10 +53,54 @@ class CPDist(BaseDistribution):
         params = self._get_params_from_cache(
             hidden_state.reshape(1, 1, -1), use_cache, save_cache
         )  # (1, 1, R, H, V)
-        return select_margin_cp_tensor(
-            cp_params=params.reshape(self.rank, self.horizon, self.vocab_size),
-            ops=ops,
-        )
+        # return select_margin_cp_tensor(
+        #     cp_params=params.reshape(self.rank, self.horizon, self.vocab_size),
+        #     ops=ops,
+        # )
+        p_tilde, _ = select_margin_cp_tensor_batched(
+            cp_params=params.reshape(1, self.rank, self.horizon, self.vocab_size),
+            ops=ops.unsqueeze(0),
+        )  # (1, V), (1, T)
+        return p_tilde.squeeze(0), []  # (V,)
+
+    def sample(
+        self,
+        hidden_state: torch.Tensor,
+        horizon: Optional[int] = None,
+        do_sample: bool = False,
+        top_k: int = 200,
+        **kwargs,
+    ) -> torch.Tensor:
+        horizon = self._get_horizon(horizon)
+        batch_size = hidden_state.size(0)
+        dvc = hidden_state.device
+        y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
+        model_head_params = self._get_params(hidden_state[:, -1:, :]).squeeze(
+            1
+        )  # (B, 1, R, H*, V) => (B, R, H*, V)
+        for h in range(horizon):
+            ops_tensor = torch.cat(
+                (
+                    y_hat,  # selection
+                    -1  # free leg
+                    * torch.ones(batch_size, 1, dtype=torch.long, device=dvc),
+                    -2  # marginalization
+                    * torch.ones(
+                        batch_size, (horizon - h - 1), dtype=torch.long, device=dvc
+                    ),
+                ),
+                dim=1,
+            )  # (B, T)
+            p_ops_tilde, _ = select_margin_cp_tensor_batched(
+                cp_params=model_head_params,
+                ops=ops_tensor,
+            )  # (B, V), (B, T)
+            if do_sample:
+                next_token = sample_topk(p_ops_tilde, top_k, num_samples=1)
+            else:  # greedy sampling
+                next_token = sample_topk(p_ops_tilde, 1, num_samples=1)
+            y_hat = torch.cat([y_hat, next_token], dim=1)
+        return y_hat  # (B, H)
 
     def evaluate_at_points(
         self,
@@ -131,14 +123,19 @@ class CPDist(BaseDistribution):
         horizon = points.size(-1)
         params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
         # (B, T, R, H, V) => (B, T)
-        with profiler.record_function("select_from_cp_tensor"):
-            p_tilde = select_from_cp_tensor(
-                params.reshape(
-                    batch_size * seq_len, self.rank, horizon, self.vocab_size
-                ),
-                points.reshape(batch_size * seq_len, horizon),
-            )
-            return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
+        # p_tilde = select_from_cp_tensor(
+        #     params.reshape(
+        #         batch_size * seq_len, self.rank, horizon, self.vocab_size
+        #     ),
+        #     points.reshape(batch_size * seq_len, horizon),
+        # )
+        p_tilde, _ = select_margin_cp_tensor_batched(
+            cp_params=params.reshape(
+                batch_size * seq_len, self.rank, horizon, self.vocab_size
+            ),
+            ops=points.reshape(batch_size * seq_len, horizon),
+        )  # (BT,), (BT, T)
+        return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
@@ -189,10 +186,16 @@ class CPDist(BaseDistribution):
         batch_size, seq_len, _ = last_hidden_state.size()
         horizon = points.size(-1)
         params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        p_tilde = select_from_cp_tensor(
-            params.reshape(batch_size * seq_len, self.rank, horizon, self.vocab_size),
-            points.reshape(batch_size * seq_len, horizon),
-        )
+        # p_tilde = select_from_cp_tensor(
+        #     params.reshape(batch_size * seq_len, self.rank, horizon, self.vocab_size),
+        #     points.reshape(batch_size * seq_len, horizon),
+        # )
+        p_tilde, _ = select_margin_cp_tensor_batched(
+            cp_params=params.reshape(
+                batch_size * seq_len, self.rank, horizon, self.vocab_size
+            ),
+            ops=points.reshape(batch_size * seq_len, horizon),
+        )  # (BT,), (BT, T)
         norm_consts = sum_cp_tensor(
             cp_params=params.reshape(
                 batch_size * seq_len, self.rank, horizon, self.vocab_size

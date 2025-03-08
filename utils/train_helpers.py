@@ -201,7 +201,7 @@ def parse_args():
         help="Number of beams to use during evaluation.",
     )
     parser.add_argument(
-        "--gen_version", type=int, default=1, help="Generation method version"
+        "--gen_version", type=int, default=3, help="Generation method version"
     )
     # Data Arguments
     parser.add_argument(
@@ -293,12 +293,21 @@ def parse_args():
         "--compute_acc", action="store_true", help="Whether to compute accuracy"
     )
     parser.add_argument(
+        "--acc_batch_size",
+        type=int,
+        default=1,
+        # GPT2 does not support batch_size > 1
+        help="Batch size for computing accuracy. (NOTE: only models that support attention_mask can use batch_size > 1)",
+    )
+    parser.add_argument(
         "--wandb_id",
         type=str,
         default=None,
         help="Wandb ID for resuming runs",
     )
 
+    args = parser.parse_args()
+    validate_args(args)
     return parser.parse_args()
 
 
@@ -344,6 +353,21 @@ def get_git_info():
             "commit_message": "Git commit message not available",
             "branch": "unknown",
         }
+
+
+def validate_args(args):
+    rules = [
+        {
+            "message": "Model does not support batch_size > 1",
+            "condition": lambda: not (
+                args.model_type in ["gpt2"] and args.acc_batch_size > 1
+            ),
+        }
+    ]
+
+    for rule in rules:
+        if not rule["condition"]():
+            raise ValueError(rule["message"])
 
 
 # TODO: add eval_horizon
@@ -427,7 +451,11 @@ def get_model_and_tokenizer(args):
 
     if args.tokenizer_type == "word":
         tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
-        tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+        # BUG: cant simply add pad token -- unless we retrain a model embedding layer
+        # tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+        tokenizer.pad_token = "$"
+        tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+        tokenizer.padding_side = "left"
     else:
         raise NotImplementedError("CharTokenizer removed for now.")
 
@@ -451,7 +479,9 @@ def get_model_and_tokenizer(args):
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
         model_kwargs={"hf_model_name": hf_model_name},
-        gen_version=args.gen_version,
+        gen_version=(
+            args.gen_version if hasattr(args, "gen_version") else 2
+        ),  # Backward compatibility
     )
 
     model = {

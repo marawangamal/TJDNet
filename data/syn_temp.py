@@ -97,11 +97,11 @@ class DataIterator:
 def load_syn_temp_data(
     tokenizer,
     input_seq_len,
-    num_train_samples=50000,
+    max_num_samples=50000,
     num_test_samples=100,
     **kwargs,
 ):
-    train_dataset = Dataset.from_generator(lambda: DataIterator(num_train_samples))
+    train_dataset = Dataset.from_generator(lambda: DataIterator(max_num_samples))
     eval_dataset = Dataset.from_generator(lambda: DataIterator(num_test_samples))
     test_dataset = eval_dataset.select(range(len(eval_dataset)))  # Make copy
 
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     dataset = load_syn_temp_data(
         tokenizer=tokenizer,
         input_seq_len=512,
-        num_train_samples=10000,
+        max_num_samples=10000,
         num_test_samples=100,
     )
 

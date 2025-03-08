@@ -109,6 +109,8 @@ class BaseDistribution(ABC, torch.nn.Module):
         self,
         hidden_state: torch.Tensor,
         ops: torch.Tensor,
+        use_cache: bool,
+        save_cache: bool,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Get distribution specified by ops.
 
@@ -123,6 +125,26 @@ class BaseDistribution(ABC, torch.nn.Module):
             Tuple[torch.Tensor, List[torch.Tensor]]:
                 - Distribution specified by ops
                 - List of scale factors
+        """
+        pass
+
+    @abstractmethod
+    def sample(
+        self,
+        hidden_state: torch.Tensor,
+        horizon: Optional[int],
+        do_sample: bool,
+        top_k: int,
+        **kwargs,
+    ) -> torch.Tensor:
+        """Sample from the distribution.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
+            horizon (int): Number of future tokens to predict.
+
+        Returns:
+            torch.Tensor: Sampled tokens of shape (B, H).
         """
         pass
 

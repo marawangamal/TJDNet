@@ -1,8 +1,8 @@
 import unittest
 import math
 import torch
-from TJDNet import MPSDist
-from TJDNet.loss import get_entropy_loss, get_entropy_loss_stable
+
+from tjdnet.distributions.mps import MPSDist
 
 # Set all random seeds for reproducibility
 torch.manual_seed(42)

@@ -1,5 +1,5 @@
 .venv
-.vscode
+.vscode/sftp.json
 *__pycache__
 *.egg*
 

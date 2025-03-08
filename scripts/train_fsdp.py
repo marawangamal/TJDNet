@@ -12,7 +12,7 @@ Run these to get the data in ../data folder
 Getting the FSDP `transformer_layer_cls`
     from transformers import AutoModelForCausalLM
     model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-chat-hf", low_cpu_mem_usage=True)
-    
+
 """
 
 import enum
@@ -59,7 +59,7 @@ from torch.distributed.fsdp.wrap import (
 import pdb
 import sys
 
-from utils.callbacks.eval_gsm8k import compute_accuracy
+from utils.accuracy import compute_accuracy
 from tjdnet.distributions.base import BaseDist
 from utils.train_helpers import get_chat_template, get_model_and_tokenizer, parse_args
 

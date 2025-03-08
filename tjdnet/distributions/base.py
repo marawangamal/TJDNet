@@ -4,6 +4,7 @@ import line_profiler
 
 from tjdnet.distributions._base import BaseDistribution, BaseDistConfig
 from tjdnet.tensorops.common import sample_from_tensor_dist
+from tjdnet.utils import sample_topk
 
 
 class BaseDist(BaseDistribution):
@@ -34,20 +35,6 @@ class BaseDist(BaseDistribution):
         self.vocab_size = config.vocab_size
         self.rank = config.rank
         self.horizon = config.horizon
-
-    def init_params_v1(self, params: torch.Tensor) -> None:
-        """Initialize the parameters of `param_func` with a given tensor.
-
-        Args:
-            params (torch.Tensor): A tensor of shape (vocab_size, n_embd)
-        """
-        assert params.shape == (self.vocab_size, self.param_func.in_features), (
-            f"Expected params of shape {(self.param_func.out_features, self.param_func.in_features)}, "
-            f"but got {params.shape}"
-        )
-        with torch.no_grad():
-            self.param_func.weight.copy_(params)  # Set the weights
-            self.param_func.bias.zero_()  # Optionally reset biases to zero
 
     def init_params(
         self, pt_weight: torch.Tensor, pt_bias: Optional[torch.Tensor]
@@ -89,12 +76,14 @@ class BaseDist(BaseDistribution):
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         p_tilde = self.param_func(last_hidden_state)
-        return p_tilde
+        return p_tilde  # (B, T, V)
 
     def get_dist(
         self,
         hidden_state: torch.Tensor,
         ops: torch.Tensor,
+        use_cache: bool,
+        save_cache: bool,
         **kwargs,
     ):
         """Get distribution specified by ops."""
@@ -103,30 +92,21 @@ class BaseDist(BaseDistribution):
         p_tilde = p_tilde.reshape(-1)  # (B, V)
         return p_tilde, []
 
-    # def sample(
-    #     self,
-    #     last_hidden_state: torch.Tensor,
-    #     horizon: Optional[int] = None,
-    #     **kwargs,
-    # ) -> torch.Tensor:
-    #     raise NotImplementedError("sample method must be implemented")
-
-    def generate(
-        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
-    ) -> torch.Tensor:
-        """Generate sequences given an input tensor.
-
-        Args:
-            input_ids (torch.Tensor): Previous tokens of shape (B, T)
-        """
-        # Cannot generate sequences longer than `horizon`
-        p_tilde = self._get_params(
-            last_hidden_state[:, -1:, :]
-        )  # (B, 1, V) we only need the Tth hidden state
-        p_tilde = p_tilde.reshape(-1, self.vocab_size)  # (B, V)
-        return torch.stack(
-            [sample_from_tensor_dist(p_tilde_b, 1) for p_tilde_b in p_tilde]
-        )  # (B, H)
+    def sample(
+        self,
+        hidden_state: torch.Tensor,  # (B, T, D)
+        horizon: Optional[int] = None,
+        do_sample: bool = False,
+        top_k: int = 200,
+        **kwargs,
+    ):
+        if horizon and horizon > 1:
+            raise ValueError("Horizon must be 1 for base distribution")
+        model_head_params = self._get_params(hidden_state[:, -1:, :])  # (B, 1, V)
+        p_tilde = sample_topk(
+            model_head_params.squeeze(1), top_k=top_k if do_sample else 1  # topk/greedy
+        )
+        return p_tilde
 
     def evaluate_at_points(
         self,
