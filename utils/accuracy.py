@@ -2,7 +2,7 @@ from typing import Optional
 import torch
 from tqdm import tqdm
 
-from utils.average_meter import AverageMeter
+from utils.utils import AverageMeter
 
 
 # TODO: rename prompt_ids
@@ -52,7 +52,7 @@ def compute_accuracy(
         dataloader,
         total=(total_samples + batch_size - 1) // batch_size,  # Ceiling division
         desc="Computing accuracy",
-        leave=False,
+        leave=True,
     )
 
     y_pred = []

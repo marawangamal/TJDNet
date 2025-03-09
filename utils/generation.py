@@ -11,6 +11,8 @@ from tjdnet.models._tjd import TJD
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
+from utils.utils import truncate_tens
+
 
 # TODO: dont need to pass model and tokenizer in init
 class GenerationCallback(TrainerCallback):
@@ -69,7 +71,9 @@ class GenerationCallback(TrainerCallback):
                     horizon=self.horizon,
                     stop_token=self.tokenizer.eos_token_id,  # type: ignore
                 )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
-                sample = self.tokenizer.decode(outputs[0])
+                sample = self.tokenizer.decode(
+                    truncate_tens(outputs[0], self.tokenizer.eos_token_id)  # type: ignore
+                )
                 print(f"\nPrompt:\n{prompt}\nOutput:\n{sample}\n")
                 wandb.log(
                     {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},

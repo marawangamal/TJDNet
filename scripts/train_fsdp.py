@@ -61,7 +61,7 @@ import sys
 
 from utils.accuracy import compute_accuracy
 from tjdnet.distributions.base import BaseDist
-from utils.train_helpers import get_chat_template, get_model_and_tokenizer, parse_args
+from utils.helpers import get_chat_template, get_model_and_tokenizer, parse_args
 
 
 def create_tjd_auto_wrap_policy(

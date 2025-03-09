@@ -1,6 +1,6 @@
 """
 Hardware Requirements (for Llama-based models):
-    - GPUs: 4x NVIDIA A100 80GB GPUs 
+    - GPUs: 4x NVIDIA A100 80GB GPUs
     - CPU RAM: 128GB minimum
 
     Note: GPT-2 based models require significantly less resources
@@ -10,7 +10,7 @@ Recommended SLURM allocation (for Llama):
 
 Usage:
     - accelerate launch --multi_gpu train.py ...
-    
+
 References:
     - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
 """
@@ -37,12 +37,12 @@ from data.syn_number_bases import load_syn_num_base_data
 from data.syn_numbers import load_syn_num_data
 from data.syn_temp import load_syn_temp_data
 from data.wikitext import load_wikitext_data
-from utils.train_helpers import (
+from utils.helpers import (
     get_test_samples,
     parse_args,
     set_seed,
 )
-from utils.helpers import get_experiment_name
+from utils.utils import get_experiment_name
 
 
 def main():

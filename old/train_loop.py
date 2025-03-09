@@ -25,8 +25,8 @@ from data.syn_number_bases import load_syn_num_base_data
 from data.syn_numbers import load_syn_num_data
 from data.syn_temp import load_syn_temp_data
 from data.wikitext import load_wikitext_data
-from utils import get_experiment_name
-from utils.train_helpers import (
+from utils.utils import get_experiment_name
+from utils.helpers import (
     get_chat_template,
     get_model_and_tokenizer,
     parse_args,

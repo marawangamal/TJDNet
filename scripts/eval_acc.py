@@ -23,7 +23,7 @@ import torch
 from tqdm import tqdm
 
 from utils.accuracy import compute_accuracy
-from utils.train_helpers import (
+from utils.helpers import (
     get_model_and_tokenizer,
     get_chat_template,
 )
@@ -136,7 +136,9 @@ def main():
         results.append(acc)
 
     # Save results to CSV
-    results_file = osp.join(args.checkpoint, "eval_results.csv")
+    results_file = osp.join(
+        args.checkpoint, f"eval_results_b{args.batch_size}_s{args.max_num_samples}.csv"
+    )
     with open(results_file, "w") as f:
         f.write("checkpoint,accuracy\n")
         for checkpoint, acc in zip(checkpoints, results):

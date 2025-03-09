@@ -15,7 +15,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from human_eval.data import read_problems, write_jsonl
 
-from utils.train_helpers import (
+from utils.helpers import (
     load_args,
 )
 
