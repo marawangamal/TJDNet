@@ -2,7 +2,7 @@ from typing import List, Optional, Tuple
 import torch
 
 from tjdnet.tensorops.common import get_breakpoints, mps_to_tensor
-from utils.beam_search import beam_search
+from tjdnet.beam_search import beam_search
 
 
 def select_from_mps_tensor(

@@ -2,7 +2,7 @@ from typing import Optional
 import torch
 from tqdm import tqdm
 
-from utils.average_meter import AverageMeter
+from utils.utils import AverageMeter
 
 
 # TODO: rename prompt_ids

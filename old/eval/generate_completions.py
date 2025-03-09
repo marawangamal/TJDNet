@@ -14,7 +14,7 @@ from tqdm import tqdm
 import torch
 
 from human_eval.data import read_problems, write_jsonl
-from utils.train_helpers import (
+from utils.helpers import (
     get_model_and_tokenizer,
     get_test_samples,
     load_args,

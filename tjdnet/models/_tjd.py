@@ -19,7 +19,7 @@ from tjdnet.tensorops.common import (
     pop_tensor,
 )
 from tjdnet.utils import pad_seqs, sample_topk, spec_sample
-from utils.beam_search import beam_search, get_candidates
+from tjdnet.beam_search import beam_search, get_candidates
 
 import line_profiler
 
