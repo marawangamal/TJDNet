@@ -52,7 +52,7 @@ def compute_accuracy(
         dataloader,
         total=(total_samples + batch_size - 1) // batch_size,  # Ceiling division
         desc="Computing accuracy",
-        leave=False,
+        leave=True,
     )
 
     y_pred = []

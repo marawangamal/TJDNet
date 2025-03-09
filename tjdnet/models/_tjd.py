@@ -33,6 +33,20 @@ DIST_MAP: Dict[str, Type[BaseDistribution]] = {
 }
 
 
+def extend_attn(mat: torch.Tensor, horizon: int = 1):
+    """Extend attention mask to include the horizon."""
+    return torch.cat(
+        (
+            mat,
+            torch.ones(
+                (mat.size(0), horizon),
+                device=mat.device,
+            ),
+        ),
+        dim=1,
+    )
+
+
 @dataclass
 class TJDConfig:
     """Configuration for Joint Distribution Transformer model.
@@ -211,7 +225,7 @@ class TJD(ABC, torch.nn.Module):
         for param in self.model.parameters():
             param.requires_grad = False
 
-    def generate_v4(
+    def generate_v5(
         self,
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
@@ -323,7 +337,7 @@ class TJD(ABC, torch.nn.Module):
 
     # TODO: use stop_strings to match hf api
     # TODO: use output_seqs_completed logic
-    def generate(
+    def generate_v3(
         self,
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
@@ -421,6 +435,105 @@ class TJD(ABC, torch.nn.Module):
         if return_new_tokens:  # Remove input tokens
             output = output[:, input_ids.size(1) :]
         return output
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        stop_token: Optional[int] = None,
+        max_new_tokens: int = 8,
+        do_sample: bool = True,
+        horizon: Optional[int] = None,
+        top_k: int = 50,
+        return_new_tokens: bool = True,
+        **kwargs,
+    ):
+        """Generate sequences given an input tensor.
+
+        Args:
+            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            attention_mask (Optional[torch.Tensor], optional): Attention mask of shape (B, T). Defaults to None.
+            stop_token (Optional[int], optional): Stop token for generation. Defaults to None.
+            max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
+            do_sample (bool, optional): Whether to sample. Defaults to False.
+            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
+            top_k (int, optional): Top k sampling. Defaults to 50.
+            return_new_tokens (bool, optional): Return only new tokens by default. Defaults to True.
+
+        Returns:
+            torch.Tensor: Generated tokens of shape (B, T_out). T_out <= T + max_new_tokens if stop_token is used. Otherwise, T_out = T + max_new_tokens.
+        """
+
+        assert torch.all(input_ids > 0), "Input tokens must be positive"
+        assert stop_token is None or stop_token > 0, "Stop token must be positive"
+        if attention_mask is not None:
+            assert torch.all(
+                torch.tensor(input_ids.shape == attention_mask.shape)
+            ), "Shape mismatch between input_ids and attention_mask"
+
+        horizon = self._get_horizon(horizon)
+        batch_size = input_ids.size(0)
+        device = input_ids.device
+
+        temp_token = -100
+
+        # Initialize output with input_ids
+        output_seqs = torch.full(
+            (batch_size, input_ids.size(1) + max_new_tokens),
+            fill_value=temp_token,
+            dtype=torch.long,
+            device=device,
+        )
+        output_seqs[:, : input_ids.size(1)] = input_ids
+
+        with torch.no_grad():
+            for time_step in range(0, max_new_tokens, horizon):
+                # Exit if all sequences are done
+                active_mask = ~torch.any(
+                    output_seqs[:, input_ids.size(1) :] == stop_token, dim=1
+                )
+                if not active_mask.any():
+                    break
+
+                # Get currently active sequences
+                active_seqs = output_seqs[
+                    active_mask, : input_ids.size(1) + time_step
+                ]  # (B_active, T_in + time_step)
+                current_attention = (
+                    extend_attn(attention_mask[active_mask], time_step)
+                    if attention_mask is not None
+                    else None
+                )  # (B_active, T_in + time_step)
+
+                # Generate next tokens
+                hidden_state = self.get_last_hidden_state(
+                    input_ids=active_seqs, attention_mask=current_attention
+                )
+                y_hat = self.model_head.sample(
+                    hidden_state,
+                    horizon,
+                    do_sample=do_sample,
+                    top_k=top_k,
+                )  # (B_active, horizon)
+
+                # Append new tokens
+                time_step_abs = input_ids.size(1) + time_step
+                output_seqs[
+                    active_mask,
+                    time_step_abs : time_step_abs + horizon,
+                ] = y_hat
+
+        # Keep only the new tokens if requested
+        if return_new_tokens:
+            output_seqs = output_seqs[:, input_ids.size(1) :]
+
+        # Replace stop tokens with padding
+        if stop_token is not None:
+            output_seqs[output_seqs == temp_token] = stop_token
+            stop_mask = (output_seqs == stop_token).float()  # (B, T_out)
+            output_seqs[torch.cumsum(stop_mask, dim=1) >= 1] = stop_token
+
+        return output_seqs
 
     # TODO: use stop token
     @line_profiler.profile
