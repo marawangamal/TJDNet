@@ -89,7 +89,7 @@ class TJDTrainer(Trainer):
         # TODO: Use dataloader instead of dataset
         # TODO: Refactor -- utils/callbacks/eval_gsm8k.py ==> utils/accuracy.py
         if self.test_dataset:
-            acc = compute_accuracy(
+            acc, _ = compute_accuracy(
                 self.model,
                 tokenizer=self.tokenizer,
                 test_dataset=self.test_dataset,

@@ -19,6 +19,7 @@ import os
 import os.path as osp
 import json
 import argparse
+from typing import List
 import torch
 from tqdm import tqdm
 
@@ -48,6 +49,12 @@ def load_weights(model, checkpoint_path):
     model.eval()
 
     return model
+
+
+def save_results_checkpoint(results, file_path):
+    with open(file_path, "w") as f:
+        json.dump(results, f)
+    print(f"Results saved to {file_path}")
 
 
 def main():
@@ -81,9 +88,10 @@ def main():
         help="Maximum number of samples to evaluate",
     )
     parser.add_argument(
+        "-t",
         "--max_new_tokens",
         type=int,
-        default=125,
+        default=128,
         help="Maximum number of tokens to generate",
     )
     parser.add_argument(
@@ -94,7 +102,7 @@ def main():
     )
     args = parser.parse_args()
 
-    checkpoints = [
+    checkpoints: List[str] = [
         osp.join(args.checkpoint, c)
         for c in os.listdir(args.checkpoint)
         if c.startswith("checkpoint")
@@ -117,11 +125,21 @@ def main():
         tokenizer, exp_args.seq_len, max_num_samples=exp_args.max_num_samples
     )
 
-    results = []
+    results = {}
+    results_file = osp.join(
+        args.checkpoint,
+        f"eval_results_b{args.batch_size}_s{args.max_num_samples}_t{args.max_new_tokens}.json",
+    )
+    if osp.exists(results_file):
+        print(f"Initalizing results from {results_file}")
+        with open(results_file) as f:
+            results = json.load(f)
+
     for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
         model = load_weights(model, checkpoint)
         model.to(args.device)
-        acc = compute_accuracy(
+        average_meter_kwargs = results.get(checkpoint, {"sum": 0, "count": 0})
+        acc, avg_meter_kwargs = compute_accuracy(
             model,
             tokenizer=tokenizer,
             test_dataset=lm_dataset["test"],
@@ -131,19 +149,15 @@ def main():
             max_new_tokens=args.max_new_tokens,
             batch_size=args.batch_size,
             max_num_samples=args.max_num_samples,
+            avg_meter_kwargs=average_meter_kwargs,
+            on_batch_end=lambda avg_meter_kwargs: save_results_checkpoint(
+                {**results, checkpoint: avg_meter_kwargs}, results_file
+            ),
         )
+        results[checkpoint] = avg_meter_kwargs
         print(f"Eval accuracy: {acc} for checkpoint: {checkpoint}")
-        results.append(acc)
 
-    # Save results to CSV
-    results_file = osp.join(
-        args.checkpoint, f"eval_results_b{args.batch_size}_s{args.max_num_samples}.csv"
-    )
-    with open(results_file, "w") as f:
-        f.write("checkpoint,accuracy\n")
-        for checkpoint, acc in zip(checkpoints, results):
-            f.write(f"{checkpoint},{acc}\n")
-
+    save_results_checkpoint(results, results_file)
     print(f"Results saved to {results_file}")
 
 

@@ -32,6 +32,8 @@ def compute_accuracy(
     do_sample=True,
     batch_size=1,
     max_num_samples: Optional[int] = 50,
+    on_batch_end=None,
+    avg_meter_kwargs={},
     **kwargs,
 ):
     dataloader = torch.utils.data.DataLoader(
@@ -41,7 +43,7 @@ def compute_accuracy(
         collate_fn=lambda x: collate_fn(x, tokenizer),
     )
     model.eval()
-    acc_meter = AverageMeter()
+    acc_meter = AverageMeter(**avg_meter_kwargs)
 
     # Create tqdm progress bar
     total_samples = len(test_dataset)
@@ -54,11 +56,14 @@ def compute_accuracy(
         desc="Computing accuracy",
         leave=True,
     )
+    batches_to_skip = acc_meter.count // batch_size
 
     y_pred = []
     y_true = []
     with torch.no_grad():
-        for batch in pbar:
+        for i, batch in enumerate(pbar):
+            if i < batches_to_skip:
+                continue
             batch = {k: v.to(model.device) for k, v in batch.items()}
             outputs = model.generate(
                 input_ids=batch["input_ids"],
@@ -95,9 +100,12 @@ def compute_accuracy(
             if max_num_samples and acc_meter.count >= max_num_samples:
                 break
 
+            if on_batch_end:
+                on_batch_end(acc_meter.dump())
+
     # Print example
     print("Example:")
     print(f"y_true:\n {y_true[0]}")
     print(f"y_pred:\n {y_pred[0]}")
 
-    return acc_meter.avg
+    return acc_meter.avg, acc_meter.dump()

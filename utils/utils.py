@@ -13,12 +13,15 @@ class AverageMeter:
         avg (float): Running average of recorded values
     """
 
-    def __init__(self):
+    def __init__(self, sum: float = 0, count: int = 0, **kwargs):
+        """Initialize the AverageMeter"""
         self.reset()
+        self.sum = sum
+        self.count = count
+        self.avg = sum / count if count != 0 else 0
 
     def reset(self):
         """Reset all statistics"""
-        self.val = 0
         self.sum = 0
         self.count = 0
         self.avg = 0
@@ -30,10 +33,13 @@ class AverageMeter:
             val (float): Value to record
             n (int, optional): Number of values represented by val. Defaults to 1.
         """
-        self.val = val
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count if self.count != 0 else 0
+
+    def dump(self):
+        """Return the current statistics"""
+        return {"sum": self.sum, "count": self.count, "avg": self.avg}
 
 
 def get_experiment_name(
