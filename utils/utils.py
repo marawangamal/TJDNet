@@ -1,5 +1,7 @@
 from typing import Dict, Optional
 
+import torch
+
 
 class AverageMeter:
     """Computes and stores the average and current value
@@ -79,3 +81,9 @@ def get_experiment_name(
             )
 
     return "_".join(f"{k}{v}" for k, v in abbrevs.items())
+
+
+def truncate_tens(tens: torch.Tensor, val: int):
+    """Truncate tensor after encountering a value"""
+    idx = torch.argmax((tens == val).int())
+    return tens[: idx + 1]
