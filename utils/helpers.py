@@ -499,7 +499,7 @@ def get_chat_template(args):
     chat_templates = {
         "gsm8k": ChatTemplateGSM8k,
         "shakespeare": ChatTemplateShakespeare,
-        "sharegptv2": ChatTemplateShareGPT,
+        "sharegpt": ChatTemplateShareGPT,
         "snum": ChatTemplateSynNum,
         "sbase": ChatTemplateSynNumBase,
         "stemp": ChatTemplateSynTemp,
