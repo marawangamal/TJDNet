@@ -11,7 +11,6 @@ from transformers import AutoTokenizer
 from data.gsm8k import ChatTemplateGSM8k
 from data.shakespeare import ChatTemplateShakespeare
 from data.sharegpt import ChatTemplateShareGPT
-from data.sharegptv2 import ChatTemplateShareGPTV2
 from data.syn_number_bases import ChatTemplateSynNumBase
 from data.syn_numbers import ChatTemplateSynNum
 from data.syn_temp import ChatTemplateSynTemp
@@ -500,8 +499,7 @@ def get_chat_template(args):
     chat_templates = {
         "gsm8k": ChatTemplateGSM8k,
         "shakespeare": ChatTemplateShakespeare,
-        "sharegpt": ChatTemplateShareGPT,
-        "sharegptv2": ChatTemplateShareGPTV2,
+        "sharegptv2": ChatTemplateShareGPT,
         "snum": ChatTemplateSynNum,
         "sbase": ChatTemplateSynNumBase,
         "stemp": ChatTemplateSynTemp,
