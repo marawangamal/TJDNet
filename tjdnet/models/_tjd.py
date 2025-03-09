@@ -464,7 +464,7 @@ class TJD(ABC, torch.nn.Module):
             torch.Tensor: Generated tokens of shape (B, T_out). T_out <= T + max_new_tokens if stop_token is used. Otherwise, T_out = T + max_new_tokens.
         """
 
-        assert torch.all(input_ids > 0), "Input tokens must be positive"
+        assert torch.all(input_ids >= 0), "Input tokens must be positive"
         assert stop_token is None or stop_token > 0, "Stop token must be positive"
         if attention_mask is not None:
             assert torch.all(
@@ -489,8 +489,10 @@ class TJD(ABC, torch.nn.Module):
         with torch.no_grad():
             for time_step in range(0, max_new_tokens, horizon):
                 # Exit if all sequences are done
-                active_mask = ~torch.any(
-                    output_seqs[:, input_ids.size(1) :] == stop_token, dim=1
+                active_mask = (
+                    ~torch.any(output_seqs[:, input_ids.size(1) :] == stop_token, dim=1)
+                    if stop_token is not None
+                    else torch.arange(batch_size, device=device)
                 )
                 if not active_mask.any():
                     break
