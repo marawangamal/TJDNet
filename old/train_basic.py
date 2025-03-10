@@ -32,7 +32,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from data.gsm8k import load_gsm8k_data
 from data.shakespeare import load_shakespeare_data
-from data.sharegptv2 import load_sharegptv2_data
+from data.sharegpt import load_sharegpt
 from data.syn_number_bases import load_syn_num_base_data
 from data.syn_numbers import load_syn_num_data
 from data.syn_temp import load_syn_temp_data
@@ -76,7 +76,7 @@ def main():
     lm_dataset = {
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
-        "sharegpt": load_sharegptv2_data,
+        "sharegpt": load_sharegpt,
         "gsm8k": load_gsm8k_data,
         "stemp": load_syn_temp_data,
         "snum": load_syn_num_data,
