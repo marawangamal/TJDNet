@@ -41,6 +41,13 @@ Results obtained after training LLama7b on GSM8k for 10 epochs.
 | llama::cp::nlayers2::rank16::horizon2 | 0.757 ± 0.007 | 0.04 |
 | llama::cp::nlayers2::rank32::horizon2 | 0.775 ± 0.010 | - |
 
+
+### Reproducing Table 1.
+<!-- TODO: maybe we can avoid wandb_id in exp name and just save it to checkpoints/ckpt_dir/wandb_id.txt -->
+1. Run all all jobs specified in [here](/scripts/jobs_jr/train.yaml) (specify wandb_id to resume jobs)
+2. Run eval scripts to compute accuracies in [here](/scripts/jobs_jr/eval.yaml), when finished the results will be under `checkpoints/ckpt_dir/eval_acc.json` (resumable by default)
+3. Run [here](/scripts/eval_latency.py) to get table of latencies and manually add the corresponding accuracies
+
 ## Creating a custom TJDModel
 
 To add a custom model, see examples under [here](/tjdnet/models/tjdgpt2.py). A custom TJD mdoel must inherit from the TJD class and defin `get_base_model` and `get_last_hidden_state` methods

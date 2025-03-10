@@ -20,6 +20,7 @@ References:
 
 # python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
 
+import json
 import os
 import os.path as osp
 import uuid
@@ -51,6 +52,8 @@ from utils.helpers import (
     save_args,
     set_seed,
 )
+
+CHECKPOINT_DIR = "checkpoints"
 
 
 class TJDTrainer(Trainer):
@@ -123,13 +126,37 @@ def generate_wandb_id():
     return random_id
 
 
+def get_exp_config(exp_path):
+    """Load the experiment configuration from a file."""
+    with open(osp.join(exp_path, "args.json"), "r") as f:
+        return json.load(f)
+
+
+def get_wandb_id(args):
+    # First check if there is an experiment that matches except for wandb_id
+    exps = os.listdir(CHECKPOINT_DIR)
+    args_cp = vars(args).copy()
+    if "wandb_id" in args_cp:
+        del args_cp["wandb_id"]
+    matches = [exp for exp in exps if exp.startswith(get_experiment_name(args_cp))]
+    if len(matches) == 1:
+        # If there is a single match, use that wandb_id
+        wandb_id = get_exp_config(osp.join(CHECKPOINT_DIR, matches[0]))["wandb_id"]
+        print(f"Using wandb_id from existing experiment: {wandb_id}")
+    else:
+        # Otherwise generate a new wandb_id
+        wandb_id = generate_wandb_id()
+        print(f"Generated new wandb_id: {wandb_id}")
+    return wandb_id
+
+
 def main():
     # Configuration
     args = parse_args()
     if hasattr(args, "wandb_id") and args.wandb_id is None:
-        args.wandb_id = generate_wandb_id()
+        args.wandb_id = get_wandb_id(args)
     exp_name = get_experiment_name(vars(args))
-    ckpt_dir = osp.join("checkpoints", exp_name)
+    ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
     has_checkpoint = False
