@@ -41,6 +41,17 @@ Results obtained after training LLama7b on GSM8k for 10 epochs.
 | llama::cp::nlayers2::rank16::horizon2 | 0.757 ± 0.007 | 0.04 |
 | llama::cp::nlayers2::rank32::horizon2 | 0.775 ± 0.010 | - |
 
+
+### Reproducing our GSM8k results
+1. Run jobs specified in [here](/scripts/jobs_jr/train.yaml) (resumable by default)
+2. Run jobs specified in [here](/scripts/jobs_jr/eval.yaml) to compute accuracies, when finished the results will be under `checkpoints/ckpt_dir/eval_results_b32_sNone_t128.json` (resumable by default)
+3. Run [here](/scripts/eval_latency.py) to get table of latencies and manually add the corresponding accuracies
+
+> [!NOTE]
+> - You can run the jobs specified in the yaml files using our helper `scripts/jobrunner.py`. 
+> - You must specify the checkpoints to compute acc for in `/scripts/jobs_jr/eval.yaml`
+
+
 ## Creating a custom TJDModel
 
 To add a custom model, see examples under [here](/tjdnet/models/tjdgpt2.py). A custom TJD mdoel must inherit from the TJD class and defin `get_base_model` and `get_last_hidden_state` methods
