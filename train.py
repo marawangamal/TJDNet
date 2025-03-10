@@ -211,6 +211,7 @@ def main():
             project=project_name,
             name=exp_name,
             id=args.wandb_id,
+            config={**vars(args), **git_info},
         )
 
     # In your main function, add this before initializing the trainer:
