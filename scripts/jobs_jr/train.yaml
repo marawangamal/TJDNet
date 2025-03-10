@@ -21,7 +21,7 @@ common_preamble_runs:
 groups:
   - name: gsm8k
     preamble:
-      - "#SBATCH --partition=long"
+      - "#SBATCH --partition=short-unkillable"
       - "#SBATCH --gres=gpu:a100l:4"
       - "#SBATCH --cpus-per-task=12"
       - "#SBATCH --mem=128G"
