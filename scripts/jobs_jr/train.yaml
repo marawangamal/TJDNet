@@ -37,34 +37,34 @@ groups:
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 8
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 16
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 32
-      # CP (h=3, nl=2, rank=2:32)
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 2
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 4
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 8
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 16
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 32
-      # CP (h=4, nl=2, rank=2:32)
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 2
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 4
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 8
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 16
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 32
+      # # CP (h=3, nl=2, rank=2:32)
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 2
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 4
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 8
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 16
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 3 --horizon_eval 3 --rank 32
+      # # CP (h=4, nl=2, rank=2:32)
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 2
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 4
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 8
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 16
+      # - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 4 --horizon_eval 4 --rank 32
 
-  - name: sharegpt
-    preamble:
-      - "#SBATCH --partition=long"
-      - "#SBATCH --gres=gpu:a100l:4"
-      - "#SBATCH --cpus-per-task=12"
-      - "#SBATCH --mem=128G"
-      - "#SBATCH --nodes=1"
-      - "#SBATCH --time=24:00:00"
+  # - name: sharegpt
+  #   preamble:
+  #     - "#SBATCH --partition=long"
+  #     - "#SBATCH --gres=gpu:a100l:4"
+  #     - "#SBATCH --cpus-per-task=12"
+  #     - "#SBATCH --mem=128G"
+  #     - "#SBATCH --nodes=1"
+  #     - "#SBATCH --time=24:00:00"
 
-    paralleljobs:
-      # baseline
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset sharegpt --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head base --compute_acc
-      # CP (h=2, nl=2, rank=2:32)
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset sharegpt --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 16
-      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset sharegpt --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 32
+  #   paralleljobs:
+  #     # baseline
+  #     - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset sharegpt --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head base --compute_acc
+  #     # CP (h=2, nl=2, rank=2:32)
+  #     - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset sharegpt --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 16
+  #     - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset sharegpt --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 32
 
 
   # - name: stemp

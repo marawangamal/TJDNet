@@ -492,8 +492,8 @@ class TJD(ABC, torch.nn.Module):
                 active_mask = (
                     ~torch.any(output_seqs[:, input_ids.size(1) :] == stop_token, dim=1)
                     if stop_token is not None
-                    else torch.arange(batch_size, device=device)
-                )
+                    else torch.ones(batch_size, device=device).bool()
+                )  # (B,)
                 if not active_mask.any():
                     break
 

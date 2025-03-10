@@ -1,5 +1,7 @@
 import gc
 import argparse
+import itertools
+
 
 import torch
 from tjdnet.distributions._base import BaseDistConfig
@@ -68,7 +70,8 @@ def main(args):
                 input_ids, **gen_kwargs
             ),
         }
-        for (r, h) in zip([2, 4], [2, 4])
+        # for (r, h) in itertools.product([1, 64], [1, 2, 3, 4])
+        for (r, h) in zip([1, 2, 4], [1, 2, 4])
     ]
 
     print(f"Starting benchmarks ({args.device})...")
@@ -102,11 +105,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
+        "--device",
+        type=str,
+        choices=["cuda", "cpu"],
+        default="cuda",
     )
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--inp_seq_len", type=int, default=8)
-    parser.add_argument("--out_seq_len", type=int, default=8)
+    parser.add_argument("--inp_seq_len", type=int, default=256)
+    parser.add_argument("--out_seq_len", type=int, default=128)
     args = parser.parse_args()
 
     main(args)
