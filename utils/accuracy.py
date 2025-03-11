@@ -20,7 +20,6 @@ def collate_fn(batch, tokenizer):
     }
 
 
-# TODO: remove avg_meter_lst
 def compute_accuracy(
     model,
     tokenizer,

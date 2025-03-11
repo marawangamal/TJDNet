@@ -91,8 +91,6 @@ class TJDTrainer(Trainer):
 
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
-        # TODO: Use dataloader instead of dataset
-        # TODO: Refactor -- utils/callbacks/eval_gsm8k.py ==> utils/accuracy.py
         if self.test_dataset:
             acc, _ = compute_accuracy(
                 self.model,
@@ -224,7 +222,7 @@ def main():
         report_to="wandb",
         # Checkpoints
         save_strategy="best",  # Save model every epoch
-        save_total_limit=1,
+        save_total_limit=2,
         save_safetensors=False,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
@@ -296,15 +294,6 @@ def main():
 
         # Save the model
         trainer.save_model(ckpt_dir)
-
-        # Generate a test sample
-        test_sample = get_test_samples(
-            model,
-            tokenizer,
-            max_new_tokens=args.max_new_tokens,
-            prompt="What is the meaning of life?",
-        )
-        print(f"Test sample:\n{test_sample}")
 
 
 if __name__ == "__main__":
