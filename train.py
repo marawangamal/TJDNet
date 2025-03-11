@@ -222,7 +222,7 @@ def main():
         report_to="wandb",
         # Checkpoints
         save_strategy="best",  # Save model every epoch
-        save_total_limit=2,
+        save_total_limit=1,
         save_safetensors=False,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
