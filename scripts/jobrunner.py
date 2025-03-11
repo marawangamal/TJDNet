@@ -97,18 +97,21 @@ def load_object(filename):
 
 
 class SlurmJobManager:
-    cache_dir = "~/.jobrunner"
-    cache_file_status = "jobrunner_status_table.csv"
 
-    def __init__(self, file, overwrite=False, filter=False):
+    def __init__(
+        self,
+        file,
+        overwrite=False,
+        filter=False,
+        cache_file: str = "~/.jobrunner/jobrunner_status_table.csv",
+    ):
         """A manager for submitting and tracking SLURM jobs defined in a YAML configuration file.
 
         Args:
             file (str): Path to the YAML configuration file.
             overwrite (bool): Flag to allow overwriting of previously submitted jobs.
         """
-        self.cache_dir = self.__class__.cache_dir
-        self.cache_file_status = self.__class__.cache_file_status
+        self.cache_file = cache_file
         self.file = file
         self.overwrite = overwrite
         self.filter = filter
@@ -117,10 +120,8 @@ class SlurmJobManager:
         self.jobs = self.build_jobs_df()
 
         # Create cache file if it doesn't exist
-        if osp.exists(osp.join(osp.expanduser(self.cache_dir), self.cache_file_status)):
-            self.status_table = pd.read_csv(
-                osp.join(osp.expanduser(self.cache_dir), self.cache_file_status)
-            )
+        if osp.exists(osp.expanduser(self.cache_file)):
+            self.status_table = pd.read_csv(osp.expanduser(self.cache_file))
 
         else:
             self.status_table = pd.DataFrame(
@@ -132,9 +133,9 @@ class SlurmJobManager:
                     "command": [],
                 }
             )
-
-        if not osp.exists(osp.expanduser(self.cache_dir)):
-            os.makedirs(osp.expanduser(self.cache_dir))
+        # Create cache directory if it doesn't exist
+        dir_name = osp.dirname(osp.expanduser(self.cache_file))
+        os.makedirs(osp.expanduser(dir_name), exist_ok=True)
 
     @staticmethod
     def parse_file(filepath):
@@ -146,11 +147,36 @@ class SlurmJobManager:
         table: pd.DataFrame,
         columns: list = ["job_id", "job_status", "command"],
         query: str = "Overwrite previous jobs? Enter job(s) to overwrite, or 'n' to skip: ",
+        max_col_width: int = 170,
+        truncate_middle: bool = True,
+        truncate_length: int = 150,  # Total length to show (beginning + end)
     ):
-        pd.set_option("display.max_colwidth", 150)
-        print(table[columns])
+        pd.set_option("display.max_colwidth", max_col_width)
+
+        # Create a copy to avoid modifying the original table
+        display_table = table[columns].copy()
+
+        # Truncate strings in the middle if requested
+        if truncate_middle:
+            for col in columns:
+                if display_table[col].dtype == "object":  # Only process string columns
+                    display_table[col] = display_table[col].apply(
+                        lambda x: (
+                            str(x)[: truncate_length // 2]
+                            + "..."
+                            + str(x)[-truncate_length // 2 :]
+                            if isinstance(x, str) and len(str(x)) > truncate_length
+                            else x
+                        )
+                    )
+
+        print(display_table)
         overwrite_string = input(query)
-        return [int(s) for s in overwrite_string.split(",")]
+
+        if overwrite_string.lower() == "n":
+            return []
+
+        return [int(s) for s in overwrite_string.split(",") if s.strip()]
 
     def build_jobs(self):
 
@@ -201,7 +227,7 @@ class SlurmJobManager:
     def submit_jobs(self):
 
         # Create filter list
-        filter_row_ids = (
+        job_ids_filtered = (
             self._query_select_rows(
                 table=self.jobs,
                 query="Filter previous jobs? Enter job(s) to filter, or 'n' to skip: ",
@@ -211,8 +237,8 @@ class SlurmJobManager:
             else range(len(self.jobs))
         )
 
-        # Create overwrite list
-        overwrite_row_ids = (
+        # Create overwrite list for status table
+        st_ids_overwrite = (
             self._query_select_rows(
                 table=self.status_table,
                 query="Overwrite previous jobs? Enter job(s) to overwrite, or 'n' to skip: ",
@@ -221,21 +247,21 @@ class SlurmJobManager:
             else []
         )
 
-        for idx in filter_row_ids:
-            job = self.jobs.iloc[idx]
+        for job_idx in job_ids_filtered:
+            job = self.jobs.iloc[job_idx]
 
             # Look up job with matching command in status table
-            matching_rows = self.status_table[
+            st_matching_rows = self.status_table[
                 self.status_table["command"] == job["command"]
             ]
 
             # Run job if no matching rows or job is in overwrite list and not currently running
             if (
-                len(matching_rows) == 0
-                or idx in overwrite_row_ids
+                len(st_matching_rows) == 0
+                or st_matching_rows.index[0] in st_ids_overwrite
                 and not any(
                     [
-                        matching_rows.iloc[0]["job_status"].startswith(s)
+                        st_matching_rows.iloc[0]["job_status"].startswith(s)
                         for s in ["RUNNING", "PENDING", "SUBMIT"]
                     ]
                 )
@@ -279,14 +305,14 @@ class SlurmJobManager:
                 print("Skipping job: {}".format(job["group_name"]))
                 continue
 
-        outpath = osp.join(osp.expanduser(self.cache_dir), self.cache_file_status)
+        outpath = osp.expanduser(self.cache_file)
         df = pd.DataFrame(self.status_table)
         df.to_csv(outpath, index=False)
         print(self.status_table[["job_id", "job_status", "command"]])
 
     @classmethod
-    def status(cls):
-        outpath = osp.join(osp.expanduser(cls.cache_dir), cls.cache_file_status)
+    def status(cls, cache_file: str):
+        outpath = osp.join(osp.expanduser(cache_file))
         if not osp.exists(outpath):
             print("No status table found. Run `jobrunner.py -f <filepath>` first.")
             return
@@ -350,6 +376,10 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--status", action="store_true", default=False)
     parser.add_argument("-c", "--clear", action="store_true", default=False)
     parser.add_argument("--filter", action="store_true", default=False)
+    parser.add_argument(
+        "--cache_file", type=str, default="~/.jobrunner/jobrunner_status_table.csv"
+    )
+
     args = parser.parse_args()
 
     if args.clear:
@@ -362,6 +392,8 @@ if __name__ == "__main__":
         sys.exit()
 
     if args.status:
-        SlurmJobManager.status()
+        SlurmJobManager.status(cache_file=args.cache_file)
     else:
-        SlurmJobManager(args.filepath, args.overwrite, args.filter).submit_jobs()
+        SlurmJobManager(
+            args.filepath, args.overwrite, args.filter, cache_file=args.cache_file
+        ).submit_jobs()
