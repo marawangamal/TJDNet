@@ -97,11 +97,10 @@ def load_object(filename):
 
 
 class SlurmJobManager:
-    # TODO: ,ove into init function
     cache_dir = "~/.jobrunner"
     cache_file_status = "jobrunner_status_table.csv"
 
-    def __init__(self, file, overwrite=False):
+    def __init__(self, file, overwrite=False, filter=False):
         """A manager for submitting and tracking SLURM jobs defined in a YAML configuration file.
 
         Args:
@@ -112,9 +111,12 @@ class SlurmJobManager:
         self.cache_file_status = self.__class__.cache_file_status
         self.file = file
         self.overwrite = overwrite
+        self.filter = filter
 
-        self.jobs = self.build_jobs()
+        # self.jobs = self.build_jobs()
+        self.jobs = self.build_jobs_df()
 
+        # Create cache file if it doesn't exist
         if osp.exists(osp.join(osp.expanduser(self.cache_dir), self.cache_file_status)):
             self.status_table = pd.read_csv(
                 osp.join(osp.expanduser(self.cache_dir), self.cache_file_status)
@@ -139,6 +141,17 @@ class SlurmJobManager:
         with open(filepath, "r") as stream:
             return yaml.safe_load(stream)
 
+    def _query_select_rows(
+        self,
+        table: pd.DataFrame,
+        columns: list = ["job_id", "job_status", "command"],
+        query: str = "Overwrite previous jobs? Enter job(s) to overwrite, or 'n' to skip: ",
+    ):
+        pd.set_option("display.max_colwidth", 150)
+        print(table[columns])
+        overwrite_string = input(query)
+        return [int(s) for s in overwrite_string.split(",")]
+
     def build_jobs(self):
 
         parsed = self.parse_file(self.file)
@@ -162,62 +175,71 @@ class SlurmJobManager:
 
         return jobs
 
+    def build_jobs_df(self):
+
+        parsed = self.parse_file(self.file)
+        jobs = []
+
+        common_decl = "\n".join(parsed["common_preamble_declarations"])
+        common_runs = "\n".join(parsed["common_preamble_runs"])
+
+        for group in parsed["groups"]:
+            group_preamble = "\n".join(group["preamble"])
+            for job in group["paralleljobs"]:
+                jobs.append(
+                    {
+                        "group_name": group["name"],
+                        "preamble": "{}\n{}\n{}".format(
+                            common_decl, group_preamble, common_runs
+                        ),
+                        "command": "{}".format(job),
+                    }
+                )
+
+        return pd.DataFrame(jobs)
+
     def submit_jobs(self):
 
-        if self.overwrite:
-            pd.set_option("display.max_colwidth", 150)
-            print(self.status_table[["job_id", "job_status", "command"]])
-            overwrite_string = input(
-                "Overwrite previous jobs? Enter job(s) to overwrite, or 'n' to skip: "
+        # Create filter list
+        filter_row_ids = (
+            self._query_select_rows(
+                table=self.jobs,
+                query="Filter previous jobs? Enter job(s) to filter, or 'n' to skip: ",
+                columns=["group_name", "command"],
             )
-            overwrite_commands = [
-                self.status_table.loc[int(s)]["command"]
-                for s in overwrite_string.split(",")
+            if self.filter
+            else range(len(self.jobs))
+        )
+
+        # Create overwrite list
+        overwrite_row_ids = (
+            self._query_select_rows(
+                table=self.status_table,
+                query="Overwrite previous jobs? Enter job(s) to overwrite, or 'n' to skip: ",
+            )
+            if self.overwrite
+            else []
+        )
+
+        for idx in filter_row_ids:
+            job = self.jobs.iloc[idx]
+
+            # Look up job with matching command in status table
+            matching_rows = self.status_table[
+                self.status_table["command"] == job["command"]
             ]
-        else:
-            overwrite_commands = []
 
-        for job in self.jobs:
-
-            #  If job is already running (successfully), skip
-            # TODO: improve this logic
+            # Run job if no matching rows or job is in overwrite list and not currently running
             if (
-                job["command"] in self.status_table["command"].values
-                and not job["command"] in overwrite_commands
-                and not self.status_table[
-                    self.status_table["command"] == job["command"]
-                ]["job_status"]
-                .values[0]
-                .startswith("FAILED")
-                and not self.status_table[
-                    self.status_table["command"] == job["command"]
-                ]["job_status"]
-                .values[0]
-                .startswith("CANCELLED")
-                and not self.status_table[
-                    self.status_table["command"] == job["command"]
-                ]["job_status"]
-                .values[0]
-                .startswith("TIMEOUT")
-                and not self.status_table[
-                    self.status_table["command"] == job["command"]
-                ]["job_status"]
-                .values[0]
-                .startswith("UNKNOWN")
-                and not self.status_table[
-                    self.status_table["command"] == job["command"]
-                ]["job_status"]
-                .values[0]
-                .startswith("OUT_OF_ME")
+                len(matching_rows) == 0
+                or idx in overwrite_row_ids
+                and not any(
+                    [
+                        matching_rows.iloc[0]["job_status"].startswith(s)
+                        for s in ["RUNNING", "PENDING", "SUBMIT"]
+                    ]
+                )
             ):
-
-                print("Skipping job: {} (Already running)".format(job["group_name"]))
-
-            else:
-
-                # Drop previous row
-                # if job["command"] in self.status_table["command"].values and job["command"] in overwrite_commands:
-                #     self.status_table = self.status_table[self.status_table["command"] != job["command"]]
 
                 print("Running job: {}".format(job["group_name"]))
                 print(os.popen("rm tmp.sh").read())
@@ -225,6 +247,7 @@ class SlurmJobManager:
                 print(os.popen("echo '{}' >> tmp.sh".format(job["preamble"])).read())
                 print(os.popen("echo '{}' >> tmp.sh".format(job["command"])).read())
 
+                # Submit job
                 out = os.popen("sbatch tmp.sh").read()
 
                 print("Running: \n{}".format(out))
@@ -252,6 +275,10 @@ class SlurmJobManager:
                         [self.status_table, pd.DataFrame([new_row])], ignore_index=True
                     )
 
+            else:
+                print("Skipping job: {}".format(job["group_name"]))
+                continue
+
         outpath = osp.join(osp.expanduser(self.cache_dir), self.cache_file_status)
         df = pd.DataFrame(self.status_table)
         df.to_csv(outpath, index=False)
@@ -272,6 +299,7 @@ class SlurmJobManager:
         for job_id in status_table["job_id"]:
             try:
                 job_id_int = str(int(job_id))
+                # Get job status
                 out = os.popen("sacct -j {} --format state".format(job_id_int)).read()
                 status_i = out.split("\n")[2].strip()
                 # If status in table ensds with *, then add * to status_i
@@ -321,6 +349,7 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--overwrite", action="store_true", default=False)
     parser.add_argument("-s", "--status", action="store_true", default=False)
     parser.add_argument("-c", "--clear", action="store_true", default=False)
+    parser.add_argument("--filter", action="store_true", default=False)
     args = parser.parse_args()
 
     if args.clear:
@@ -335,4 +364,4 @@ if __name__ == "__main__":
     if args.status:
         SlurmJobManager.status()
     else:
-        SlurmJobManager(args.filepath, args.overwrite).submit_jobs()
+        SlurmJobManager(args.filepath, args.overwrite, args.filter).submit_jobs()
