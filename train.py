@@ -157,7 +157,13 @@ def setup(args):
         wandb_id = lookup_wandb_id(args)
         if local_rank == 0 and wandb_id is None:
             wandb_id = generate_wandb_id()
+            args.wandb_id = wandb_id
+            exp_name = get_experiment_name(vars(args))
+            ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
+            os.makedirs(ckpt_dir, exist_ok=True)
+            save_args(args, ckpt_dir)
             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
+            print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
         elif wandb_id is None:
             time.sleep(1)  # Sleep for a few seconds
         iterations += 1
@@ -170,7 +176,6 @@ def setup(args):
     args.wandb_id = wandb_id
     exp_name = get_experiment_name(vars(args))
     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
-    os.makedirs(ckpt_dir, exist_ok=True)
 
     has_checkpoint = False
     if osp.exists(ckpt_dir):
@@ -264,7 +269,6 @@ def main():
             id=args.wandb_id,
             config={**vars(args), **git_info},
         )
-        save_args(args, ckpt_dir)
 
     # In your main function, add this before initializing the trainer:
     generation_callback = GenerationCallback(
