@@ -99,6 +99,7 @@ def load_syn_temp_data(
     input_seq_len,
     max_num_samples=50000,
     num_test_samples=100,
+    print_stats=False,
     **kwargs,
 ):
     train_dataset = Dataset.from_generator(lambda: DataIterator(max_num_samples))
@@ -109,10 +110,11 @@ def load_syn_temp_data(
     eval_dataset = process_synthetic_dataset(eval_dataset, tokenizer, input_seq_len)
     test_dataset = process_synthetic_test_dataset(test_dataset, tokenizer)
 
-    print(f"\nDataset sizes:")
-    print(f"Train: {len(train_dataset)} sequences")
-    print(f"Test: {len(eval_dataset)} sequences")
-    print(f"Test: {len(test_dataset)} sequences")
+    if print_stats:
+        print(f"\nDataset sizes:")
+        print(f"Train: {len(train_dataset)} sequences")
+        print(f"Test: {len(eval_dataset)} sequences")
+        print(f"Test: {len(test_dataset)} sequences")
 
     return {
         "train": train_dataset,
