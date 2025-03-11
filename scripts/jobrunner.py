@@ -247,6 +247,14 @@ class SlurmJobManager:
             else []
         )
 
+        NOT_COMPLETED = [
+            "FAILED",
+            "CANCELLED",
+            "TIMEOUT",
+            "UNKNOWN",
+            "OUT_OF_MEMORY",
+        ]
+
         for job_idx in job_ids_filtered:
             job = self.jobs.iloc[job_idx]
 
@@ -255,14 +263,18 @@ class SlurmJobManager:
                 self.status_table["command"] == job["command"]
             ]
 
-            # Run job if no matching rows or job is in overwrite list and not currently running
+            # Run job if any of the follwoing are true
+            # (i) no matching rows
+            # (ii) job is in overwrite list
+            # (iii) has not completed status
+
             if (
                 len(st_matching_rows) == 0
                 or st_matching_rows.index[0] in st_ids_overwrite
-                and not any(
+                or any(
                     [
                         st_matching_rows.iloc[0]["job_status"].startswith(s)
-                        for s in ["RUNNING", "PENDING", "SUBMIT"]
+                        for s in NOT_COMPLETED
                     ]
                 )
             ):
