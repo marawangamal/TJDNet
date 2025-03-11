@@ -135,28 +135,6 @@ def get_exp_config(exp_path):
         return json.load(f)
 
 
-def get_wandb_id(args):
-    # First check if there is an experiment that matches except for wandb_id
-    local_rank = int(os.environ["LOCAL_RANK"])
-    exps = os.listdir(CHECKPOINT_DIR)
-    args_cp = vars(args).copy()
-    if "wandb_id" in args_cp:
-        del args_cp["wandb_id"]
-    matches = [exp for exp in exps if exp.startswith(get_experiment_name(args_cp))]
-    if len(matches) == 1:
-        # If there is a single match, use that wandb_id
-        exp_args = get_exp_config(osp.join(CHECKPOINT_DIR, matches[0]))
-        wandb_id = exp_args["wandb_id"] if exp_args else generate_wandb_id()
-        print(f"[{local_rank}] Using wandb_id from existing experiment: {wandb_id}")
-    else:
-        # Otherwise generate a new wandb_id
-        wandb_id = generate_wandb_id()
-        print(
-            f"[{local_rank}] Generated new wandb_id: {wandb_id} (len(matches)={len(matches)})"
-        )
-    return wandb_id
-
-
 def lookup_wandb_id(args):
     exps = os.listdir(CHECKPOINT_DIR)
     args_cp = vars(args).copy()
@@ -171,7 +149,7 @@ def lookup_wandb_id(args):
     return exp_args["wandb_id"] if exp_args else None
 
 
-def setup_v2(args):
+def setup(args):
     local_rank = int(os.environ["LOCAL_RANK"])
     wandb_id = None
     iterations = 0
@@ -207,35 +185,10 @@ def setup_v2(args):
     return args, exp_name, ckpt_dir, has_checkpoint
 
 
-def setup(args):
-
-    local_rank = int(os.environ["LOCAL_RANK"])
-    if local_rank != 0:
-        time.sleep(3)  # Sleep for a few seconds
-
-    if args.wandb_id is None and local_rank == 0:
-        args.wandb_id = get_wandb_id(args)
-    exp_name = get_experiment_name(vars(args))
-    ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
-    os.makedirs(ckpt_dir, exist_ok=True)
-
-    has_checkpoint = False
-    if osp.exists(ckpt_dir):
-        # Look for actual checkpoint files (like pytorch_model.bin or similar)
-        checkpoint_files = [
-            f for f in os.listdir(ckpt_dir) if f.startswith("checkpoint-")
-        ]
-        has_checkpoint = len(checkpoint_files) > 0
-        if has_checkpoint:
-            print(f"Resuming from checkpoint: {ckpt_dir}")
-
-    return args, exp_name, ckpt_dir, has_checkpoint
-
-
 def main():
     # Configuration
     args = parse_args()
-    args, exp_name, ckpt_dir, has_checkpoint = setup_v2(args)
+    args, exp_name, ckpt_dir, has_checkpoint = setup(args)
     set_seed(args.seed)
 
     # Model and tokenizer
