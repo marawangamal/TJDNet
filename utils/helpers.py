@@ -369,7 +369,6 @@ def validate_args(args):
             raise ValueError(rule["message"])
 
 
-# TODO: add eval_horizon
 def get_test_samples(
     model,
     tokenizer,
@@ -450,8 +449,7 @@ def get_model_and_tokenizer(args):
 
     if args.tokenizer_type == "word":
         tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
-        # BUG: cant simply add pad token -- unless we retrain a model embedding layer
-        # tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+        # Note: cant simply add pad token -- unless we retrain a model embedding layer
         tokenizer.pad_token = "$"
         tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
         tokenizer.padding_side = "left"

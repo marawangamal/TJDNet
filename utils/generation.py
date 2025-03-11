@@ -14,7 +14,6 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from utils.utils import truncate_tens
 
 
-# TODO: dont need to pass model and tokenizer in init
 class GenerationCallback(TrainerCallback):
     def __init__(
         self,
