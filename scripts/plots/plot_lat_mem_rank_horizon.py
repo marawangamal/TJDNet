@@ -52,26 +52,32 @@ def main(args):
         "do_sample": False,
     }
 
+    def create_model_fn(rank, horizon):
+        return lambda: TJDGPT2(
+            TJDConfig(
+                base_dist=BaseDistConfig(
+                    **bast_dist_kwargs,
+                    rank=rank,
+                    horizon=horizon,
+                    param_net=TensorParamNetConfig(),
+                ),
+                model_head="cp",
+            )
+        )
+
     exps = [
         {
             "name": f"gpt2::r{r}::h{h}",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        **bast_dist_kwargs,
-                        rank=r,
-                        horizon=h,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                )
-            ),
+            "model_fn": create_model_fn(r, h),  # Pass current r, h values
             "benchmark_fn": lambda model, input_ids: model.generate(
                 input_ids, **gen_kwargs
             ),
         }
-        # for (r, h) in itertools.product([1, 64], [1, 2, 3, 4])
-        for (r, h) in zip([1, 2, 4], [1, 2, 4])
+        #  2, 4, 8, 16, 32,
+        # 2, 3,
+        for (r, h) in itertools.product([1, 2, 4, 8, 16, 32, 64], [1, 2, 4])
+        # for (r, h) in zip([1, 2, 4], [1, 2, 4])
+        # for (r, h) in zip([64], [5])
     ]
 
     print(f"Starting benchmarks ({args.device})...")
