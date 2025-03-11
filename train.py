@@ -23,6 +23,7 @@ References:
 import json
 import os
 import os.path as osp
+from re import L
 import uuid
 
 import wandb
@@ -54,6 +55,7 @@ from utils.helpers import (
 )
 
 CHECKPOINT_DIR = "checkpoints"
+LOCAL_RANK = int(os.environ["LOCAL_RANK"])
 
 
 class TJDTrainer(Trainer):
@@ -128,6 +130,8 @@ def generate_wandb_id():
 
 def get_exp_config(exp_path):
     """Load the experiment configuration from a file."""
+    if not osp.exists(osp.join(exp_path, "args.json")):
+        return None
     with open(osp.join(exp_path, "args.json"), "r") as f:
         return json.load(f)
 
@@ -141,7 +145,8 @@ def get_wandb_id(args):
     matches = [exp for exp in exps if exp.startswith(get_experiment_name(args_cp))]
     if len(matches) == 1:
         # If there is a single match, use that wandb_id
-        wandb_id = get_exp_config(osp.join(CHECKPOINT_DIR, matches[0]))["wandb_id"]
+        exp_args = get_exp_config(osp.join(CHECKPOINT_DIR, matches[0]))
+        wandb_id = exp_args["wandb_id"] if exp_args else generate_wandb_id()
         print(f"Using wandb_id from existing experiment: {wandb_id}")
     else:
         # Otherwise generate a new wandb_id
@@ -153,11 +158,13 @@ def get_wandb_id(args):
 def main():
     # Configuration
     args = parse_args()
-    if hasattr(args, "wandb_id") and args.wandb_id is None:
+    if LOCAL_RANK == 0 and hasattr(args, "wandb_id") and args.wandb_id is None:
         args.wandb_id = get_wandb_id(args)
     exp_name = get_experiment_name(vars(args))
     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
-    os.makedirs(ckpt_dir, exist_ok=True)
+
+    if LOCAL_RANK == 0:
+        os.makedirs(ckpt_dir, exist_ok=True)
 
     has_checkpoint = False
     if osp.exists(ckpt_dir):
@@ -170,7 +177,9 @@ def main():
             print(f"Resuming from checkpoint: {ckpt_dir}")
 
     set_seed(args.seed)
-    save_args(args, ckpt_dir)
+
+    if LOCAL_RANK == 0:
+        save_args(args, ckpt_dir)
 
     # Model and tokenizer
     model, tokenizer = get_model_and_tokenizer(args)
