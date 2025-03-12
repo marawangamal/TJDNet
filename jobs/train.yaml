@@ -6,7 +6,7 @@ config:
 common_preamble_declarations:
   - "#!/bin/bash"
   - "#SBATCH --output=slurm/slurm-%j.out"
-  - "#SBATCH --error=slurm/slurm-error-%j.out"
+  - "#SBATCH --error=slurm/slurm-%j.err"
 
 common_preamble_runs:
   # 1. Load the required modules
