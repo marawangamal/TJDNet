@@ -2,7 +2,7 @@
 #SBATCH --partition=main
 #SBATCH --output=slurm/slurm-%j.out
 #SBATCH --error=slurm/slurm-%j.err
-#SBATCH --gres=gpu:a100l:2
+#SBATCH --gres=gpu:a100l:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --nodes=1
