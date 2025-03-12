@@ -304,6 +304,7 @@ class SlurmJobManager:
             "TIMEOUT",
             "UNKNOWN",
             "OUT_OF_MEMORY",
+            "OUT_OF_ME",
         ]
 
         for job_idx in job_ids_filtered:
