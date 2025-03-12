@@ -29,6 +29,14 @@ from tjdnet.models.tjdllama import TJDLLAMA
 from utils.latency import benchmark_model_v2
 
 
+class DataParallelWithGenerate(torch.nn.DataParallel):
+    """Wrapper around DataParallel to expose generate method"""
+
+    def generate(self, *args, **kwargs):
+        # Call the module's generate method directly
+        return self.module.generate(*args, **kwargs)
+
+
 def log_results(results, output_format="markdown", cols=None):
     """Generate a formatted table of benchmark results for multiple models.
 
@@ -108,74 +116,74 @@ def main(args):
                 input_ids, **gen_kwargs
             ),
         },
-        {
-            "name": "gpt2::cp::rank1::horizon1",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=1,
-                        rank=1,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-        {
-            "name": "gpt2::cp::rank2::horizon2",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=2,
-                        rank=2,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-        {
-            "name": "gpt2::cp::rank2::horizon2",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=2,
-                        rank=4,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-        {
-            "name": "gpt2::cp::rank4::horizon4",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=4,
-                        rank=4,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
+        #     {
+        #         "name": "gpt2::cp::rank1::horizon1",
+        #         "model_fn": lambda: TJDGPT2(
+        #             TJDConfig(
+        #                 base_dist=BaseDistConfig(
+        #                     vocab_size=768,
+        #                     horizon=1,
+        #                     rank=1,
+        #                     param_net=TensorParamNetConfig(),
+        #                 ),
+        #                 model_head="cp",
+        #             ),
+        #         ),
+        #         "benchmark_fn": lambda model, input_ids: model.generate(
+        #             input_ids, **gen_kwargs
+        #         ),
+        #     },
+        #     {
+        #         "name": "gpt2::cp::rank2::horizon2",
+        #         "model_fn": lambda: TJDGPT2(
+        #             TJDConfig(
+        #                 base_dist=BaseDistConfig(
+        #                     vocab_size=768,
+        #                     horizon=2,
+        #                     rank=2,
+        #                     param_net=TensorParamNetConfig(),
+        #                 ),
+        #                 model_head="cp",
+        #             ),
+        #         ),
+        #         "benchmark_fn": lambda model, input_ids: model.generate(
+        #             input_ids, **gen_kwargs
+        #         ),
+        #     },
+        #     {
+        #         "name": "gpt2::cp::rank2::horizon2",
+        #         "model_fn": lambda: TJDGPT2(
+        #             TJDConfig(
+        #                 base_dist=BaseDistConfig(
+        #                     vocab_size=768,
+        #                     horizon=2,
+        #                     rank=4,
+        #                     param_net=TensorParamNetConfig(),
+        #                 ),
+        #                 model_head="cp",
+        #             ),
+        #         ),
+        #         "benchmark_fn": lambda model, input_ids: model.generate(
+        #             input_ids, **gen_kwargs
+        #         ),
+        #     },
+        #     {
+        #         "name": "gpt2::cp::rank4::horizon4",
+        #         "model_fn": lambda: TJDGPT2(
+        #             TJDConfig(
+        #                 base_dist=BaseDistConfig(
+        #                     vocab_size=768,
+        #                     horizon=4,
+        #                     rank=4,
+        #                     param_net=TensorParamNetConfig(),
+        #                 ),
+        #                 model_head="cp",
+        #             ),
+        #         ),
+        #         "benchmark_fn": lambda model, input_ids: model.generate(
+        #             input_ids, **gen_kwargs
+        #         ),
+        #     },
     ]
 
     llama_model_kwargs = {
@@ -250,9 +258,6 @@ def main(args):
 
     print(f"Starting benchmarks ({args.device})...")
     results = {}
-    # input_ids = torch.randint(0, 100, (args.batch_size, args.inp_seq_len)).to(
-    #     args.device
-    # )
     input_ids_dict = {
         "bs::1": torch.randint(0, 100, (1, args.inp_seq_len)).to(args.device),
         "bs::8": torch.randint(0, 100, (8, args.inp_seq_len)).to(args.device),
@@ -264,6 +269,9 @@ def main(args):
                 exp_name = f"{exp['name']}::{input_name}"
                 print(f"\nBenchmarking {exp_name}...")
                 model = exp["model_fn"]().to(args.device)
+                if args.data_parallel and torch.cuda.device_count() > 1:
+                    print("Using DataParallel")
+                    model = DataParallelWithGenerate(model)
                 benchmark_fn = exp["benchmark_fn"]
                 results[exp_name] = benchmark_model_v2(
                     model, benchmark_fn, benchmark_fn_kwargs={"input_ids": input_ids}
