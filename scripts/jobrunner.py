@@ -44,6 +44,7 @@ import os
 import sys
 import os.path as osp
 import pickle
+from typing import Optional
 
 import yaml
 import pandas as pd
@@ -104,6 +105,8 @@ class SlurmJobManager:
         overwrite=False,
         filter=False,
         cache_file: str = "~/.jobrunner/jobrunner_status_table.csv",
+        job: Optional[str] = None,  # single job
+        preamble_path: Optional[str] = None,  # for single jobs.
     ):
         """A manager for submitting and tracking SLURM jobs defined in a YAML configuration file.
 
@@ -116,8 +119,22 @@ class SlurmJobManager:
         self.overwrite = overwrite
         self.filter = filter
 
-        # self.jobs = self.build_jobs()
-        self.jobs = self.build_jobs_df()
+        if job:  # Run a single job
+            # Get preamble from file if provided
+            if preamble_path:
+                with open(preamble_path, "r") as stream:
+                    preamble = stream.read()
+            else:
+                preamble = ""
+            self.jobs = pd.DataFrame(
+                {
+                    "group_name": ["single_job"],
+                    "preamble": [preamble],
+                    "command": [job],
+                }
+            )
+        else:
+            self.jobs = self.build_jobs_df()
 
         # Create cache file if it doesn't exist
         if osp.exists(osp.expanduser(self.cache_file)):
@@ -224,6 +241,40 @@ class SlurmJobManager:
 
         return pd.DataFrame(jobs)
 
+    def _run_job(self, job: dict):
+        print(os.popen("rm tmp.sh").read())
+        print(os.popen("touch tmp.sh").read())
+        print(os.popen("echo '{}' >> tmp.sh".format(job["preamble"])).read())
+        print(os.popen("echo '{}' >> tmp.sh".format(job["command"])).read())
+
+        # Submit job
+        out = os.popen("sbatch tmp.sh").read()
+
+        print("Running: \n{}".format(out))
+        job_id = out.split(" ")[-1].strip()
+
+        new_row = {
+            "job_id": job_id,
+            "group_name": job["group_name"],
+            "job_status": "SUBMIT",
+            "preamble": job["preamble"],
+            "command": job["command"],
+        }
+
+        # Update previous row if exists
+        if job["command"] in self.status_table["command"].values:
+            # import pdb; pdb.set_trace()
+            new_row["job_status"] = "{}*".format(new_row["job_status"])
+            # self.status_table.loc[self.status_table["command"] == job["command"]] = pd.DataFrame([new_row])
+            mask = self.status_table["command"] == job["command"]
+            for col, value in new_row.items():
+                self.status_table.loc[mask, col] = value
+
+        else:
+            self.status_table = pd.concat(
+                [self.status_table, pd.DataFrame([new_row])], ignore_index=True
+            )
+
     def submit_jobs(self):
 
         # Create filter list
@@ -279,39 +330,7 @@ class SlurmJobManager:
                 )
             ):
 
-                print("Running job: {}".format(job["group_name"]))
-                print(os.popen("rm tmp.sh").read())
-                print(os.popen("touch tmp.sh").read())
-                print(os.popen("echo '{}' >> tmp.sh".format(job["preamble"])).read())
-                print(os.popen("echo '{}' >> tmp.sh".format(job["command"])).read())
-
-                # Submit job
-                out = os.popen("sbatch tmp.sh").read()
-
-                print("Running: \n{}".format(out))
-                job_id = out.split(" ")[-1].strip()
-
-                new_row = {
-                    "job_id": job_id,
-                    "group_name": job["group_name"],
-                    "job_status": "SUBMIT",
-                    "preamble": job["preamble"],
-                    "command": job["command"],
-                }
-
-                # Update previous row if exists
-                if job["command"] in self.status_table["command"].values:
-                    # import pdb; pdb.set_trace()
-                    new_row["job_status"] = "{}*".format(new_row["job_status"])
-                    # self.status_table.loc[self.status_table["command"] == job["command"]] = pd.DataFrame([new_row])
-                    mask = self.status_table["command"] == job["command"]
-                    for col, value in new_row.items():
-                        self.status_table.loc[mask, col] = value
-
-                else:
-                    self.status_table = pd.concat(
-                        [self.status_table, pd.DataFrame([new_row])], ignore_index=True
-                    )
+                self._run_job(job)  # type: ignore
 
             else:
                 print("Skipping job: {}".format(job["group_name"]))
@@ -391,6 +410,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--cache_file", type=str, default="~/.jobrunner/jobrunner_status_table.csv"
     )
+    parser.add_argument(
+        "--job", type=str, default=None, help="Submit a single job directly."
+    )
+    parser.add_argument(
+        "-p",
+        "--preamble_path",
+        type=str,
+        default=None,
+        help="Path to a preamble file for single jobs.",
+    )
 
     args = parser.parse_args()
 
@@ -407,5 +436,10 @@ if __name__ == "__main__":
         SlurmJobManager.status(cache_file=args.cache_file)
     else:
         SlurmJobManager(
-            args.filepath, args.overwrite, args.filter, cache_file=args.cache_file
+            args.filepath,
+            args.overwrite,
+            args.filter,
+            cache_file=args.cache_file,
+            job=args.job,
+            preamble_path=args.preamble_path,
         ).submit_jobs()
