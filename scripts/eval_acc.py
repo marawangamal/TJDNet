@@ -138,7 +138,6 @@ def main():
     for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
         model = load_weights(model, checkpoint)
         model.to(args.device)
-        model = torch.nn.DataParallel(model)
         average_meter_kwargs = results.get(checkpoint, {"sum": 0, "count": 0})
         acc, avg_meter_kwargs = compute_accuracy(
             model,
