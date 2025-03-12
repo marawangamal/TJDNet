@@ -1,9 +1,13 @@
-""" "Benchmarking script for evaluating the latency and memory usage of different models.
+"""Benchmarking script for evaluating the latency and memory usage of different models.
 
-Examples:
+This script benchmarks the latency and memory usage of different models on a specified device.
 
-python scripts/eval_latency.py --device cuda --model_family llama --out_seq_len 32 --inp_seq_len 8
-python scripts/eval_latency.py --device cuda --model_family gpt2 --out_seq_len 128 --inp_seq_len 256
+Usage:
+    python scripts/eval_latency.py --device [device] --model_family [model_family] --out_seq_len [out_seq_len] --inp_seq_len [inp_seq_len]
+
+Example:
+    python scripts/eval_latency.py --device cuda --model_family llama --out_seq_len 32 --inp_seq_len 8
+    python scripts/eval_latency.py --device cuda --model_family gpt2 --out_seq_len 128 --inp_seq_len 256
 
 """
 
@@ -196,46 +200,46 @@ def main(args):
                 input_ids, **gen_kwargs
             ),
         },
-        {
-            "name": "llama::cp::nlayers2::rank16::horizon2",
-            "model_fn": lambda: TJDLLAMA(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=32000,
-                        horizon=2,
-                        rank=16,
-                        param_net=TensorParamNetConfig(
-                            num_layers=2,
-                        ),
-                    ),
-                    model_head="cp",
-                    model_kwargs=llama_model_kwargs,
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-        {
-            "name": "llama::cp::nlayers2::rank32::horizon2",
-            "model_fn": lambda: TJDLLAMA(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=32000,
-                        horizon=2,
-                        rank=32,
-                        param_net=TensorParamNetConfig(
-                            num_layers=2,
-                        ),
-                    ),
-                    model_head="cp",
-                    model_kwargs=llama_model_kwargs,
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
+        #     {
+        #         "name": "llama::cp::nlayers2::rank16::horizon2",
+        #         "model_fn": lambda: TJDLLAMA(
+        #             TJDConfig(
+        #                 base_dist=BaseDistConfig(
+        #                     vocab_size=32000,
+        #                     horizon=2,
+        #                     rank=16,
+        #                     param_net=TensorParamNetConfig(
+        #                         num_layers=2,
+        #                     ),
+        #                 ),
+        #                 model_head="cp",
+        #                 model_kwargs=llama_model_kwargs,
+        #             ),
+        #         ),
+        #         "benchmark_fn": lambda model, input_ids: model.generate(
+        #             input_ids, **gen_kwargs
+        #         ),
+        #     },
+        #     {
+        #         "name": "llama::cp::nlayers2::rank32::horizon2",
+        #         "model_fn": lambda: TJDLLAMA(
+        #             TJDConfig(
+        #                 base_dist=BaseDistConfig(
+        #                     vocab_size=32000,
+        #                     horizon=2,
+        #                     rank=32,
+        #                     param_net=TensorParamNetConfig(
+        #                         num_layers=2,
+        #                     ),
+        #                 ),
+        #                 model_head="cp",
+        #                 model_kwargs=llama_model_kwargs,
+        #             ),
+        #         ),
+        #         "benchmark_fn": lambda model, input_ids: model.generate(
+        #             input_ids, **gen_kwargs
+        #         ),
+        #     },
     ]
 
     # Run benchmarks
@@ -246,24 +250,31 @@ def main(args):
 
     print(f"Starting benchmarks ({args.device})...")
     results = {}
-    input_ids = torch.randint(0, 100, (args.batch_size, args.inp_seq_len)).to(
-        args.device
-    )
+    # input_ids = torch.randint(0, 100, (args.batch_size, args.inp_seq_len)).to(
+    #     args.device
+    # )
+    input_ids_dict = {
+        "bs::1": torch.randint(0, 100, (1, args.inp_seq_len)).to(args.device),
+        "bs::8": torch.randint(0, 100, (8, args.inp_seq_len)).to(args.device),
+        "bs::32": torch.randint(0, 100, (32, args.inp_seq_len)).to(args.device),
+    }
     for exp in exps:
         try:
-            print(f"\nBenchmarking {exp['name']}...")
-            model = exp["model_fn"]().to(args.device)
-            benchmark_fn = exp["benchmark_fn"]
-            results[exp["name"]] = benchmark_model_v2(
-                model, benchmark_fn, benchmark_fn_kwargs={"input_ids": input_ids}
-            )
-            # Add empty Accuracy column
-            results[exp["name"]]["Accuracy"] = {"mean": 0, "std": 0}
-            # Clean up to avoid memory accumulation between experiments
-            del model
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
+            for input_name, input_ids in input_ids_dict.items():
+                exp_name = f"{exp['name']}::{input_name}"
+                print(f"\nBenchmarking {exp_name}...")
+                model = exp["model_fn"]().to(args.device)
+                benchmark_fn = exp["benchmark_fn"]
+                results[exp_name] = benchmark_model_v2(
+                    model, benchmark_fn, benchmark_fn_kwargs={"input_ids": input_ids}
+                )
+                # Add empty Accuracy column
+                results[exp_name]["Accuracy"] = {"mean": 0, "std": 0}
+                # Clean up to avoid memory accumulation between experiments
+                del model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
 
         except Exception as e:
             print(f"Error benchmarking {exp['name']}: {str(e)}")
@@ -312,6 +323,12 @@ if __name__ == "__main__":
         "--top_k",
         type=int,
         default=32,
+    )
+    parser.add_argument(
+        "-p",  #
+        "--data_parallel",
+        action="store_true",
+        help="Use data parallelism",
     )
     args = parser.parse_args()
     main(args)
