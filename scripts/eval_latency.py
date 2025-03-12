@@ -12,14 +12,10 @@ Example:
 """
 
 import gc
-import time
-import psutil
 import argparse
-from tqdm import tqdm
 
 import torch
 import pandas as pd
-from statistics import mean, stdev
 
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
@@ -208,46 +204,86 @@ def main(args):
                 input_ids, **gen_kwargs
             ),
         },
-        #     {
-        #         "name": "llama::cp::nlayers2::rank16::horizon2",
-        #         "model_fn": lambda: TJDLLAMA(
-        #             TJDConfig(
-        #                 base_dist=BaseDistConfig(
-        #                     vocab_size=32000,
-        #                     horizon=2,
-        #                     rank=16,
-        #                     param_net=TensorParamNetConfig(
-        #                         num_layers=2,
-        #                     ),
-        #                 ),
-        #                 model_head="cp",
-        #                 model_kwargs=llama_model_kwargs,
-        #             ),
-        #         ),
-        #         "benchmark_fn": lambda model, input_ids: model.generate(
-        #             input_ids, **gen_kwargs
-        #         ),
-        #     },
-        #     {
-        #         "name": "llama::cp::nlayers2::rank32::horizon2",
-        #         "model_fn": lambda: TJDLLAMA(
-        #             TJDConfig(
-        #                 base_dist=BaseDistConfig(
-        #                     vocab_size=32000,
-        #                     horizon=2,
-        #                     rank=32,
-        #                     param_net=TensorParamNetConfig(
-        #                         num_layers=2,
-        #                     ),
-        #                 ),
-        #                 model_head="cp",
-        #                 model_kwargs=llama_model_kwargs,
-        #             ),
-        #         ),
-        #         "benchmark_fn": lambda model, input_ids: model.generate(
-        #             input_ids, **gen_kwargs
-        #         ),
-        #     },
+        {
+            "name": "llama::cp::nlayers2::rank16::horizon2",
+            "model_fn": lambda: TJDLLAMA(
+                TJDConfig(
+                    base_dist=BaseDistConfig(
+                        vocab_size=32000,
+                        horizon=2,
+                        rank=16,
+                        param_net=TensorParamNetConfig(
+                            num_layers=2,
+                        ),
+                    ),
+                    model_head="cp",
+                    model_kwargs=llama_model_kwargs,
+                ),
+            ),
+            "benchmark_fn": lambda model, input_ids: model.generate(
+                input_ids, **gen_kwargs
+            ),
+        },
+        {
+            "name": "llama::cp::nlayers2::rank32::horizon2",
+            "model_fn": lambda: TJDLLAMA(
+                TJDConfig(
+                    base_dist=BaseDistConfig(
+                        vocab_size=32000,
+                        horizon=2,
+                        rank=32,
+                        param_net=TensorParamNetConfig(
+                            num_layers=2,
+                        ),
+                    ),
+                    model_head="cp",
+                    model_kwargs=llama_model_kwargs,
+                ),
+            ),
+            "benchmark_fn": lambda model, input_ids: model.generate(
+                input_ids, **gen_kwargs
+            ),
+        },
+        {
+            "name": "llama::cp::nlayers2::rank16::horizon4",
+            "model_fn": lambda: TJDLLAMA(
+                TJDConfig(
+                    base_dist=BaseDistConfig(
+                        vocab_size=32000,
+                        horizon=4,
+                        rank=16,
+                        param_net=TensorParamNetConfig(
+                            num_layers=2,
+                        ),
+                    ),
+                    model_head="cp",
+                    model_kwargs=llama_model_kwargs,
+                ),
+            ),
+            "benchmark_fn": lambda model, input_ids: model.generate(
+                input_ids, **gen_kwargs
+            ),
+        },
+        {
+            "name": "llama::cp::nlayers2::rank32::horizon4",
+            "model_fn": lambda: TJDLLAMA(
+                TJDConfig(
+                    base_dist=BaseDistConfig(
+                        vocab_size=32000,
+                        horizon=4,
+                        rank=32,
+                        param_net=TensorParamNetConfig(
+                            num_layers=2,
+                        ),
+                    ),
+                    model_head="cp",
+                    model_kwargs=llama_model_kwargs,
+                ),
+            ),
+            "benchmark_fn": lambda model, input_ids: model.generate(
+                input_ids, **gen_kwargs
+            ),
+        },
     ]
 
     # Run benchmarks
@@ -260,8 +296,8 @@ def main(args):
     results = {}
     input_ids_dict = {
         "bs::1": torch.randint(0, 100, (1, args.inp_seq_len)).to(args.device),
-        "bs::8": torch.randint(0, 100, (8, args.inp_seq_len)).to(args.device),
-        "bs::32": torch.randint(0, 100, (32, args.inp_seq_len)).to(args.device),
+        # "bs::8": torch.randint(0, 100, (8, args.inp_seq_len)).to(args.device),
+        # "bs::32": torch.randint(0, 100, (32, args.inp_seq_len)).to(args.device),
     }
     for exp in exps:
         try:

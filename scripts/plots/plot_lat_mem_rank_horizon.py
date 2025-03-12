@@ -16,7 +16,7 @@ import re
 from utils.latency import benchmark_model_v2
 
 
-def save_fig(results, path="latency_benchmark.png"):
+def save_fig(results, path="latency_benchmark.png", y_axis="Latency [s]"):
     # Group data by horizon
     data = {}
 
@@ -29,7 +29,7 @@ def save_fig(results, path="latency_benchmark.png"):
         if h not in data:
             data[h] = {"ranks": [], "latencies": []}
         data[h]["ranks"].append(r)
-        data[h]["latencies"].append(metrics["Latency [s]"]["mean"])
+        data[h]["latencies"].append(metrics[y_axis]["mean"])
 
     # Create plot
     plt.figure()
@@ -37,7 +37,7 @@ def save_fig(results, path="latency_benchmark.png"):
         plt.plot(points["ranks"], points["latencies"], "o-", label=f"h={h}")
 
     plt.xlabel("Rank")
-    plt.ylabel("Latency [s]")
+    plt.ylabel(y_axis)
     plt.legend()
     plt.grid(True)
     plt.savefig(path)
@@ -105,6 +105,7 @@ def main(args):
             print(f"Error benchmarking {exp['name']}: {str(e)}")
 
     save_fig(results)
+    save_fig(results, path="gpu_mem_benchmark.png", y_axis="GPU Memory (allocated)[MB]")
 
 
 if __name__ == "__main__":

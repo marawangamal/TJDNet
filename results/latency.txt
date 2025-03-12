@@ -1,59 +1,17 @@
-python eval_latency.py --device cuda --inp_seq_len 256 --out_seq_len 128
+(.venv) marawan.gamal@cn-d002:~/scratch/TJDNet$ python scripts/eval_latency.py --device cuda --model_family llama --out_seq_len 32 --inp_seq_len 8
 
+| Model                                        | Latency [s]   | Accuracy      |                                                                                                                                                                                                                                                                                                                                         
+|:---------------------------------------------|:--------------|:--------------|
+| llama::bs::1                                 | 1.486 ± 0.011 | 0.000 ± 0.000 |
+| llama::cp::nlayers2::rank16::horizon2::bs::1 | 0.795 ± 0.009 | 0.000 ± 0.000 |
+| llama::cp::nlayers2::rank32::horizon2::bs::1 | 0.833 ± 0.028 | 0.000 ± 0.000 |
+| llama::cp::nlayers2::rank16::horizon4::bs::1 | 0.452 ± 0.012 | 0.000 ± 0.000 |
+| llama::cp::nlayers2::rank32::horizon4::bs::1 | 0.491 ± 0.038 | 0.000 ± 0.000 |
 
-Benchmark Results:
---------------------------------------------------
-
-gpt2:
-Mean latency: 1.375s ± 0.044s
-Min: 1.326s | Max: 1.457s
-GPU memory (allocated): 1100.37 MB ± 0.00 MB
-CPU memory (RSS): 1051.36 MB ± 0.00 MB
-
-gpt2::cp::rank1::horizon1:
-Mean latency: 1.623s ± 0.074s
-Min: 1.536s | Max: 1.748s
-GPU memory (allocated): 1492.63 MB ± 3.05 MB
-CPU memory (RSS): 1081.63 MB ± 0.01 MB
-
-gpt2::cp::rank2::horizon2:
-Mean latency: 1.084s ± 0.060s
-Min: 0.998s | Max: 1.179s
-GPU memory (allocated): 2526.00 MB ± 2.35 MB
-CPU memory (RSS): 1476.59 MB ± 0.00 MB
-
-gpt2::cp::rank4::horizon4:
-Mean latency: 0.726s ± 0.075s
-Min: 0.639s | Max: 0.857s
-GPU memory (allocated): 3707.19 MB ± 3.22 MB
-CPU memory (RSS): 1478.48 MB ± 0.00 MB
-
-
-
-python eval_latency.py --device cuda --model_family llama --inp_seq_len 8 --out_seq_len 32
-
-
-Benchmark Results:
---------------------------------------------------
-
-llama:
-Mean latency: 1.485s ± 0.013s
-Min: 1.473s | Max: 1.510s
-GPU memory (allocated): 26162.93 MB ± 0.00 MB
-CPU memory (RSS): 1022.33 MB ± 0.01 MB
-
-llama::cp::rank2::horizon2:
-Mean latency: 0.752s ± 0.011s
-Min: 0.744s | Max: 0.768s
-GPU memory (allocated): 28035.36 MB ± 0.00 MB
-CPU memory (RSS): 1118.24 MB ± 0.02 MB
-
-llama::cp::rank4::horizon4:
-Mean latency: 0.403s ± 0.010s
-Min: 0.398s | Max: 0.425s
-GPU memory (allocated): 33970.34 MB ± 0.00 MB
-CPU memory (RSS): 1125.05 MB ± 0.05 MB
-
-
-llama::cp::rank16::horizon2:num_layers2
-0.04
+| Model                                        | Latency [s]   | GPU Memory (allocated)[MB]   | GPU Memory (reserved) [MB]   | CPU Memory (rss) [MB]   | Accuracy      |
+|:---------------------------------------------|:--------------|:-----------------------------|:-----------------------------|:------------------------|:--------------|
+| llama::bs::1                                 | 1.486 ± 0.011 | 25760.249 ± 0.000            | 25776.000 ± 0.000            | 1204.700 ± 0.010        | 0.000 ± 0.000 |
+| llama::cp::nlayers2::rank16::horizon2::bs::1 | 0.795 ± 0.009 | 27271.498 ± 0.000            | 27296.000 ± 0.000            | 1217.965 ± 0.022        | 0.000 ± 0.000 |
+| llama::cp::nlayers2::rank32::horizon2::bs::1 | 0.833 ± 0.028 | 29275.404 ± 0.000            | 29316.000 ± 0.000            | 1234.859 ± 0.000        | 0.000 ± 0.000 |
+| llama::cp::nlayers2::rank16::horizon4::bs::1 | 0.452 ± 0.012 | 29273.131 ± 0.000            | 29316.000 ± 0.000            | 1235.270 ± 0.000        | 0.000 ± 0.000 |
+| llama::cp::nlayers2::rank32::horizon4::bs::1 | 0.491 ± 0.038 | 33281.318 ± 0.000            | 33324.000 ± 0.000            | 1227.395 ± 0.000        | 0.000 ± 0.000 |
