@@ -11,6 +11,7 @@ from typing import Union
 from tqdm import tqdm
 
 import torch
+from sklearn.utils.extmath import randomized_svd
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -20,6 +21,8 @@ from transformers import (
 
 import numpy as np
 import matplotlib.pyplot as plt
+
+from data.gsm8k import ChatTemplateGSM8k
 
 
 def get_spectrum(output_mat):
@@ -46,8 +49,11 @@ def get_spectrum(output_mat):
     # Print min/max values for debugging
     print(f"Min value: {output_mat.min()}")
     print(f"Max value: {output_mat.max()}")
-    _, s, _ = torch.linalg.svd(output_mat, full_matrices=False)
-    return s
+    # _, s, _ = torch.linalg.svd(output_mat, full_matrices=False)
+    U, s, Vh = randomized_svd(
+        output_mat.detach().cpu().numpy(), n_components=50, random_state=0
+    )
+    return torch.tensor(s)
 
 
 def plot_spectrum(spectrum, save_path=None):
@@ -167,7 +173,7 @@ def generate_output_distribution_spectrum_batched(
     start_str: str = "\n",
     checkpoint_steps: int = 50,  # Save progress every n tokens
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
-    batch_size: int = 128,
+    batch_size: int = 32,
     overwrite: bool = True,
 ):
     """Batched version of generate_output_distribution_spectrum"""
@@ -187,6 +193,8 @@ def generate_output_distribution_spectrum_batched(
         p_y1_y2[: saved_mat.shape[0], : saved_mat.shape[1]] = saved_mat
         start_idx = saved_idx
         print(f"Resuming from {checkpoint_path} at token index {start_idx}.")
+    else:
+        print(f"Starting fresh at token index {start_idx}.")
 
     x = torch.tensor(tokenizer.encode(start_str, return_tensors="pt")).to(
         device
@@ -230,6 +238,9 @@ def generate_output_distribution_spectrum_batched(
             # Manually update the tqdm bar by 1 step
             pbar.update(batch_size)
 
+            # if i > 100:
+            #     break
+
     return p_y1_y2
 
 
@@ -240,16 +251,35 @@ def main(args: Namespace):
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
+    if args.sample:
+        # Sample from the output distribution
+        print("Sampling from the output distribution...")
+        output = model.generate(
+            torch.tensor(
+                tokenizer.encode(ChatTemplateGSM8k.get_sample_prompt_few_shot())
+            ).unsqueeze(0),
+            max_new_tokens=args.max_new_tokens,
+        )
+        print(tokenizer.decode(output[0], skip_special_tokens=True))
+
     # Generate output distribution spectrum (resuming or starting fresh)
     print("Generating output distribution matrix...")
-    output_mat = generate_output_distribution_spectrum_batched(model, tokenizer)
+    output_mat = generate_output_distribution_spectrum_batched(
+        model,
+        tokenizer,
+        start_str=ChatTemplateGSM8k.get_sample_prompt_few_shot(),
+        overwrite=False,
+    )
 
     print("Computing spectrum...")
     spectrum = get_spectrum(output_mat)
 
     print("Plotting spectrum...")
     os.makedirs("results", exist_ok=True)
-    plot_spectrum(spectrum, save_path=f"results/spectrum_plot_{args.model}.png")
+    plot_spectrum(
+        spectrum,
+        save_path=f"results/plots/spectrum_plot_{args.model.split('/')[-1]}.png",
+    )
 
     # Print some statistics
     print(f"Top 10 singular values: {spectrum[:10]}")
@@ -267,6 +297,18 @@ if __name__ == "__main__":
         type=str,
         default="gpt2",  # meta-llama/Llama-2-7b-chat-hf
         help="Hugging Face model identifier (default: gpt2)",
+    )
+    parser.add_argument(
+        "-s",
+        "--sample",
+        action="store_true",
+        help="Sample from the output distribution",
+    )
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=32,
+        help="Maximum number of tokens to generate",
     )
     args = parser.parse_args()
     main(args)
