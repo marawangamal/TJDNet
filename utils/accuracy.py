@@ -59,6 +59,7 @@ def compute_accuracy(
 
     y_pred = []
     y_true = []
+    print("Total number of samples:", total_samples)
     with torch.no_grad():
         for i, batch in enumerate(pbar):
             if i < batches_to_skip:
@@ -107,4 +108,4 @@ def compute_accuracy(
     print(f"y_true:\n {y_true[0]}")
     print(f"y_pred:\n {y_pred[0]}")
 
-    return acc_meter.avg, acc_meter.dump()
+    return acc_meter.avg, {**acc_meter.dump(), "total_samples": total_samples}

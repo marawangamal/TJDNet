@@ -149,8 +149,7 @@ def lookup_wandb_id(args):
     return exp_args["wandb_id"] if exp_args else None
 
 
-def setup(args):
-    local_rank = int(os.environ["LOCAL_RANK"])
+def setup(args, local_rank: int):
     wandb_id = None
     iterations = 0
     while wandb_id is None:
@@ -192,8 +191,9 @@ def setup(args):
 
 def main():
     # Configuration
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
     args = parse_args()
-    args, exp_name, ckpt_dir, has_checkpoint = setup(args)
+    args, exp_name, ckpt_dir, has_checkpoint = setup(args, local_rank)
     set_seed(args.seed)
 
     # Model and tokenizer
@@ -218,7 +218,7 @@ def main():
         tokenizer,
         args.seq_len,
         max_num_samples=args.max_num_samples,
-        print_stats=int(os.environ["LOCAL_RANK"]) == 0,
+        print_stats=local_rank == 0,
     )
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     # data_collator = CustomDataCollator(tokenizer=tokenizer, mlm=False)
@@ -243,8 +243,10 @@ def main():
         # report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
         report_to="wandb",
         # Checkpoints
-        save_strategy="best",  # Save model every epoch
-        save_total_limit=1,
+        save_strategy=args.eval_strategy,
+        save_steps=args.eval_steps,
+        save_total_limit=2,  # Save only 3 checkpoints
+        load_best_model_at_end=True,
         save_safetensors=False,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
@@ -268,6 +270,7 @@ def main():
             name=exp_name,
             id=args.wandb_id,
             config={**vars(args), **git_info},
+            resume="allow",
         )
 
     # In your main function, add this before initializing the trainer:
