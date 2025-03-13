@@ -113,7 +113,7 @@ def load_syn_temp_data(
     if print_stats:
         print(f"\nDataset sizes:")
         print(f"Train: {len(train_dataset)} sequences")
-        print(f"Test: {len(eval_dataset)} sequences")
+        print(f"Eval: {len(eval_dataset)} sequences")
         print(f"Test: {len(test_dataset)} sequences")
 
     return {
