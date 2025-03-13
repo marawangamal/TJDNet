@@ -131,7 +131,7 @@ def parse_args():
         "--horizon",
         type=int,
         default=1,
-        help="Block size for model input sequences.",
+        help="Horizon for TJD models. (E.g. if horizon=2 the model will make 2x less forward passes)",
     )
     parser.add_argument("--dropout", type=float, default=0, help="Dropout rate.")
     parser.add_argument(
@@ -179,7 +179,7 @@ def parse_args():
         "--horizon_eval",
         type=int,
         default=1,
-        help="Block size for model input sequences.",
+        help="Horizon for TJD models during evaluation. (Note: horizon_eval cannot be greater than horizon for some TJD dists)",
     )
     parser.add_argument(
         "--max_new_tokens",

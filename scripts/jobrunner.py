@@ -7,7 +7,8 @@ Usage:
     python jobrunner.py -f config.yaml  # Submit jobs
     python jobrunner.py -s              # Check status of all jobs
     python jobrunner.py -c              # Clear job history cache
-
+    python jobrunner.py --filter        # Filter jobs to submit
+    python jobrunner.py --job "python train.py --model_type llama --lr 1e-5" -p path/to/preamble.sh  # Submit a single job
 
 Example YAML configuration:
     common_preamble_declarations:  # Common declarations for all jobs

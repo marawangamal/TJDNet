@@ -1,6 +1,22 @@
-# TJDNet: Speeding up Language Model Inference via Tensorized Joint Distribution Networks
+<!-- # TJDNet: Speeding up Language Model Inference via Tensorized Joint Distribution Networks
 
-Speeding up language model inference via tensorized joint distributions. This codebase implements TJDNet for GPT and LLAMA models but can be easily extended to other models.
+Speeding up language model inference via tensorized joint distributions. This codebase implements TJDNet for GPT and LLAMA models but can be easily extended to other models. -->
+
+<div align="center">
+
+<h1>TJDNet: Speeding up Language Model Inference via Tensorized Joint Distribution Networks</h1>
+
+<i> Speeding up language model inference via tensorized joint distributions </i>
+
+
+<img src="assets/image.png" style="width: 400px;" />
+<!-- <i>Speeding up language model inference via tensorized joint distributions.</i> -->
+
+<!-- <i> (Left) N forward passes to decode. (Right) TJDNet decoding uses Single forward
+pass through transformer</i> -->
+
+</div>
+
 
 ## Requirements
 
@@ -22,7 +38,16 @@ pip install -e eval/human-eval
 ## Training
 To fine-tune Lllama7b using the Matrix Product State (MPS) head, run this command (best checkpoint will be saved under `checkpoints`)
 ```bash 
-python train.py --model llama7b --model_head mps --rank 2 --horizon 2
+accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py \
+  --dataset gsm8k \
+  --model_type llama7b \
+  --lr 1e-5 \
+  --model_head mps \
+  --num_layers 2 \
+  --hidden_dim 768 \
+  --horizon 2 \
+  --horizon_eval 2 \
+  --rank 2
 ```
 
 ## Evaluation
