@@ -9,7 +9,7 @@ Speeding up language model inference via tensorized joint distributions. This co
 <i> Speeding up language model inference via tensorized joint distributions </i>
 
 
-<img src="assets/image.png" style="width: 400px;" />
+<img src="assets/image.png" style="width: 800px;" />
 <!-- <i>Speeding up language model inference via tensorized joint distributions.</i> -->
 
 <!-- <i> (Left) N forward passes to decode. (Right) TJDNet decoding uses Single forward
