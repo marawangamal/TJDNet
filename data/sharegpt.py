@@ -27,6 +27,26 @@ class ChatTemplateShareGPT(BaseChatTemplate):
             answer="",
         )
 
+    @classmethod
+    def get_sample_prompt_few_shot(cls):
+        return """How to tell if a customer segment is well segmented? In 3 bullet points."""
+
+    # def get_sample_prompt_few_shot(self):
+    #     return """
+    #     You are a helpful assistant. Here's examples of questions and answers you can provide:
+
+    #     [QUESTION]
+    #     In Java, I want to replace string like 'This is a new { object } at { place }' with a Map, {object: "student", "point 3, 4"}, and get a result "This is a new student at point 3, 4". How can I do?
+
+    #     [ANSWER]
+    #     You can use the `String.format()` method in Java to replace placeholders in a string with values from a map. Here\'s an example code snippet that demonstrates how you can achieve this:\n```java\nimport java.util.HashMap;\nimport java.util.Map;\n\npublic class StringReplaceExample {\n    public static void main(String[] args) {\n        String input = "This is a new {object} at {place}";\n        Map<String, String> replacements = new HashMap<>();\n        replacements.put("object", "student");\n        replacements.put("place", "point 3, 4");\n\n        String output = replacePlaceholders(input, replacements);\n        System.out.println(output);\n    }\n\n    public static String replacePlaceholders(String input, Map<String, String> replacements) {\n        for (Map.Entry<String, String> entry : replacements.entrySet()) {\n            String placeholder = "{" + entry.getKey() + "}";\n            String replacement = entry.getValue();\n            input = input.replace(placeholder, replacement);\n        }\n        return input;\n    }\n}\n```\nIn this example, we define the input string as "This is a new {object} at {place}", and create a `HashMap` called `replacements` that maps the placeholders "object" and "place" to their corresponding values "student" and "point 3, 4". We then pass these values to the `replacePlaceholders()` method, which iterates over the entries in the `replacements` map and replaces each placeholder in the input string with its corresponding value using the `replace()` method. Finally, the `replacePlaceholders()` method returns the modified string, which is printed to the console.\n\nThe output of this program will be:\n```csharp\nThis is a new student at point 3, 4\n```\nNote that you can modify the `replacements` map to include additional placeholders and their corresponding values, and the `replacePlaceholders()` method will automatically replace them in the input string.
+
+    #     [QUESTION]
+    #     How to tell if a customer segment is well segmented? In 3 bullet points.
+
+    #     [ANSWER]
+    #     """
+
 
 def parse_conversation(example, eos_token="<|endoftext|>"):
     text = ""

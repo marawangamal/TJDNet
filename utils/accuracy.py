@@ -101,7 +101,7 @@ def compute_accuracy(
                 break
 
             if on_batch_end:
-                on_batch_end(acc_meter.dump())
+                on_batch_end({**acc_meter.dump(), "total_samples": total_samples})
 
     # Print example
     print("Example:")

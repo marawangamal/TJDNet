@@ -11,6 +11,7 @@ from typing import Union
 from tqdm import tqdm
 
 import torch
+from sklearn.utils.extmath import randomized_svd
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -20,6 +21,20 @@ from transformers import (
 
 import numpy as np
 import matplotlib.pyplot as plt
+
+from data.gsm8k import ChatTemplateGSM8k
+from data.sharegpt import ChatTemplateShareGPT
+
+PROMPTS = [
+    {
+        "name": "gsm8k",
+        "value": ChatTemplateGSM8k.get_sample_prompt_few_shot(),
+    },
+    {
+        "name": "sharegpt",
+        "value": ChatTemplateShareGPT.get_sample_prompt_few_shot(),
+    },
+]
 
 
 def get_spectrum(output_mat):
@@ -46,8 +61,11 @@ def get_spectrum(output_mat):
     # Print min/max values for debugging
     print(f"Min value: {output_mat.min()}")
     print(f"Max value: {output_mat.max()}")
-    _, s, _ = torch.linalg.svd(output_mat, full_matrices=False)
-    return s
+    # _, s, _ = torch.linalg.svd(output_mat, full_matrices=False)
+    U, s, Vh = randomized_svd(
+        output_mat.detach().cpu().numpy(), n_components=1000, random_state=0
+    )
+    return torch.tensor(s)
 
 
 def plot_spectrum(spectrum, save_path=None):
@@ -71,16 +89,16 @@ def plot_spectrum(spectrum, save_path=None):
     plt.axhline(y=1, color="r", linestyle="-", alpha=0.3)
 
     # Add info about the effective rank
-    effective_rank = (spectrum_np > 1e-10).sum()
+    # effective_rank = (spectrum_np > 1e-10).sum()
     total_energy = spectrum_np.sum()
     energy_90 = np.searchsorted(np.cumsum(spectrum_np) / total_energy, 0.9) + 1
 
-    plt.annotate(
-        f"Effective rank: {effective_rank}",
-        xy=(0.02, 0.95),
-        xycoords="axes fraction",
-        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
-    )
+    # plt.annotate(
+    #     f"Effective rank: {effective_rank}",
+    #     xy=(0.02, 0.95),
+    #     xycoords="axes fraction",
+    #     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
+    # )
 
     plt.annotate(
         f"90% energy at k={energy_90}",
@@ -165,28 +183,30 @@ def generate_output_distribution_spectrum_batched(
     model: torch.nn.Module,
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     start_str: str = "\n",
-    checkpoint_steps: int = 50,  # Save progress every n tokens
+    checkpoint_steps: int = 5,  # Save progress every n tokens
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
-    batch_size: int = 128,
-    overwrite: bool = True,
+    batch_size: int = 16,
+    resume: bool = True,
+    checkpoint_path: str = "results/output_mat_batched_checkpoint.pt",
 ):
     """Batched version of generate_output_distribution_spectrum"""
     # Ensure 'results' directory exists for checkpoint
     os.makedirs("results", exist_ok=True)
-    checkpoint_path = "results/output_mat_batched_checkpoint.pt"
 
     # Initialize or resume
     vocab_size = len(tokenizer.get_vocab())
     p_y1_y2 = torch.zeros((vocab_size, vocab_size))
     start_idx = 0
 
-    if os.path.exists(checkpoint_path) and not overwrite:
+    if os.path.exists(checkpoint_path) and resume:
         # If there's a checkpoint, load it
         saved_mat, saved_idx = torch.load(checkpoint_path)
         # Copy the saved matrix into our newly allocated matrix in case sizes match
         p_y1_y2[: saved_mat.shape[0], : saved_mat.shape[1]] = saved_mat
         start_idx = saved_idx
         print(f"Resuming from {checkpoint_path} at token index {start_idx}.")
+    else:
+        print(f"Starting fresh at token index {start_idx}.")
 
     x = torch.tensor(tokenizer.encode(start_str, return_tensors="pt")).to(
         device
@@ -219,16 +239,18 @@ def generate_output_distribution_spectrum_batched(
             p_y2_g_y1 = torch.nn.functional.softmax(
                 logits[:, -1], dim=-1
             )  # Shape: (batch_size, vocab_size)
-            p_y1_y2[i : i + batch_size] = p_y2_g_y1 * p_y1
+            p_y1_y2[i : min(i + batch_size, p_y1_y2.size(1))] = p_y2_g_y1 * p_y1
 
             # Periodically save checkpoint
-            if (i + 1) % (checkpoint_steps * batch_size) == 0 or (i + 1) == vocab_size:
-                torch.save((p_y1_y2, i + 1), checkpoint_path)
-                if (i + 1) < vocab_size:
-                    pbar.set_postfix_str(f"Checkpoint saved at index {i+1}")
+            if i % (checkpoint_steps * batch_size) == 0:
+                torch.save((p_y1_y2, i), checkpoint_path)
+                pbar.set_postfix_str(f"Checkpoint saved at {i}")
 
             # Manually update the tqdm bar by 1 step
             pbar.update(batch_size)
+
+            # if i > 100:
+            #     break
 
     return p_y1_y2
 
@@ -240,21 +262,43 @@ def main(args: Namespace):
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
-    # Generate output distribution spectrum (resuming or starting fresh)
-    print("Generating output distribution matrix...")
-    output_mat = generate_output_distribution_spectrum_batched(model, tokenizer)
+    if args.sample:
+        # Sample from the output distribution
+        print("Sampling from the output distribution...")
+        output = model.generate(
+            torch.tensor(
+                tokenizer.encode(ChatTemplateGSM8k.get_sample_prompt_few_shot())
+            ).unsqueeze(0),
+            max_new_tokens=args.max_new_tokens,
+        )
+        print(tokenizer.decode(output[0], skip_special_tokens=True))
 
-    print("Computing spectrum...")
-    spectrum = get_spectrum(output_mat)
+    for prompt in PROMPTS:
+        # Generate output distribution spectrum (resuming or starting fresh)
+        print(f"[{prompt['name']}] Generating output distribution spectrum...")
+        output_mat = generate_output_distribution_spectrum_batched(
+            model,
+            tokenizer,
+            start_str=prompt["value"],
+            checkpoint_path=f"results/output_mat_{prompt['name']}_batched.pt",
+        )
 
-    print("Plotting spectrum...")
-    os.makedirs("results", exist_ok=True)
-    plot_spectrum(spectrum, save_path=f"results/spectrum_plot_{args.model}.png")
+        print(f"[{prompt['name']}]Computing spectrum...")
+        spectrum = get_spectrum(output_mat)
 
-    # Print some statistics
-    print(f"Top 10 singular values: {spectrum[:10]}")
-    print(f"Sum of all singular values: {spectrum.sum()}")
-    print(f"Effective rank (singular values > 1e-10): {(spectrum > 1e-10).sum()}")
+        print(f"[{prompt['name']}] Plotting spectrum...")
+        os.makedirs("results", exist_ok=True)
+        plot_spectrum(
+            spectrum,
+            save_path=f"results/plots/spectrum_plot_{args.model.split('/')[-1]}_{prompt['name']}.png",
+        )
+
+        # Print some statistics
+        print(f"[{prompt['name']}] Top 10 singular values: {spectrum[:10]}")
+        print(f"[{prompt['name']}] Sum of all singular values: {spectrum.sum()}")
+        print(
+            f"[{prompt['name']}] Effective rank (singular values > 1e-10): {(spectrum > 1e-10).sum()}"
+        )
 
 
 if __name__ == "__main__":
@@ -267,6 +311,18 @@ if __name__ == "__main__":
         type=str,
         default="gpt2",  # meta-llama/Llama-2-7b-chat-hf
         help="Hugging Face model identifier (default: gpt2)",
+    )
+    parser.add_argument(
+        "-s",
+        "--sample",
+        action="store_true",
+        help="Sample from the output distribution",
+    )
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=32,
+        help="Maximum number of tokens to generate",
     )
     args = parser.parse_args()
     main(args)
