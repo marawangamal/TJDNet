@@ -25,7 +25,7 @@ def compute_accuracy(
     tokenizer,
     test_dataset,
     chat_template,
-    max_new_tokens=125,
+    max_new_tokens=128,
     horizon=1,
     top_k=50,
     do_sample=True,
