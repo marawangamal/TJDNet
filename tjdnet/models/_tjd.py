@@ -12,6 +12,7 @@ from tjdnet.distributions.base import BaseDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.full import FullDist
 from tjdnet.distributions.mps import MPSDist
+from tjdnet.distributions.ucp import UCPDist
 from tjdnet.distributions.umps import UMPSDist
 from tjdnet.tensorops.common import (
     get_inactive_indices,
@@ -30,6 +31,7 @@ DIST_MAP: Dict[str, Type[BaseDistribution]] = {
     "mps": MPSDist,
     "umps": UMPSDist,
     "base": BaseDist,
+    "ucp": UCPDist,
 }
 
 

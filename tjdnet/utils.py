@@ -102,6 +102,7 @@ def get_positional_encodings(
     # "step=2" means 'i' multiplied with two (same with 2 * i)
 
     encoding[:, 0::2] = torch.sin(pos / (10000 ** (_2i / d_model)))
-    encoding[:, 1::2] = torch.cos(pos / (10000 ** (_2i / d_model)))
+    end_pos = encoding[:, 1::2].size(1)
+    encoding[:, 1::2] = torch.cos(pos / (10000 ** (_2i / d_model)))[:, :end_pos]
 
     return encoding  # (seq_len, d_model)

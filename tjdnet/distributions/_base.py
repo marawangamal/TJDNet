@@ -31,7 +31,6 @@ class BaseDistConfig:
     horizon: int
     rank: int
     param_net: TensorParamNetConfig
-    use_positional_encoding: bool = False
 
 
 class BaseDistribution(ABC, torch.nn.Module):

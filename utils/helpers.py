@@ -97,6 +97,7 @@ def parse_args():
             "umps",
             "full",
             "base",
+            "ucp",
         ],
     )
     parser.add_argument(
@@ -107,7 +108,7 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--num_layers", type=int, default=2, help="Number of layers in the model head."
+        "--num_layers", type=int, default=1, help="Number of layers in the model head."
     )
     parser.add_argument(
         "--activation",

@@ -29,7 +29,6 @@ class UCPDist(BaseDistribution):
         """
         config.param_net.out_dim = config.rank * config.vocab_size
         super().__init__(config)
-        self.use_positional_encoding = config.use_positional_encoding
 
     def _get_params(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
@@ -54,6 +53,36 @@ class UCPDist(BaseDistribution):
 
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
 
+    def get_dist(
+        self,
+        hidden_state: torch.Tensor,
+        ops: torch.Tensor,
+        use_cache: bool = False,
+        save_cache: bool = False,
+    ):
+        """Get distribution specified by ops.
+
+        Args:
+            hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
+            ops (torch.Tensor): Operation codes of shape (T,) specifying:
+                -2: marginalize mode (sum reduction)
+                -1: keep mode as free index
+                [0,V): select index v in mode
+            use_cache (bool, optional): Whether to use cached values. Defaults to False.
+        """
+        params = self._get_params_from_cache(
+            hidden_state.reshape(1, 1, -1), use_cache, save_cache
+        )  # (1, 1, R, H, V)
+        # return select_margin_cp_tensor(
+        #     cp_params=params.reshape(self.rank, self.horizon, self.vocab_size),
+        #     ops=ops,
+        # )
+        p_tilde, _ = select_margin_cp_tensor_batched(
+            cp_params=params.reshape(1, self.rank, self.horizon, self.vocab_size),
+            ops=ops.unsqueeze(0),
+        )  # (1, V), (1, T)
+        return p_tilde.squeeze(0), []  # (V,)
+
     def sample(
         self,
         hidden_state: torch.Tensor,
@@ -68,7 +97,7 @@ class UCPDist(BaseDistribution):
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
         model_head_params = self._get_params(hidden_state[:, -1:, :]).squeeze(
             1
-        )  # (B, 1, R, V) => (B, R, V)
+        )  # (B, 1, R, H*, V) => (B, R, H*, V)
         for h in range(horizon):
             ops_tensor = torch.cat(
                 (
@@ -112,7 +141,7 @@ class UCPDist(BaseDistribution):
         # Get indexed distribution
         batch_size, seq_len, _ = last_hidden_state.size()
         horizon = points.size(-1)
-        params = self._get_params(last_hidden_state)  # (B, T, R, H, V)
+        params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
         # (B, T, R, H, V) => (B, T)
         # p_tilde = select_from_cp_tensor(
         #     params.reshape(
