@@ -62,10 +62,10 @@ Results obtained after training LLama7b on GSM8k for 10 epochs.
 
 | Model                                 | Latency [s]   | Accuracy      |                                                                                            
 |:--------------------------------------|:--------------|:--------------|
-| llama                                 | 1.491 ± 0.011 | 0.04 |
-| llama::cp::nlayers2::rank16::horizon2 | 0.757 ± 0.007 | 0.04 |
+| llama                                 | 1.491 ± 0.011 | 0.128 |
+| llama::cp::nlayers2::rank4::horizon2  | - | 0.049 |
+| llama::cp::nlayers2::rank16::horizon2 | 0.757 ± 0.007 | - |
 | llama::cp::nlayers2::rank32::horizon2 | 0.775 ± 0.010 | - |
-
 
 ### Reproducing our GSM8k results
 1. Run jobs specified in [here](/scripts/jobs_jr/train.yaml) (resumable by default)
