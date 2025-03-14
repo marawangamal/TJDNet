@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import torch
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
@@ -8,6 +8,7 @@ from tjdnet.tensorops.umps import (
     select_margin_umps_tensor,
     sum_umps_tensorV2,
 )
+from tjdnet.utils import sample_topk
 
 
 class UMPSDist(BaseDistribution):
@@ -37,66 +38,6 @@ class UMPSDist(BaseDistribution):
             batch_size, seq_len, self.rank, self.vocab_size, self.rank
         )
         return alpha, core, beta
-
-    def get_dist(
-        self,
-        hidden_state: torch.Tensor,
-        ops: torch.Tensor,
-        use_cache: bool = False,
-        save_cache: bool = False,
-    ):
-        """Get distribution specified by ops.
-
-        Args:
-            hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
-            ops (torch.Tensor): Operation codes of shape (T,) specifying:
-                -2: marginalize mode (sum reduction)
-                -1: keep mode as free index
-                [0,V): select index v in mode
-        """
-        alpha, core, beta = self.get_umps_params(
-            hidden_state.reshape(1, 1, -1),
-            use_cache=use_cache,
-            save_cache=save_cache,
-        )  # (1, 1, R), (1, 1, R, V, R), (1, 1, R)
-        return select_margin_umps_tensor(
-            alpha=alpha.reshape(self.rank),
-            beta=beta.reshape(self.rank),
-            core=core.reshape(
-                self.rank,
-                self.vocab_size,
-                self.rank,
-            ),
-            ops=ops,
-        )
-
-    def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
-        """Generate sequences given an input tensor.
-
-        Args:
-            input_ids (torch.Tensor): Previous tokens of shape (B, T)
-            horizon (int): Horizon of the generation (Must be <= Horizon of the model)
-
-        Returns:
-            torch.Tensor: Generated sequences of shape (B, H)
-        """
-        # Cannot generate sequences longer than `horizon`
-        horizon = self._get_horizon(horizon)
-        batch_size, _, _ = last_hidden_state.size()
-        assert batch_size == 1, "Batch size must be 1 for generation"
-        alpha, core, beta = self.get_umps_params(
-            last_hidden_state[:, -1:, :]
-        )  # (B, 1, R), (B, 1, R, V, R), (B, 1, R)
-        return torch.stack(
-            [
-                sample_from_umps_tensor(
-                    alpha=alpha.reshape(self.rank),
-                    beta=beta.reshape(self.rank),
-                    core=core.reshape(self.rank, self.vocab_size, self.rank),
-                    horizon=horizon,
-                )
-            ]
-        )  # (B, H)
 
     def evaluate_at_points(
         self,
@@ -213,3 +154,45 @@ class UMPSDist(BaseDistribution):
             z.reshape(batch_size, seq_len),
             [s.reshape(batch_size, seq_len) for s in z_scale_factors],
         )
+
+    def sample(
+        self,
+        hidden_state: torch.Tensor,
+        horizon: Optional[int] = None,
+        do_sample: bool = False,
+        top_k: int = 200,
+        **kwargs,
+    ) -> torch.Tensor:
+        horizon = self._get_horizon(horizon)
+        batch_size = hidden_state.size(0)
+        dvc = hidden_state.device
+        y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
+        alpha, core, beta = self.get_umps_params(
+            hidden_state[:, -1:, :]
+        )  # (B, 1, R), (B, 1, R, V, R), (B, 1, R)
+        for h in range(horizon):
+            ops_tensor = torch.cat(
+                (
+                    y_hat,  # selection
+                    -1  # free leg
+                    * torch.ones(batch_size, 1, dtype=torch.long, device=dvc),
+                    -2  # marginalization
+                    * torch.ones(
+                        batch_size, (horizon - h - 1), dtype=torch.long, device=dvc
+                    ),
+                ),
+                dim=1,
+            )  # (B, T)
+
+            p_ops_tilde, _ = select_margin_umps_tensor_batched(
+                alpha=alpha,
+                beta=beta,
+                core=core,
+                ops=ops_tensor,
+            )  # (B, V), (B, T)
+            if do_sample:
+                next_token = sample_topk(p_ops_tilde, top_k, num_samples=1)
+            else:  # greedy sampling
+                next_token = sample_topk(p_ops_tilde, 1, num_samples=1)
+            y_hat = torch.cat([y_hat, next_token], dim=1)
+        return y_hat  # (B, H)
