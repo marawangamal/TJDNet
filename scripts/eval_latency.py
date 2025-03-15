@@ -17,13 +17,8 @@ import argparse
 import torch
 import pandas as pd
 
-from tjdnet.distributions._base import BaseDistConfig
-from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models._tjd import TJDConfig
-from tjdnet.models.tjdgpt2 import TJDGPT2
-from tjdnet.models.tjdllama import TJDLLAMA
 from utils.latency import benchmark_model_v2
-from utils.models import create_model_llama_fn
+from utils.models import create_model_gpt_fn, create_model_llama_fn
 
 
 class DataParallelWithGenerate(torch.nn.DataParallel):
@@ -95,99 +90,45 @@ def main(args):
         "top_k": args.top_k,
         "do_sample": False,
     }
-    gpt_experiments = [
-        {
-            "name": "gpt2",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=1,
-                        rank=1,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="base",
-                )
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-        {
-            "name": "gpt2::cp::rank4::horizon1",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=2,
-                        rank=4,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-        {
-            "name": "gpt2::cp::rank8::horizon2",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=2,
-                        rank=8,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-        {
-            "name": "gpt2::cp::rank16::horizon2",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=2,
-                        rank=16,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-        {
-            "name": "gpt2::cp::rank4::horizon4",
-            "model_fn": lambda: TJDGPT2(
-                TJDConfig(
-                    base_dist=BaseDistConfig(
-                        vocab_size=768,
-                        horizon=4,
-                        rank=4,
-                        param_net=TensorParamNetConfig(),
-                    ),
-                    model_head="cp",
-                ),
-            ),
-            "benchmark_fn": lambda model, input_ids: model.generate(
-                input_ids, **gen_kwargs
-            ),
-        },
-    ]
-
-    common_keys = {
+    common_kwargs = {
         "benchmark_fn": lambda model, input_ids: model.generate(
             input_ids, **gen_kwargs
         ),
     }
+    gpt_experiments = (
+        [
+            {
+                "name": "gpt2::base",
+                "model_fn": create_model_gpt_fn(1, 1, model_head="base"),
+                **common_kwargs,
+            }
+        ]
+        + [
+            {
+                "name": f"gpt2::cp::rank{r}::horizon{h}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cp",
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([4, 8, 16], [2, 2, 2])
+        ]
+        + [
+            {
+                "name": f"gpt2::ucp::rank{r}::horizon{h}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="ucp",
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([4, 8, 16], [2, 2, 2])
+        ]
+    )
+
     llama_experiments = [
         {
             "name": "llama::base",
@@ -196,7 +137,7 @@ def main(args):
                 1,
                 model_head="base",
             ),
-            **common_keys,
+            **common_kwargs,
         }
     ] + [
         {
@@ -206,7 +147,7 @@ def main(args):
                 horizon=h,
                 model_head="cp",
             ),
-            **common_keys,
+            **common_kwargs,
         }
         for (r, h) in zip([4, 8, 16], [2, 2, 2])
     ]
