@@ -5,14 +5,9 @@ from tqdm import tqdm
 import itertools
 import numpy as np
 
-from tjdnet.distributions._base import BaseDistConfig
-from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models._tjd import TJDConfig
-from tjdnet.models.tjdgpt2 import TJDGPT2
-
 import matplotlib.pyplot as plt
 
-from tjdnet.models.tjdllama import TJDLLAMA
+from utils.models import create_model_gpt_fn, create_model_llama_fn
 
 
 def get_params(model):
@@ -54,79 +49,6 @@ def plot_params_dist(results, path="cp_params.png"):
     plt.grid(True)
     plt.savefig(path)
     plt.close()
-
-    # # Extract ranks and horizons
-    # ranks = sorted(
-    #     list(set([int(k.split("::r")[1].split("::")[0]) for k in results.keys()]))
-    # )
-    # horizons = sorted(list(set([int(k.split("::h")[1]) for k in results.keys()])))
-
-    # # Create plot
-    # fig, ax = plt.subplots(figsize=(10, 6))
-
-    # # Prepare data points
-    # for h in horizons:
-    #     x_values = []
-    #     y_values = []
-    #     for r in ranks:
-    #         model_name = f"gpt2::r{r}::h{h}"
-    #         if model_name in results:
-    #             x_values.append(r)
-    #             y_values.append(results[model_name])
-
-    #     # Plot line for this horizon
-    #     ax.plot(x_values, y_values, marker="o", label=f"h={h}")
-
-    # # Set axis to log scale (better for visualizing parameter scaling)
-    # ax.set_xscale("log", base=2)
-    # ax.set_yscale("log")
-
-    # # Add grid, labels and legend
-    # ax.grid(True, which="both", ls="-", alpha=0.2)
-    # ax.set_xlabel("Rank")
-    # ax.set_ylabel("Number of Parameters")
-    # ax.set_title("Parameter Count by Rank and Horizon")
-    # ax.legend()
-
-    # plt.tight_layout()
-    # plt.savefig("parameter_scaling.png", dpi=300)
-
-
-def create_model_gpt_fn(rank, horizon, model_head="cp"):
-    return lambda: TJDGPT2(
-        TJDConfig(
-            base_dist=BaseDistConfig(
-                vocab_size=768,
-                rank=rank,
-                horizon=horizon,
-                param_net=TensorParamNetConfig(),
-            ),
-            model_head=model_head,
-        )
-    )
-
-
-def create_model_llama_fn(
-    rank,
-    horizon,
-    model_head="cp",
-    model_kwargs={"hf_model_name": "meta-llama/Llama-2-7b-chat-hf"},
-):
-    return lambda: TJDLLAMA(
-        TJDConfig(
-            base_dist=BaseDistConfig(
-                vocab_size=32000,
-                horizon=horizon,
-                rank=rank,
-                param_net=TensorParamNetConfig(
-                    num_layers=2,
-                    hidden_dim=768,
-                ),
-            ),
-            model_head=model_head,
-            model_kwargs=model_kwargs,
-        ),
-    )
 
 
 def main(args):

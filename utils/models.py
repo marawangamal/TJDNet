@@ -1,6 +1,7 @@
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models._tjd import TJDConfig
+from tjdnet.models.tjdgpt2 import TJDGPT2
 from tjdnet.models.tjdllama import TJDLLAMA
 
 
@@ -26,4 +27,18 @@ def create_model_llama_fn(
             model_head=model_head,
             model_kwargs=model_kwargs,
         ),
+    )
+
+
+def create_model_gpt_fn(rank, horizon, model_head="cp", vocab_size=768):
+    return lambda: TJDGPT2(
+        TJDConfig(
+            base_dist=BaseDistConfig(
+                vocab_size=vocab_size,
+                rank=rank,
+                horizon=horizon,
+                param_net=TensorParamNetConfig(),
+            ),
+            model_head=model_head,
+        )
     )
