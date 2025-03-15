@@ -27,6 +27,18 @@ from data.sharegpt import ChatTemplateShareGPT
 
 PROMPTS = [
     {
+        "name": "newline",
+        "value": "\n",
+    },
+    {
+        "name": "space",
+        "value": " ",
+    },
+    {
+        "name": "poem",
+        "value": "Write a poem.",
+    },
+    {
         "name": "gsm8k",
         "value": ChatTemplateGSM8k.get_sample_prompt_few_shot(),
     },
@@ -68,18 +80,40 @@ def get_spectrum(output_mat):
     return torch.tensor(s)
 
 
-def plot_spectrum(spectrum, save_path=None):
-    """Plot the spectrum and save the figure if a path is provided"""
+def plot_spectrum(spectrums, save_path=None):
+    """Plot the spectrum for multiple prompts and save the figure if a path is provided
+
+    Args:
+        spectrums: Dictionary mapping prompt names to their spectrum values
+        save_path: Optional path to save the figure
+    """
     plt.figure(figsize=(10, 6))
 
-    # Convert to numpy for plotting
-    if torch.is_tensor(spectrum):
-        spectrum_np = spectrum.cpu().numpy()
-    else:
-        spectrum_np = spectrum
+    # Plot each spectrum with a different color/marker
+    for name, spectrum in spectrums.items():
+        # Convert to numpy for plotting
+        if torch.is_tensor(spectrum):
+            spectrum_np = spectrum.cpu().numpy()
+        else:
+            spectrum_np = spectrum
 
-    # Plot singular values
-    plt.semilogy(np.arange(1, len(spectrum_np) + 1), spectrum_np, "o-")
+        # Plot singular values
+        plt.semilogy(np.arange(1, len(spectrum_np) + 1), spectrum_np, "o-", label=name)
+
+        # Calculate energy metrics for annotation
+        total_energy = spectrum_np.sum()
+        energy_90 = np.searchsorted(np.cumsum(spectrum_np) / total_energy, 0.9) + 1
+
+        # Annotate the 90% energy point
+        plt.annotate(
+            f"{name}: 90% energy at k={energy_90}",
+            xy=(energy_90, spectrum_np[energy_90 - 1]),
+            xytext=(10, 10),
+            textcoords="offset points",
+            arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2"),
+        )
+
+    # Add grid and labels
     plt.grid(True, which="both", ls="--")
     plt.xlabel("Index")
     plt.ylabel("Singular Value (log scale)")
@@ -88,24 +122,8 @@ def plot_spectrum(spectrum, save_path=None):
     # Add a horizontal line at y=1 for reference
     plt.axhline(y=1, color="r", linestyle="-", alpha=0.3)
 
-    # Add info about the effective rank
-    # effective_rank = (spectrum_np > 1e-10).sum()
-    total_energy = spectrum_np.sum()
-    energy_90 = np.searchsorted(np.cumsum(spectrum_np) / total_energy, 0.9) + 1
-
-    # plt.annotate(
-    #     f"Effective rank: {effective_rank}",
-    #     xy=(0.02, 0.95),
-    #     xycoords="axes fraction",
-    #     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
-    # )
-
-    plt.annotate(
-        f"90% energy at k={energy_90}",
-        xy=(0.02, 0.89),
-        xycoords="axes fraction",
-        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
-    )
+    # Add legend
+    plt.legend(loc="best")
 
     plt.tight_layout()
 
@@ -273,6 +291,8 @@ def main(args: Namespace):
         )
         print(tokenizer.decode(output[0], skip_special_tokens=True))
 
+    spectrums = {}
+
     for prompt in PROMPTS:
         # Generate output distribution spectrum (resuming or starting fresh)
         print(f"[{prompt['name']}] Generating output distribution spectrum...")
@@ -285,13 +305,10 @@ def main(args: Namespace):
 
         print(f"[{prompt['name']}]Computing spectrum...")
         spectrum = get_spectrum(output_mat)
+        spectrums[prompt["name"]] = spectrum
 
         print(f"[{prompt['name']}] Plotting spectrum...")
         os.makedirs("results", exist_ok=True)
-        plot_spectrum(
-            spectrum,
-            save_path=f"results/plots/spectrum_plot_{args.model.split('/')[-1]}_{prompt['name']}.png",
-        )
 
         # Print some statistics
         print(f"[{prompt['name']}] Top 10 singular values: {spectrum[:10]}")
@@ -299,6 +316,11 @@ def main(args: Namespace):
         print(
             f"[{prompt['name']}] Effective rank (singular values > 1e-10): {(spectrum > 1e-10).sum()}"
         )
+
+    plot_spectrum(
+        spectrums,
+        save_path=f"results/plots/spectrum_plot_{args.model.split('/')[-1]}.png",
+    )
 
 
 if __name__ == "__main__":

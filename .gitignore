@@ -10,3 +10,4 @@ samples*
 slurm
 sandbox_profile.sb
 tmp.sh
+*.pt

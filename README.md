@@ -60,12 +60,14 @@ python sripts/eval_acc.py --checkpoint/<experiment_folder>
 
 Results obtained after training LLama7b on GSM8k for 10 epochs.
 
-| Model                                 | Latency [s]   | Accuracy      |                                                                                            
-|:--------------------------------------|:--------------|:--------------|
-| llama                                 | 1.491 ± 0.011 | 0.128 |
-| llama::cp::nlayers2::rank4::horizon2  | - | 0.049 |
-| llama::cp::nlayers2::rank16::horizon2 | 0.757 ± 0.007 | - |
-| llama::cp::nlayers2::rank32::horizon2 | 0.775 ± 0.010 | - |
+| Model                            | Latency [s]   | Accuracy      |
+|:---------------------------------|:--------------|:--------------|
+| llama::base::bs::1               | 1.441 ± 0.007 | 0.1290 |
+| llama::cp::nl2::rank4::horizon2  | 0.745 ± 0.004 | 0.0492 |
+| llama::cp::nl2::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |
+| llama::cp::nl2::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |
+
+
 
 ### Reproducing our GSM8k results
 1. Run jobs specified in [here](/scripts/jobs_jr/train.yaml) (resumable by default)
