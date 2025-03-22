@@ -13,6 +13,7 @@ Example:
 
 import gc
 import argparse
+import itertools
 
 import torch
 import pandas as pd
@@ -105,7 +106,7 @@ def main(args):
         ]
         + [
             {
-                "name": f"gpt2::cp::rank{r}::horizon{h}",
+                "name": f"gpt2::cp::horizon{h}::rank{r}",
                 "model_fn": create_model_gpt_fn(
                     rank=r,
                     horizon=h,
@@ -113,11 +114,11 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([4, 8, 16], [2, 2, 2])
+            for (h, r) in itertools.product([2, 4], [4, 8, 16])
         ]
         + [
             {
-                "name": f"gpt2::ucp::rank{r}::horizon{h}",
+                "name": f"gpt2::ucp:horizon{h}::rank{r}",
                 "model_fn": create_model_gpt_fn(
                     rank=r,
                     horizon=h,
@@ -125,32 +126,48 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([4, 8, 16], [2, 2, 2])
+            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+            # for (r, h) in itertools.product([4, 8, 16], [2, 4])
         ]
     )
 
-    llama_experiments = [
-        {
-            "name": "llama::base",
-            "model_fn": create_model_llama_fn(
-                1,
-                1,
-                model_head="base",
-            ),
-            **common_kwargs,
-        }
-    ] + [
-        {
-            "name": f"llama::cp::nl2::rank{r}::horizon{h}",
-            "model_fn": create_model_llama_fn(
-                rank=r,
-                horizon=h,
-                model_head="cp",
-            ),
-            **common_kwargs,
-        }
-        for (r, h) in zip([4, 8, 16], [2, 2, 2])
-    ]
+    llama_experiments = (
+        [
+            {
+                "name": "llama::base",
+                "model_fn": create_model_llama_fn(
+                    1,
+                    1,
+                    model_head="base",
+                ),
+                **common_kwargs,
+            }
+        ]
+        + [
+            {
+                "name": f"llama::cp::nl2::rank{r}::horizon{h}",
+                "model_fn": create_model_llama_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cp",
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([4, 8, 16, 32], [2, 2, 2, 2])
+        ]
+        + [
+            {
+                "name": f"llama::ucp:horizon{h}::rank{r}",
+                "model_fn": create_model_llama_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="ucp",
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([4, 8, 16, 32], [2, 2, 2, 2])
+        ]
+    )
 
     # Run benchmarks
     exps = {
