@@ -83,3 +83,26 @@ def pad_seqs(
         padding_value=pad_token,
     )
     return seqs_padded[:-1]
+
+
+def get_positional_encodings(
+    seq_len: int,
+    d_model: int,
+    device: torch.device,
+):
+
+    # same size with input matrix (for adding with input matrix)
+    encoding = torch.zeros(seq_len, d_model, device=device, requires_grad=False)
+    pos = torch.arange(0, seq_len, device=device)
+    pos = pos.float().unsqueeze(dim=1)
+    # 1D => 2D unsqueeze to represent word's position
+
+    _2i = torch.arange(0, d_model, step=2, device=device).float()
+    # 'i' means index of d_model (e.g. embedding size = 50, 'i' = [0,50])
+    # "step=2" means 'i' multiplied with two (same with 2 * i)
+
+    encoding[:, 0::2] = torch.sin(pos / (10000 ** (_2i / d_model)))
+    end_pos = encoding[:, 1::2].size(1)
+    encoding[:, 1::2] = torch.cos(pos / (10000 ** (_2i / d_model)))[:, :end_pos]
+
+    return encoding  # (seq_len, d_model)

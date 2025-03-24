@@ -25,7 +25,7 @@ def compute_accuracy(
     tokenizer,
     test_dataset,
     chat_template,
-    max_new_tokens=125,
+    max_new_tokens=128,
     horizon=1,
     top_k=50,
     do_sample=True,
@@ -33,6 +33,8 @@ def compute_accuracy(
     max_num_samples: Optional[int] = 50,
     on_batch_end=None,
     avg_meter_kwargs={},
+    log_samples=False,
+    log_samples_count=10,
     **kwargs,
 ):
     dataloader = torch.utils.data.DataLoader(
@@ -59,6 +61,8 @@ def compute_accuracy(
 
     y_pred = []
     y_true = []
+    failures = []
+    successes = []
     print("Total number of samples:", total_samples)
     with torch.no_grad():
         for i, batch in enumerate(pbar):
@@ -78,16 +82,12 @@ def compute_accuracy(
             # Batched decoding
             y_pred = tokenizer.batch_decode(outputs)
             y_true = tokenizer.batch_decode(batch["labels"])
-
             # Compute accuracy
-            batch_correct = sum(
-                [
-                    chat_template.check_answer(
-                        y_pred[b], y_true[b], tokenizer.eos_token
-                    )
-                    for b in range(len(y_pred))
-                ]
-            )
+            correct_mask = [
+                chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)
+                for b in range(len(y_pred))
+            ]
+            batch_correct = sum(correct_mask)
             # correct += batch_correct
             # total += batch_size_actual
             acc_meter.update(
@@ -102,6 +102,26 @@ def compute_accuracy(
 
             if on_batch_end:
                 on_batch_end({**acc_meter.dump(), "total_samples": total_samples})
+
+            if log_samples:
+                # Add failures to failures list and successes to successes list
+                if len(failures) < log_samples_count:
+                    failures.extend(
+                        [
+                            (y_pred[b], y_true[b])
+                            for b in range(len(y_pred))
+                            if not correct_mask[b]
+                        ]
+                    )
+                if len(successes) < log_samples_count:
+                    successes.extend(
+                        [
+                            (y_pred[b], y_true[b])
+                            for b in range(len(y_pred))
+                            if correct_mask[b]
+                        ]
+                    )
+                    print(f"Failures:\n{failures}\nSuccesses:\n{successes}\n")
 
     # Print example
     print("Example:")

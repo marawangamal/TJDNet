@@ -153,6 +153,7 @@ def main():
             on_batch_end=lambda avg_meter_kwargs: save_results_checkpoint(
                 {**results, checkpoint: avg_meter_kwargs}, results_file
             ),
+            log_samples=True,
         )
         results[checkpoint] = avg_meter_kwargs
         print(f"Eval accuracy: {acc} for checkpoint: {checkpoint}")
