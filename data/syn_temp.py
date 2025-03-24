@@ -102,7 +102,8 @@ def load_syn_temp_data(
     print_stats=False,
     **kwargs,
 ):
-    train_dataset = Dataset.from_generator(lambda: DataIterator(max_num_samples))
+    num_train_samples = min(max_num_samples, 10000)
+    train_dataset = Dataset.from_generator(lambda: DataIterator(num_train_samples))
     eval_dataset = Dataset.from_generator(lambda: DataIterator(num_test_samples))
     test_dataset = eval_dataset.select(range(len(eval_dataset)))  # Make copy
 

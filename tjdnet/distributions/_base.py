@@ -140,7 +140,7 @@ class BaseDistribution(ABC, torch.nn.Module):
         """Sample from the distribution.
 
         Args:
-            last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
+            hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
             horizon (int): Number of future tokens to predict.
 
         Returns:
