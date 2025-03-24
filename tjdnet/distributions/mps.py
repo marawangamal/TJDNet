@@ -1,16 +1,16 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import torch
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.tensorops.mps import (
-    sample_from_mps_tensorV1,
     select_from_mps_tensor,
     select_margin_mps_tensor,
     sum_mps_tensor,
 )
+from tjdnet.utils import sample_topk
 
 
-# TODO: dont apply positivity function to alpha and beta and use 1hot instead of ones
+# TODO: try one-hot instead of ones for alpha and beta
 class MPSDist(BaseDistribution):
     def __init__(self, config: BaseDistConfig, **kwargs):
         config.param_net.out_dim = config.horizon * (
@@ -21,17 +21,7 @@ class MPSDist(BaseDistribution):
         self.beta = torch.ones(config.rank) * 0.1
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
-        """Get trainable parameters from the last hidden state.
-
-        Args:
-            last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (B, T, D)
-
-        Returns:
-            torch.Tensor: MPS parameters of shape (B, T, 2*R + H*R*V*R)
-        """
-        core = self.param_func_core(last_hidden_state)
-        core = self.positivity_func(core)  # (B, T, HRVR)
-        return core
+        return self.param_func(last_hidden_state)  # (B, T, HRVR)
 
     def get_mps_params(
         self,
@@ -45,60 +35,70 @@ class MPSDist(BaseDistribution):
             last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (B, T, D)
 
         Returns:
-            - torch.Tensor: Alpha of shape (B, T, R)
-            - torch.Tensor: Core of shape (B, T, H, R, V, R)
-            - torch.Tensor: Beta of shape (B, T, R)
-
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                A tuple containing:
+                - torch.Tensor: Alpha of shape (B, T, R)
+                - torch.Tensor: Core of shape (B, T, HRVR)
+                - torch.Tensor: Beta of shape (B, T, R)
         """
         batch_size, seq_len, _ = last_hidden_state.size()
         core = self._get_params_from_cache(last_hidden_state, use_cache, save_cache)
-        alpha = (
-            self.positivity_func(self.alpha)
-            .reshape(1, 1, self.rank)
-            .repeat(batch_size, seq_len, 1)
-        ).to(
+        alpha = (self.alpha.reshape(1, 1, self.rank).repeat(batch_size, seq_len, 1)).to(
             last_hidden_state.device
         )  # (B, T, R)
-        beta = (
-            self.positivity_func(self.beta)
-            .reshape(1, 1, self.rank)
-            .repeat(batch_size, seq_len, 1)
-        ).to(
+        beta = (self.beta.reshape(1, 1, self.rank).repeat(batch_size, seq_len, 1)).to(
             last_hidden_state.device
         )  # (B, T, R)
         return alpha, core, beta
 
-    def generate(self, last_hidden_state: torch.Tensor, horizon: int, **kwargs):
-        """Generate sequences given an input tensor.
-
-        Args:
-            input_ids (torch.Tensor): Previous tokens of shape (B, T)
-            horizon (int): Horizon of the generation (Must be <= Horizon of the model)
-
-        Returns:
-            torch.Tensor: Generated sequences of shape (B, H)
-        """
-        # Cannot generate sequences longer than `horizon`
-        horizon = self._get_horizon(horizon)
-        batch_size, _, _ = last_hidden_state.size()
+    def sample(
+        self,
+        hidden_state: torch.Tensor,
+        horizon: Optional[int] = None,
+        do_sample: bool = False,
+        top_k: int = 200,
+        **kwargs,
+    ) -> torch.Tensor:
+        batch_size = hidden_state.size(0)
         assert batch_size == 1, "Batch size must be 1 for generation"
+        horizon = self._get_horizon(horizon)
+        dvc = hidden_state.device
+        y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
         alpha, core, beta = self.get_mps_params(
-            last_hidden_state[:, -1:, :],
-        )  # (1, 1, R), (1, 1, H, R, V, R), (1, 1, R)
-        return torch.stack(
-            [
-                sample_from_mps_tensorV1(
-                    alpha=alpha.reshape(self.rank),  # (B, T, R)
-                    beta=beta.reshape(self.rank),  # (B, T, R)
-                    core=core.reshape(
-                        self.horizon,
-                        self.rank,
-                        self.vocab_size,
-                        self.rank,
-                    )[:horizon],
+            hidden_state[:, -1:, :],
+        )  # (B, 1, R), (B, 1, HRVR), (B, 1, R)
+        for h in range(horizon):
+            ops_tensor = torch.cat(
+                (
+                    y_hat,  # selection
+                    -1  # free leg
+                    * torch.ones(batch_size, 1, dtype=torch.long, device=dvc),
+                    -2  # marginalization
+                    * torch.ones(
+                        batch_size, (horizon - h - 1), dtype=torch.long, device=dvc
+                    ),
+                ),
+                dim=1,
+            )  # (B, T)
+            p_ops_tilde, _ = select_margin_mps_tensor(
+                alpha=alpha.reshape(self.rank),
+                beta=beta.reshape(self.rank),
+                core=core.reshape(
+                    self.horizon,
+                    self.rank,
+                    self.vocab_size,
+                    self.rank,
+                )[:horizon],
+                ops=ops_tensor.reshape(-1),
+            )  # (V,), (T,)
+            if do_sample:
+                next_token = sample_topk(
+                    p_ops_tilde.reshape(1, -1), top_k, num_samples=1
                 )
-            ]
-        )  # (B, H)
+            else:  # greedy sampling
+                next_token = sample_topk(p_ops_tilde.reshape(1, -1), 1, num_samples=1)
+            y_hat = torch.cat([y_hat, next_token], dim=1)
+        return y_hat  # (B, H)
 
     def get_dist(
         self,

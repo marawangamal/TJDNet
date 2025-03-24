@@ -6,8 +6,8 @@ Usage:
     python scripts/eval_latency.py --device [device] --model_family [model_family] --out_seq_len [out_seq_len] --inp_seq_len [inp_seq_len]
 
 Example:
-    python scripts/eval_latency.py --device cuda --model_family llama --out_seq_len 32 --inp_seq_len 8
-    python scripts/eval_latency.py --device cuda --model_family gpt2 --out_seq_len 128 --inp_seq_len 256
+    python scripts/eval_latency.py --device cuda --model_family llama --inp_seq_len 8   --out_seq_len 32
+    python scripts/eval_latency.py --device cuda --model_family gpt2  --inp_seq_len 256 --out_seq_len 128
 
 """
 
@@ -104,30 +104,42 @@ def main(args):
                 **common_kwargs,
             }
         ]
+        # + [
+        #     {
+        #         "name": f"gpt2::cp::horizon{h}::rank{r}",
+        #         "model_fn": create_model_gpt_fn(
+        #             rank=r,
+        #             horizon=h,
+        #             model_head="cp",
+        #         ),
+        #         **common_kwargs,
+        #     }
+        #     for (h, r) in itertools.product([2, 4], [4, 8, 16])
+        # ]
+        # + [
+        #     {
+        #         "name": f"gpt2::ucp:horizon{h}::rank{r}",
+        #         "model_fn": create_model_gpt_fn(
+        #             rank=r,
+        #             horizon=h,
+        #             model_head="ucp",
+        #         ),
+        #         **common_kwargs,
+        #     }
+        #     for (h, r) in itertools.product([2, 4], [4, 8, 16])
+        #     # for (r, h) in itertools.product([4, 8, 16], [2, 4])
+        # ]
         + [
             {
-                "name": f"gpt2::cp::horizon{h}::rank{r}",
+                "name": f"gpt2::mps::horizon{h}::rank{r}",
                 "model_fn": create_model_gpt_fn(
                     rank=r,
                     horizon=h,
-                    model_head="cp",
+                    model_head="mps",
                 ),
                 **common_kwargs,
             }
-            for (h, r) in itertools.product([2, 4], [4, 8, 16])
-        ]
-        + [
-            {
-                "name": f"gpt2::ucp:horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="ucp",
-                ),
-                **common_kwargs,
-            }
-            for (h, r) in itertools.product([2, 4], [4, 8, 16])
-            # for (r, h) in itertools.product([4, 8, 16], [2, 4])
+            for (h, r) in itertools.product([2], [2, 4, 8])
         ]
     )
 
@@ -221,22 +233,26 @@ if __name__ == "__main__":
         default="cuda",
     )
     parser.add_argument(
+        "-m",
         "--model_family",
         type=str,
         choices=["gpt2", "llama"],
         default="gpt2",
     )
     parser.add_argument(
+        "-b",
         "--batch_size",
         type=int,
         default=1,  # Note: must be 1 for generation
     )
     parser.add_argument(
+        "-i",
         "--inp_seq_len",
         type=int,
         default=256,
     )
     parser.add_argument(
+        "-o",
         "--out_seq_len",
         type=int,
         default=128,

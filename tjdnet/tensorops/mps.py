@@ -313,8 +313,9 @@ def select_margin_mps_tensor(
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
-            - Result tensor of shape (F, D) where F is the numbe of free indices (-1 operations) in ops
-            - Scale factors list of shape (T)
+            A tuple containing:
+            - **result** (torch.Tensor): The result tensor of shape (F, D), where F is the number of free indices (ops == -1).
+            - **scale_factors** (torch.Tensor): The scale factors of shape (T,).
     """
     # Validation:
     assert len(core.shape) == 4, "Core tensor must be 4D (non-batched)"
