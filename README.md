@@ -62,15 +62,15 @@ Results obtained after training LLama7b on GSM8k for 10 epochs.
 
 | Model                            | Latency [s]   | Accuracy      |
 |:---------------------------------|:--------------|:--------------|
-| llama::base::bs::1               | 1.441 ± 0.007 | 0.1290 |
+| llama::baseline             | 1.441 ± 0.007 | 0.1290 |
 | llama::cp::rank4::horizon2  | 0.745 ± 0.004 | 0.0492 |
 | llama::cp::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |
 | llama::cp::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |
 | llama::cp::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |
-| llama::ucp::rank4::horizon2  | - | - |
+<!-- | llama::ucp::rank4::horizon2  | - | - |
 | llama::ucp::rank8::horizon2  | - | - |
 | llama::ucp::rank16::horizon2 | - | - |
-| llama::ucp::rank32::horizon2 | - | - |
+| llama::ucp::rank32::horizon2 | - | - | -->
 
 
 <!-- | Model                            | Latency [s]   | Accuracy      |
