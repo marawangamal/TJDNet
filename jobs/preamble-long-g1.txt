@@ -8,4 +8,4 @@
 #SBATCH --nodes=1
 
 module load python/3.9
-source /home/mila/m/marawan.gamal/scratch/TJDNet/.venv/bin/activate
+source /home/mila/m/marawan.gamal/scratch/prod/tjdnet/.venv/bin/activate

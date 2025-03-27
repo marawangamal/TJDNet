@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name="foo",
+    name="tjdnet",
     version="1.0",
     packages=["tjdnet", "data", "utils"],
     install_requires=[
