@@ -87,6 +87,7 @@ class TJDConfig:
     train_mode: Literal["full", "last", "lora"] = "full"
     lora_rank: int = 512
     use_memory_efficient_loss: bool = False
+    use_attn_layer: bool = False
 
     # Numerical parameters
     eps: float = 1e-9
@@ -114,12 +115,15 @@ class TJD(ABC, torch.nn.Module):
         # self.config = config
 
         # Initialize core parameters
+        # TODO: want to put these all under an .config but `config` is already used by Trainer
         self.rank = config.base_dist.rank
         self.horizon = config.base_dist.horizon
         self.vocab_size = config.base_dist.vocab_size
         self.n_embd = config.base_dist.param_net.in_dim
         self.eps = config.eps
         self.gen_version = config.gen_version
+        self.use_attn_layer = config.use_attn_layer
+        self.use_memory_efficient_loss = config.use_memory_efficient_loss
 
         # DEBUG: LoraConfig
         if config.train_mode == "full":
@@ -142,7 +146,15 @@ class TJD(ABC, torch.nn.Module):
             raise ValueError(f"Invalid train_mode: {config.train_mode}")
 
         self.model_head = DIST_MAP[config.model_head](config.base_dist)
-        self.use_memory_efficient_loss = config.use_memory_efficient_loss
+        self.tjd_attn = (
+            torch.nn.MultiheadAttention(
+                embed_dim=self.n_embd,
+                num_heads=1,
+                batch_first=True,
+            )
+            if self.use_attn_layer
+            else None
+        )
 
         # Handle model initialization
         if config.init_method == "pretrained":
@@ -213,6 +225,47 @@ class TJD(ABC, torch.nn.Module):
             torch.Tensor: Last hidden state of shape (B, T, n_embd).
         """
         pass
+
+    def get_attn_last_hidden_state(
+        self, input_ids: torch.Tensor, attention_mask=None
+    ) -> torch.Tensor:
+        """Get the last hidden state of the model.
+
+        Args:
+            input_ids (torch.Tensor): Input tensor of shape (B, T).
+            attention_mask ([type], optional): Attention mask of shape (B, T). Defaults to None.
+
+        Returns:
+            torch.Tensor: Last hidden state of shape (B, T, n_embd).
+        """
+        hidden_states = self.get_last_hidden_state(input_ids, attention_mask)
+        if self.use_attn_layer and self.tjd_attn is not None:
+            attn_mask = (
+                ((1 - attention_mask).bool())
+                .unsqueeze(1)
+                .expand(-1, input_ids.size(1), -1)
+                if attention_mask is not None
+                else None
+            )
+            causal_mask = torch.triu(
+                torch.ones(
+                    input_ids.size(1), input_ids.size(1), device=input_ids.device
+                ),
+                diagonal=1,
+            )  # (T, T)
+            attn_mask = (
+                attn_mask
+                | causal_mask.unsqueeze(0).expand(input_ids.size(0), -1, -1).bool()
+            )  # (B, T, T)
+            attn_output, _ = self.tjd_attn(
+                hidden_states,
+                hidden_states,
+                hidden_states,
+                is_causal=True,
+                attn_mask=attn_mask,
+            )
+            return attn_output  # (B, T, n_embd)
+        return hidden_states
 
     def get_pretrained_lm_head_weights(
         self,
@@ -510,7 +563,7 @@ class TJD(ABC, torch.nn.Module):
                 )  # (B_active, T_in + time_step)
 
                 # Generate next tokens
-                hidden_state = self.get_last_hidden_state(
+                hidden_state = self.get_attn_last_hidden_state(
                     input_ids=active_seqs, attention_mask=current_attention
                 )
                 y_hat = self.model_head.sample(
@@ -756,7 +809,7 @@ class TJD(ABC, torch.nn.Module):
         batch_size, _ = input_ids.size()
         horizon = self._get_horizon(horizon)
 
-        last_hidden_state = self.get_last_hidden_state(
+        last_hidden_state = self.get_attn_last_hidden_state(
             input_ids, attention_mask=attention_mask
         )
         targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
