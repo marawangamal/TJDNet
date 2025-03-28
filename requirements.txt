@@ -10,3 +10,4 @@ line_profiler
 pandas
 tabulate
 scikit-learn
+yaml
