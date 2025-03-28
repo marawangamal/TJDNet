@@ -1,24 +1,27 @@
+"""Training script for TJDNet models.
+
+This script trains and evaluates TJDNet models using the Hugging Face Transformers library.
+
+Example:
+    accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py \
+        --epochs 20 \
+        --batch_size 32 \
+        --seq_len 128 \
+        --dataset gsm8k \
+        --model_type llama7b \
+        --lr 1e-5 \
+        --model_head cp \
+        --num_layers 2 \
+        --hidden_dim 768 \
+        --horizon 2 \
+        --horizon_eval 2 \
+        --rank 2
+
+Hardware requirements:
+    - LLAMA 7B model: 4x GPUs w/ 80GB VRAM (FSDP)
+    - GPT-2 model: 1x GPUs w/ 40GB VRAM
+
 """
-Hardware Requirements (for Llama-based models):
-    - GPUs: 4x NVIDIA A100 80GB GPUs
-    - CPU RAM: 128GB minimum
-    - Storage: Recommend 1TB+ SSD for dataset and checkpoints
-
-    Note: GPT-2 based models require significantly less resources
-
-Recommended SLURM allocation (for Llama):
-    salloc --gres=gpu:a100l:4 --mem=128G --cpus-per-task=32
-
-Usage:
-    - Uses PyTorch Distributed Data Parallel (DDP) for multi-GPU training
-    - Automatic mixed precision (AMP) enabled for memory efficiency
-    - Gradient checkpointing available for large models
-
-References:
-    - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
-"""
-
-# python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
 
 import json
 import os
@@ -38,13 +41,13 @@ from transformers import (
 
 from utils.accuracy import compute_accuracy
 from utils.generation import GenerationCallback
-from data.gsm8k import load_gsm8k_data
-from data.shakespeare import load_shakespeare_data
-from data.sharegpt import load_sharegpt
-from data.syn_number_bases import load_syn_num_base_data
-from data.syn_numbers import load_syn_num_data
-from data.syn_temp import load_syn_temp_data
-from data.wikitext import load_wikitext_data
+from dataloaders.gsm8k import load_gsm8k_data
+from dataloaders.shakespeare import load_shakespeare_data
+from dataloaders.sharegpt import load_sharegpt
+from dataloaders.syn_number_bases import load_syn_num_base_data
+from dataloaders.syn_numbers import load_syn_num_data
+from dataloaders.syn_temp import load_syn_temp_data
+from dataloaders.wikitext import load_wikitext_data
 from utils.utils import get_experiment_name
 from utils.helpers import (
     get_chat_template,
@@ -150,6 +153,8 @@ def lookup_wandb_id(args):
 
 
 def setup(args, local_rank: int):
+    # mkdir for checkpoints if not exists
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     wandb_id = None
     iterations = 0
     while wandb_id is None:

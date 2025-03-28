@@ -1,5 +1,5 @@
 """
-Resources: 
+Resources:
 https://huggingface.co/docs/transformers/tasks/language_modeling
 https://github.com/dariush-bahrami/character-tokenizer/tree/master
 
@@ -9,10 +9,10 @@ Two options for data loading:
 Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two options for dataloading
 
 1. Simple (preprocess_simple)
-    - Convert each sequence to be of length `max_len` via padding or trunction 
+    - Convert each sequence to be of length `max_len` via padding or trunction
 
 2. Advanced (preprocess_function & group texts)
-    - Combine to sinlge length string s = [s_1, s_2, ..., s_b], then split into chunks of size `max_len`. This is less 
+    - Combine to sinlge length string s = [s_1, s_2, ..., s_b], then split into chunks of size `max_len`. This is less
     - Less wastefulness from truncation
 
 
@@ -20,7 +20,7 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 import os
 from datasets import load_dataset
-from data.common import BaseChatTemplate, group_texts
+from dataloaders.common import BaseChatTemplate, group_texts
 
 
 class ChatTemplateShakespeare(BaseChatTemplate):

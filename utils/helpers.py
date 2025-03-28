@@ -8,12 +8,12 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer
 
-from data.gsm8k import ChatTemplateGSM8k
-from data.shakespeare import ChatTemplateShakespeare
-from data.sharegpt import ChatTemplateShareGPT
-from data.syn_number_bases import ChatTemplateSynNumBase
-from data.syn_numbers import ChatTemplateSynNum
-from data.syn_temp import ChatTemplateSynTemp
+from dataloaders.gsm8k import ChatTemplateGSM8k
+from dataloaders.shakespeare import ChatTemplateShakespeare
+from dataloaders.sharegpt import ChatTemplateShareGPT
+from dataloaders.syn_number_bases import ChatTemplateSynNumBase
+from dataloaders.syn_numbers import ChatTemplateSynNum
+from dataloaders.syn_temp import ChatTemplateSynTemp
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models._tjd import TJDConfig
@@ -152,6 +152,13 @@ def parse_args():
         ],
         help="Initialization method for model head - pretrained or random",
     )
+    parser.add_argument(
+        "--use_attn_layer",
+        default=False,
+        action="store_true",
+        help="Whether to use attn layer in the model head.",
+    )
+
     # Training mode
     parser.add_argument(
         "--train_mode",
@@ -476,7 +483,9 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
+        use_attn_layer=args.use_attn_layer,
         model_kwargs={"hf_model_name": hf_model_name},
+        # TODO: remove gen_version
         gen_version=(
             args.gen_version if hasattr(args, "gen_version") else 2
         ),  # Backward compatibility

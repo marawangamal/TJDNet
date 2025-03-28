@@ -22,8 +22,8 @@ from transformers import (
 import numpy as np
 import matplotlib.pyplot as plt
 
-from data.gsm8k import ChatTemplateGSM8k
-from data.sharegpt import ChatTemplateShareGPT
+from dataloaders.gsm8k import ChatTemplateGSM8k
+from dataloaders.sharegpt import ChatTemplateShareGPT
 
 PROMPTS = [
     {
