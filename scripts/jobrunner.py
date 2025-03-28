@@ -419,7 +419,7 @@ if __name__ == "__main__":
         "-p",
         "--preamble_path",
         type=str,
-        default="jobs/preamble-short-unkillable-g4.txt",
+        default="configs/slurm/preamble-short-unkillable-g4.txt",
         help="Path to a preamble file for single jobs.",
     )
 
