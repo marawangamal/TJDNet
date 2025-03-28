@@ -1,7 +1,7 @@
 from typing import Optional
 import random
 from datasets import Dataset
-from data.common import BaseChatTemplate, group_texts
+from dataloaders.common import BaseChatTemplate, group_texts
 
 
 class ChatTemplateSynNum(BaseChatTemplate):

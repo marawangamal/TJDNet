@@ -28,13 +28,13 @@ from utils.helpers import (
     get_model_and_tokenizer,
     get_chat_template,
 )
-from data.gsm8k import load_gsm8k_data
-from data.shakespeare import load_shakespeare_data
-from data.sharegpt import load_sharegpt
-from data.syn_number_bases import load_syn_num_base_data
-from data.syn_numbers import load_syn_num_data
-from data.syn_temp import load_syn_temp_data
-from data.wikitext import load_wikitext_data
+from dataloaders.gsm8k import load_gsm8k_data
+from dataloaders.shakespeare import load_shakespeare_data
+from dataloaders.sharegpt import load_sharegpt
+from dataloaders.syn_number_bases import load_syn_num_base_data
+from dataloaders.syn_numbers import load_syn_num_data
+from dataloaders.syn_temp import load_syn_temp_data
+from dataloaders.wikitext import load_wikitext_data
 
 
 def load_weights(model, checkpoint_path):

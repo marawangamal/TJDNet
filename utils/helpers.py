@@ -8,12 +8,12 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer
 
-from data.gsm8k import ChatTemplateGSM8k
-from data.shakespeare import ChatTemplateShakespeare
-from data.sharegpt import ChatTemplateShareGPT
-from data.syn_number_bases import ChatTemplateSynNumBase
-from data.syn_numbers import ChatTemplateSynNum
-from data.syn_temp import ChatTemplateSynTemp
+from dataloaders.gsm8k import ChatTemplateGSM8k
+from dataloaders.shakespeare import ChatTemplateShakespeare
+from dataloaders.sharegpt import ChatTemplateShareGPT
+from dataloaders.syn_number_bases import ChatTemplateSynNumBase
+from dataloaders.syn_numbers import ChatTemplateSynNum
+from dataloaders.syn_temp import ChatTemplateSynTemp
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models._tjd import TJDConfig

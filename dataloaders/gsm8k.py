@@ -3,7 +3,7 @@
 from datasets import load_dataset
 from git import Optional
 
-from data.common import BaseChatTemplate, group_texts
+from dataloaders.common import BaseChatTemplate, group_texts
 
 
 class ChatTemplateGSM8k(BaseChatTemplate):

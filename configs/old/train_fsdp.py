@@ -111,7 +111,7 @@ from torch.distributed.fsdp.wrap import (
     wrap,
 )
 
-from data.gsm8k import load_gsm8k_data
+from dataloaders.gsm8k import load_gsm8k_data
 
 
 def setup(rank, world_size):

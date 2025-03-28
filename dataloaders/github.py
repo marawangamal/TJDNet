@@ -3,8 +3,8 @@
 import os
 from datasets import load_dataset
 
-from data.common import group_texts
-from data._base import ROOT_DIR, setup
+from dataloaders.common import group_texts
+from dataloaders._base import ROOT_DIR, setup
 
 
 class ChatTemplateGithub:

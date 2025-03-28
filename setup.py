@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name="tjdnet",
     version="1.0",
-    packages=["tjdnet", "data", "utils"],
+    packages=["tjdnet", "dataloders", "utils"],
     install_requires=[
         "torch>=2.0.0",
         "tqdm>=4.66.4",
