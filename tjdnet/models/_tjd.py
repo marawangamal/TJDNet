@@ -241,7 +241,7 @@ class TJD(ABC, torch.nn.Module):
         hidden_states = self.get_last_hidden_state(input_ids, attention_mask)
         if self.use_attn_layer and self.tjd_attn is not None:
             attn_mask = None
-            if attention_mask:
+            if attention_mask is not None:
                 attn_mask = (
                     ((1 - attention_mask).bool())
                     .unsqueeze(1)
