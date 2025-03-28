@@ -153,6 +153,8 @@ def lookup_wandb_id(args):
 
 
 def setup(args, local_rank: int):
+    # mkdir for checkpoints if not exists
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     wandb_id = None
     iterations = 0
     while wandb_id is None:
