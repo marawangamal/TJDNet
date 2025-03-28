@@ -240,23 +240,23 @@ class TJD(ABC, torch.nn.Module):
         """
         hidden_states = self.get_last_hidden_state(input_ids, attention_mask)
         if self.use_attn_layer and self.tjd_attn is not None:
-            attn_mask = (
-                ((1 - attention_mask).bool())
-                .unsqueeze(1)
-                .expand(-1, input_ids.size(1), -1)
-                if attention_mask is not None
-                else None
-            )
-            causal_mask = torch.triu(
-                torch.ones(
-                    input_ids.size(1), input_ids.size(1), device=input_ids.device
-                ),
-                diagonal=1,
-            )  # (T, T)
-            attn_mask = (
-                attn_mask
-                | causal_mask.unsqueeze(0).expand(input_ids.size(0), -1, -1).bool()
-            )  # (B, T, T)
+            attn_mask = None
+            if attention_mask:
+                attn_mask = (
+                    ((1 - attention_mask).bool())
+                    .unsqueeze(1)
+                    .expand(-1, input_ids.size(1), -1)
+                )
+                causal_mask = torch.triu(
+                    torch.ones(
+                        input_ids.size(1), input_ids.size(1), device=input_ids.device
+                    ),
+                    diagonal=1,
+                )  # (T, T)
+                attn_mask = (
+                    attn_mask
+                    | causal_mask.unsqueeze(0).expand(input_ids.size(0), -1, -1).bool()
+                )  # (B, T, T)
             attn_output, _ = self.tjd_attn(
                 hidden_states,
                 hidden_states,
