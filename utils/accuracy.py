@@ -124,8 +124,8 @@ def compute_accuracy(
                     print(f"Failures:\n{failures}\nSuccesses:\n{successes}\n")
 
     # Print example
-    print("Example:")
-    print(f"y_true:\n {y_true[0]}")
-    print(f"y_pred:\n {y_pred[0]}")
-
+    if len(y_pred) > 0 and len(y_true) > 0:
+        print("Example:")
+        print(f"y_true:\n {y_true[0]}")
+        print(f"y_pred:\n {y_pred[0]}")
     return acc_meter.avg, {**acc_meter.dump(), "total_samples": total_samples}
