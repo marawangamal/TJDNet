@@ -63,10 +63,15 @@ Results obtained after training LLama7b on GSM8k for 10 epochs.
 | Model                            | Latency [s]   | Accuracy      |
 |:---------------------------------|:--------------|:--------------|
 | llama::baseline             | 1.441 ± 0.007 | 0.1290 |
-| llama::cp::rank4::horizon2  | 0.745 ± 0.004 | 0.0492 |
-| llama::cp::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |
-| llama::cp::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |
-| llama::cp::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |
+| llama::cp::lr32::hd768::rank4::horizon2  | 0.745 ± 0.004 | 0.0492 |
+| llama::cp::lr32::hd768::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |
+| llama::cp::lr32::hd768::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |
+| llama::cp::lr32::hd768::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |
+| llama::cp::lr64::hd768::rank8::horizon2  | - | 0.0417* |
+| llama::cp::lr32::hd1024::rank8::horizon2 | - | 0.0629* |
+| llama::cp::lr32::hd1280::rank8::horizon2 | - | 0.0781* |
+<!-- (.venv) marawan.gamal@login-1:~/scratch/prod/tjdnet$ cat checkpoints/e50_bs4_sl128_l1e-05_ws100_gcv1.0_mtllama7b_mhcp_hd1024_nl2_arelu_ulnFalse_r8_h2_d0_pfexp_imrandom_tmlora_lr32_umelFalse_he2_mnt128_tk200_nb1_gv3_dagsm8k_ttword_s42_lsepoch_lo1_esepoch_ev1_gsepoch_ge1000_mns68000_eoFalse_caFalse_abs1_wi731bc320/eval_results_b1_sNone_t128.json  -->
+
 <!-- | llama::ucp::rank4::horizon2  | - | - |
 | llama::ucp::rank8::horizon2  | - | - |
 | llama::ucp::rank16::horizon2 | - | - |

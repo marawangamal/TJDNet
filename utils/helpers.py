@@ -152,12 +152,13 @@ def parse_args():
         ],
         help="Initialization method for model head - pretrained or random",
     )
-    parser.add_argument(
-        "--use_attn_layer",
-        default=False,
-        action="store_true",
-        help="Whether to use attn layer in the model head.",
-    )
+    # TODO: add to cli
+    # parser.add_argument(
+    #     "--use_attn_layer",
+    #     default=False,
+    #     action="store_true",
+    #     help="Whether to use attn layer in the model head.",
+    # )
 
     # Training mode
     parser.add_argument(
@@ -483,7 +484,9 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
-        use_attn_layer=args.use_attn_layer,
+        use_attn_layer=(
+            args.use_attn_layer if hasattr(args, "use_attn_layer") else False
+        ),  # Backward compatibility
         model_kwargs={"hf_model_name": hf_model_name},
         # TODO: remove gen_version
         gen_version=(
