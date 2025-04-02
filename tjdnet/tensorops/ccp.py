@@ -58,11 +58,12 @@ def select_margin_ccp_tensor_batched(
     res_free = torch.ones(batch_size, rank, uncompressed_dim, device=cp_params.device)
 
     # (BT, R, d) @ (BT, d, 1) -> (BT, R, 1)
+    # Largest intermediate tensor: (BTRD)
     core_margins = (
         torch.bmm(
             # (B, R, T d) => (BT, R, d)
             cp_params.permute(0, 2, 1, 3).reshape(-1, rank, compressed_dim),
-            # (B, d, D) => (B, d, 1) => (B, 1, d, 1) => (B, H, d, 1)
+            # (B, d, D) => (B, d, 1) => (B, 1, d, 1) => (B, T, d, 1)
             cp_decode.sum(dim=-1, keepdim=True)
             .unsqueeze(1)
             .expand(-1, horizon, -1, -1)
@@ -97,6 +98,7 @@ def select_margin_ccp_tensor_batched(
             )  # (batch_size', d, 1)
 
             # Reshape cp_params to (batch_size', rank, compressed_dim)
+            # Largest intermediate tensor: (BRTD)
             res_left[mask_select] = res_left[mask_select] * (
                 torch.bmm(
                     # (B', R, d) @ (B', d, 1) -> (B, R, 1)
