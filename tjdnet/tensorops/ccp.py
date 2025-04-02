@@ -33,9 +33,10 @@ def select_margin_ccp_tensor_batched(
         - The number of free indices in `ops` must be at most 1
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]:
-            - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
-            - Scale factors list of shape (T,)
+        result (torch.Tensor): Result tensor of shape (n_free, D).
+
+        scale_factors (list): Scale factors list of shape (T,).
+
     """
 
     # Validation:
@@ -59,8 +60,13 @@ def select_margin_ccp_tensor_batched(
     # (BT, R, d) @ (BT, d, 1) -> (BT, R, 1)
     core_margins = (
         torch.bmm(
+            # (B, R, T d) => (BT, R, d)
             cp_params.permute(0, 2, 1, 3).reshape(-1, rank, compressed_dim),
-            cp_decode.sum(dim=-1, keepdim=True).unsqueeze(1).expand(-1, horizon),
+            # (B, d, D) => (B, d, 1) => (B, 1, d, 1) => (B, H, d, 1)
+            cp_decode.sum(dim=-1, keepdim=True)
+            .unsqueeze(1)
+            .expand(-1, horizon, -1, -1)
+            .reshape(-1, compressed_dim, 1),
         )
         .reshape(batch_size, horizon, rank)
         .permute(0, 2, 1)
