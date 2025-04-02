@@ -24,7 +24,7 @@ def select_margin_ccp_tensor_batched(
     Args:
         cp_params (torch.Tensor): CP tensor factors of shape (B, R, T, d)
         cp_decode (torch.Tensor): CP decode factors of shape (B, d, D)
-        ops (torch.Tensor): Operation codes of shape (T,) specifying:
+        ops (torch.Tensor): Operation codes of shape (B, T) specifying:
             -2: marginalize mode (sum reduction)
             -1: keep mode as free index
             [0,V): select index v in mode
@@ -72,6 +72,8 @@ def select_margin_ccp_tensor_batched(
         .permute(0, 2, 1)
     )  # (B, R, T)
 
+    decoded_margin = cp_decode.sum(dim=-1, keepdim=True)  # (B, d, 1)
+
     for t in range(horizon):
         mask_select = t < bp_free
         mask_margin = t >= bp_margin
@@ -83,13 +85,13 @@ def select_margin_ccp_tensor_batched(
             # Select the corresponding indices from cp_decode
             cp_decode_expanded = torch.gather(
                 cp_decode[mask_select].reshape(
-                    -1, compressed_dim
+                    -1, uncompressed_dim
                 ),  # (batch_size' * d, D)
                 dim=-1,
                 index=ops[mask_select, t]
                 .reshape(-1, 1, 1)
                 .repeat(1, compressed_dim, 1)
-                .reshape(-1, compressed_dim),  # (batch_size' * d, D)
+                .reshape(-1, 1),  # (batch_size' * d, D)
             ).reshape(
                 -1, compressed_dim, 1
             )  # (batch_size', d, 1)
@@ -98,7 +100,8 @@ def select_margin_ccp_tensor_batched(
             res_left[mask_select] = res_left[mask_select] * (
                 torch.bmm(
                     # (B', R, d) @ (B', d, 1) -> (B, R, 1)
-                    cp_params[mask_select, :, t, :].reshape(-1, rank, compressed_dim),
+                    # (B, R, T, d) => (B', R, d) =>
+                    cp_params[mask_select, :, t, :],
                     cp_decode_expanded,
                 )
             ).squeeze(-1)
@@ -108,6 +111,12 @@ def select_margin_ccp_tensor_batched(
             res_right[mask_margin] = (
                 res_right[mask_margin] * core_margins[mask_margin, :, t]
             )
+            # (B', R) * (B', R)
+            # res_right[mask_margin] = res_right[mask_margin] * torch.bmm(
+            #     # (B', R, d) @ (B', d, 1) -> (B', R, 1)
+            #     cp_params[mask_margin, :, t, :],  # (B', R, d)
+            #     decoded_margin[mask_margin],
+            # ).squeeze(-1)
 
         # Free
         if mask_free.any():
