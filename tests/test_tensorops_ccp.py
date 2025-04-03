@@ -23,9 +23,7 @@ class TestCPTensor(unittest.TestCase):
         ops = torch.tensor([[0, -1, -2, -2], [0, 1, -1, -2]])
         result, _ = select_margin_ccp_tensor_batched(
             cp_params,
-            cp_decode=torch.eye(vocab_size, vocab_size)
-            .unsqueeze(0)
-            .expand(batch_size, -1, -1),
+            cp_decode=torch.eye(vocab_size, vocab_size),
             ops=ops,
         )  # (rank, n_free, vocab_size)
 
@@ -43,9 +41,7 @@ class TestCPTensor(unittest.TestCase):
         ops = torch.tensor([[0, -1, -2, -2], [0, 1, -1, -2]])
         result_batched, _ = select_margin_ccp_tensor_batched(
             cp_params,
-            cp_decode=torch.eye(vocab_size, vocab_size)
-            .unsqueeze(0)
-            .expand(batch_size, -1, -1),
+            cp_decode=torch.eye(vocab_size, vocab_size),
             ops=ops,
         )  # (rank, n_free, vocab_size)
 

@@ -9,6 +9,7 @@ import torch
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.distributions.base import BaseDist
+from tjdnet.distributions.ccp import CCPDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.full import FullDist
 from tjdnet.distributions.mps import MPSDist
@@ -28,6 +29,7 @@ import line_profiler
 DIST_MAP: Dict[str, Type[BaseDistribution]] = {
     "full": FullDist,
     "cp": CPDist,
+    "ccp": CCPDist,
     "mps": MPSDist,
     "umps": UMPSDist,
     "base": BaseDist,

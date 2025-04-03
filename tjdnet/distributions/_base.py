@@ -17,6 +17,7 @@ class BaseDistConfig:
     Attributes:
         # Core Distribution Parameters
         vocab_size (int): Size of the vocabulary for token generation.
+        vocab_size_compr (int): Compressed vocabulary size.
         horizon (int): Number of future tokens to predict.
         rank (int): Rank of the tensor decomposition.
             - Higher rank allows modeling more complex token dependencies
@@ -31,6 +32,7 @@ class BaseDistConfig:
     horizon: int
     rank: int
     param_net: TensorParamNetConfig
+    vocab_size_compr: int = 4096
 
 
 class BaseDistribution(ABC, torch.nn.Module):
@@ -38,6 +40,7 @@ class BaseDistribution(ABC, torch.nn.Module):
         """Abstract base class for distributions compatible with TJDGPT2."""
         super().__init__()
         self.vocab_size = config.vocab_size
+        self.vocab_size_compr = config.vocab_size_compr
         self.horizon = config.horizon
         self.rank = config.rank
         self.cache = {}
@@ -104,29 +107,29 @@ class BaseDistribution(ABC, torch.nn.Module):
         """
         pass
 
-    @abstractmethod
-    def get_dist(
-        self,
-        hidden_state: torch.Tensor,
-        ops: torch.Tensor,
-        use_cache: bool,
-        save_cache: bool,
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """Get distribution specified by ops.
+    # @abstractmethod
+    # def get_dist(
+    #     self,
+    #     hidden_state: torch.Tensor,
+    #     ops: torch.Tensor,
+    #     use_cache: bool,
+    #     save_cache: bool,
+    # ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    #     """Get distribution specified by ops.
 
-        Args:
-            last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
-            ops (torch.Tensor): Operation codes of shape (T,) specifying:
-                -2: marginalize mode (sum reduction)
-                -1: keep mode as free index
-                [0,V): select index v in mode
+    #     Args:
+    #         last_hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
+    #         ops (torch.Tensor): Operation codes of shape (T,) specifying:
+    #             -2: marginalize mode (sum reduction)
+    #             -1: keep mode as free index
+    #             [0,V): select index v in mode
 
-        Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]:
-                - Distribution specified by ops
-                - List of scale factors
-        """
-        pass
+    #     Returns:
+    #         Tuple[torch.Tensor, List[torch.Tensor]]:
+    #             - Distribution specified by ops
+    #             - List of scale factors
+    #     """
+    #     pass
 
     @abstractmethod
     def sample(

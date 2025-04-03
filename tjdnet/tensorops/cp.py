@@ -1,6 +1,7 @@
 from typing import List, Tuple
 import torch
 import tensorly as tl
+import line_profiler
 
 from tjdnet.tensorops.common import get_breakpoints
 

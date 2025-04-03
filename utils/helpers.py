@@ -93,11 +93,12 @@ def parse_args():
         help="Type of factorization to use for the model.",
         choices=[
             "cp",
+            "ccp",
+            "ucp",
             "mps",
             "umps",
             "full",
             "base",
-            "ucp",
         ],
     )
     parser.add_argument(
