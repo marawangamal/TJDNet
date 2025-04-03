@@ -27,6 +27,8 @@ class CCPDist(BaseDistribution):
                 config.vocab_size,
                 dtype=torch.float32,
             )
+            * 2
+            / (config.vocab_size_compr + config.vocab_size)
         )
 
     def _get_params(
@@ -107,14 +109,17 @@ class CCPDist(BaseDistribution):
         cp_params, cp_decode = self._get_ccp_params(
             last_hidden_state, horizon=horizon
         )  # (B, T, R, H, Vc), (Vc, V)
-        p_tilde, _ = select_margin_ccp_tensor_batched(
+        p_tilde, p_tilde_scale_factors = select_margin_ccp_tensor_batched(
             cp_params=cp_params.reshape(
                 batch_size * seq_len, self.rank, horizon, self.vocab_size_compr
             ),
             cp_decode=cp_decode,
             ops=points.reshape(batch_size * seq_len, horizon),
         )  # (BT,), (BT, T)
-        return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
+        return (
+            p_tilde.reshape(batch_size, seq_len),
+            [s.reshape(batch_size, seq_len) for s in p_tilde_scale_factors],
+        )  # (B,T)
 
     def get_norm_consts(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
@@ -135,12 +140,7 @@ class CCPDist(BaseDistribution):
             last_hidden_state, horizon=horizon
         )  # (B, T, R, H, Vc), (Vc, V)
         with profiler.record_function("normalize_cp_tensor"):
-            # norm_consts = sum_cp_tensor(
-            #     cp_params=params.reshape(
-            #         batch_size * seq_len, self.rank, horizon, self.vocab_size
-            #     ),
-            # )
-            norm_consts, _ = select_margin_ccp_tensor_batched(
+            norm_consts, norm_consts_scale_factors = select_margin_ccp_tensor_batched(
                 cp_params=cp_params.reshape(
                     batch_size * seq_len, self.rank, horizon, self.vocab_size_compr
                 ),
@@ -154,7 +154,9 @@ class CCPDist(BaseDistribution):
             )
             return (
                 norm_consts.reshape(batch_size, seq_len),  # (B, T)
-                [],
+                [
+                    s.reshape(batch_size, seq_len) for s in norm_consts_scale_factors
+                ],  # [(B, T)] x H
             )
 
     def evaluate_at_points_and_get_norm_consts(
@@ -179,22 +181,17 @@ class CCPDist(BaseDistribution):
         # Get indexed distribution
         batch_size, seq_len, _ = last_hidden_state.size()
         horizon = points.size(-1)
-        # params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        # p_tilde = select_from_cp_tensor(
-        #     params.reshape(batch_size * seq_len, self.rank, horizon, self.vocab_size),
-        #     points.reshape(batch_size * seq_len, horizon),
-        # )
         cp_params, cp_decode = self._get_ccp_params(
             last_hidden_state, horizon
         )  # (B, T, R, H, Vc), (Vc, V)
-        p_tilde, _ = select_margin_ccp_tensor_batched(
+        p_tilde, p_tilde_scale_factors = select_margin_ccp_tensor_batched(
             cp_params=cp_params.reshape(
                 batch_size * seq_len, self.rank, horizon, self.vocab_size_compr
             ),
             cp_decode=cp_decode,
             ops=points.reshape(batch_size * seq_len, horizon),
         )  # (BT,), (BT, T)
-        norm_consts, _ = select_margin_ccp_tensor_batched(
+        norm_consts, norm_consts_scale_factors = select_margin_ccp_tensor_batched(
             cp_params=cp_params.reshape(
                 batch_size * seq_len, self.rank, horizon, self.vocab_size_compr
             ),
@@ -208,7 +205,7 @@ class CCPDist(BaseDistribution):
         )
         return (
             p_tilde.reshape(batch_size, seq_len),
-            [],
+            [s.reshape(batch_size, seq_len) for s in p_tilde_scale_factors],
             norm_consts.reshape(batch_size, seq_len),
-            [],
+            [s.reshape(batch_size, seq_len) for s in norm_consts_scale_factors],
         )

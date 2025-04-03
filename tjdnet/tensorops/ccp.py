@@ -163,11 +163,11 @@ def select_margin_ccp_tensor_batched(
 
     Note:
         - The number of free indices in `ops` must be at most 1
+        - Scale factors should be multiplied (i.e. p = p_tilde * ∏i=1^k s_i)
 
     Returns:
         result (torch.Tensor): Result tensor of shape (n_free, D).
-
-        scale_factors (list): Scale factors list of shape (H,).
+        scale_factors (list[torch.Tensor]): Scale factors list. Each scale factor is a tensor of shape (B,) for each marginalization step.
 
     """
 
@@ -207,6 +207,7 @@ def select_margin_ccp_tensor_batched(
     )  # (B, R, H)
 
     # decoded_margin = cp_decode.sum(dim=-1, keepdim=True)  # (B, d, 1)
+    scale_factors = []
 
     for t in range(horizon):
         mask_select = t < bp_free
@@ -215,45 +216,25 @@ def select_margin_ccp_tensor_batched(
 
         # Select
         if mask_select.any():
-
-            # Select the corresponding indices from cp_decode
-            # b_prime = int(mask_select.sum().item())
-            # cp_decode_expanded = torch.gather(
-            #     # (B, d, D) => (B'd, D)
-            #     cp_decode.unsqueeze(0)
-            #     .expand(b_prime, -1, -1)
-            #     .reshape(-1, uncompressed_dim),  # (B', d, D)
-            #     # (B, H) => (B',) => (B', 1, 1) => (B', d, 1) => (B'd, 1)
-            #     index=ops[mask_select, t]
-            #     .reshape(-1, 1, 1)
-            #     .expand(-1, compressed_dim, -1)
-            #     .reshape(-1, 1),  # (batch_size' * d, D)
-            #     dim=-1,
-            # ).reshape(
-            #     -1, compressed_dim, 1
-            # )  # (B', d, 1)
-
-            # (d, D) => (d, B') => (B', d) => (B', d, 1)
-            cp_decode_expanded = (
-                cp_decode[:, ops[mask_select, t]].permute(1, 0).unsqueeze(-1)
-            )
-
-            # Reshape cp_params to (batch_size', rank, compressed_dim)
-            # Largest intermediate tensor: (BRTD)
-            res_left[mask_select] = res_left[mask_select] * (
+            update = (
+                # (B', R, d) @ (B', d, 1) -> (B, R, 1)
                 torch.bmm(
-                    # (B', R, d) @ (B', d, 1) -> (B, R, 1)
-                    # (B, R, H, d) => (B', R, d) =>
+                    # (B, R, H, d) => (B', R, d)
                     cp_params[mask_select, :, t, :],
-                    cp_decode_expanded,
+                    # (d, D) => (d, B') => (B', d) => (B', d, 1)
+                    cp_decode[:, ops[mask_select, t]].permute(1, 0).unsqueeze(-1),
                 )
             ).squeeze(-1)
+            sf = torch.max(update, dim=-1)[0]  # (B',)
+            res_left[mask_select] = res_left[mask_select] * update / sf.unsqueeze(-1)
+            scale_factors.append(sf)
 
         # Marginalize
         if mask_margin.any():
-            res_right[mask_margin] = (
-                res_right[mask_margin] * core_margins[mask_margin, :, t]
-            )
+            update = core_margins[mask_margin, :, t]  # (B', R)
+            sf = torch.max(update, dim=-1)[0]  # (B',)
+            res_right[mask_margin] = res_right[mask_margin] * update / sf.unsqueeze(-1)
+            scale_factors.append(sf)
             # (B', R) * (B', R)
             # res_right[mask_margin] = res_right[mask_margin] * torch.bmm(
             #     # (B', R, d) @ (B', d, 1) -> (B', R, 1)
@@ -275,12 +256,12 @@ def select_margin_ccp_tensor_batched(
 
     # Special case: pure select
     if torch.all(bp_free == horizon):
-        return res_left.sum(dim=-1), []  # (B,)
+        return res_left.sum(dim=-1), scale_factors  # (B,)
 
     result = res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)  # (B, R, D)
 
     # Special case: pure marginalization
     if torch.all(bp_margin == 0):
-        return result.sum(dim=1).sum(dim=1), []
+        return result.sum(dim=1).sum(dim=1), scale_factors
 
-    return result.sum(dim=1), []
+    return result.sum(dim=1), scale_factors
