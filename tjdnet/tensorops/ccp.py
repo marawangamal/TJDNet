@@ -225,15 +225,22 @@ def select_margin_ccp_tensor_batched(
                     cp_decode[:, ops[mask_select, t]].permute(1, 0).unsqueeze(-1),
                 )
             ).squeeze(-1)
-            sf = torch.max(update, dim=-1)[0]  # (B',)
-            res_left[mask_select] = res_left[mask_select] * update / sf.unsqueeze(-1)
+            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
+            res_left[mask_select] = (
+                res_left[mask_select] * update / sf[mask_select].unsqueeze(-1)
+            )
             scale_factors.append(sf)
 
         # Marginalize
         if mask_margin.any():
             update = core_margins[mask_margin, :, t]  # (B', R)
-            sf = torch.max(update, dim=-1)[0]  # (B',)
-            res_right[mask_margin] = res_right[mask_margin] * update / sf.unsqueeze(-1)
+            # sf = torch.max(update, dim=-1)[0]  # (B',)
+            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
+            res_right[mask_margin] = (
+                res_right[mask_margin] * update / sf[mask_margin].unsqueeze(-1)
+            )
             scale_factors.append(sf)
             # (B', R) * (B', R)
             # res_right[mask_margin] = res_right[mask_margin] * torch.bmm(

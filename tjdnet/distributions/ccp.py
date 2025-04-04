@@ -87,78 +87,6 @@ class CCPDist(BaseDistribution):
             y_hat = torch.cat([y_hat, next_token], dim=1)
         return y_hat  # (B, H)
 
-    def evaluate_at_points(
-        self,
-        last_hidden_state: torch.Tensor,
-        points: torch.Tensor,
-        **kwargs,
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """Evaluate the distribution at the given points.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
-            horizon (int, optional): Number of steps to consider. Defaults to model horizon.
-
-        Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B, H) and scale_tensors (empty list)
-        """
-        # Get indexed distribution
-        batch_size, seq_len, _ = last_hidden_state.size()
-        horizon = points.size(-1)
-        cp_params, cp_decode = self._get_ccp_params(
-            last_hidden_state, horizon=horizon
-        )  # (B, T, R, H, Vc), (Vc, V)
-        p_tilde, p_tilde_scale_factors = select_margin_ccp_tensor_batched(
-            cp_params=cp_params.reshape(
-                batch_size * seq_len, self.rank, horizon, self.vocab_size_compr
-            ),
-            cp_decode=cp_decode,
-            ops=points.reshape(batch_size * seq_len, horizon),
-        )  # (BT,), (BT, T)
-        return (
-            p_tilde.reshape(batch_size, seq_len),
-            [s.reshape(batch_size, seq_len) for s in p_tilde_scale_factors],
-        )  # (B,T)
-
-    def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """Get the normalization constants for the BT distributions.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-
-        Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
-        """
-        batch_size, seq_len, _ = last_hidden_state.size()
-        horizon = self._get_horizon(horizon)
-        # Get indexed distribution
-        # params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        cp_params, cp_decode = self._get_ccp_params(
-            last_hidden_state, horizon=horizon
-        )  # (B, T, R, H, Vc), (Vc, V)
-        with profiler.record_function("normalize_cp_tensor"):
-            norm_consts, norm_consts_scale_factors = select_margin_ccp_tensor_batched(
-                cp_params=cp_params.reshape(
-                    batch_size * seq_len, self.rank, horizon, self.vocab_size_compr
-                ),
-                cp_decode=cp_decode,
-                ops=torch.full(
-                    (batch_size * seq_len, horizon),
-                    -2,
-                    dtype=torch.long,
-                    device=last_hidden_state.device,
-                ),
-            )
-            return (
-                norm_consts.reshape(batch_size, seq_len),  # (B, T)
-                [
-                    s.reshape(batch_size, seq_len) for s in norm_consts_scale_factors
-                ],  # [(B, T)] x H
-            )
-
     def evaluate_at_points_and_get_norm_consts(
         self,
         last_hidden_state: torch.Tensor,
@@ -172,7 +100,7 @@ class CCPDist(BaseDistribution):
             points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
 
         Returns:
-            tuple:
+            Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
                 - torch.Tensor: Unormalized distribution `p_tilde` at the points of shape (B, T)
                 - list: Scale factors for `p_tilde`
                 - torch.Tensor: Normalization constants `z` of shape (B, T)
