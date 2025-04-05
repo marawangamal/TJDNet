@@ -57,6 +57,7 @@ def select_margin_cp_tensor_batched(
     res_free = torch.ones(batch_size, rank, vocab_size, device=cp_params.device)
 
     core_margins = cp_params.sum(dim=-1)  # (B, R, T)
+    scale_factors = []
 
     for t in range(horizon):
         mask_select = t < bp_free
@@ -92,16 +93,15 @@ def select_margin_cp_tensor_batched(
 
     # Special case: pure select
     if torch.all(bp_free == horizon):
-        return res_left.sum(dim=-1), []  # (B,)
-
-    result = res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)  # (B, R, D)
-
-    # TODO: use just `res_right`
+        return res_left.sum(dim=-1), scale_factors  # (B,)
     # Special case: pure marginalization
-    if torch.all(bp_margin == 0):
-        return result.sum(dim=1).sum(dim=1), []
-
-    return result.sum(dim=1), []
+    elif torch.all(bp_margin == 0):
+        return res_right.sum(dim=-1), scale_factors
+    else:  # General case
+        result = (
+            res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)
+        )  # (B, R, D)
+        return result.sum(dim=1), scale_factors
 
 
 # ------------------------------------------------------------------------
