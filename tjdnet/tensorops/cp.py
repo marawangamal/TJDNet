@@ -90,15 +90,25 @@ def select_margin_cp_tensor_batched(
 
     # Final result
 
-    # Special case: no free or margin legs (pure select)
+    # Special case: pure select
     if torch.all(bp_free == horizon):
         return res_left.sum(dim=-1), []  # (B,)
 
     result = res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)  # (B, R, D)
+
+    # TODO: use just `res_right`
+    # Special case: pure marginalization
+    if torch.all(bp_margin == 0):
+        return result.sum(dim=1).sum(dim=1), []
+
     return result.sum(dim=1), []
 
 
-# TODO: replace with `select_margin_cp_tensor_batched`
+# ------------------------------------------------------------------------
+# Deprecated functions (select_margin_cp_tensor_batched generalizes these)
+# ------------------------------------------------------------------------
+
+
 def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     """Sum all elements of a CP tensor representation (batched).
 
@@ -118,11 +128,6 @@ def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     if result is None:
         raise ValueError("Empty tensor")
     return result.sum(dim=1)  # (B, R) -> (B)
-
-
-# --------------
-# Older versions
-# --------------
 
 
 def materialize_cp_tensor(
