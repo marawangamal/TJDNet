@@ -66,23 +66,31 @@ def select_margin_cp_tensor_batched(
 
         # Select
         if mask_select.any():
-            res_left[mask_select] = res_left[mask_select] * (
-                torch.gather(
-                    cp_params[mask_select, :, t, :].reshape(-1, vocab_size),
-                    dim=-1,
-                    index=ops[mask_select, t]  # (batch_size',)
-                    .reshape(-1, 1, 1)
-                    .repeat(1, rank, 1)
-                    .reshape(-1, 1),
-                )
+            update = torch.gather(
+                cp_params[mask_select, :, t, :].reshape(-1, vocab_size),
+                dim=-1,
+                index=ops[mask_select, t]  # (batch_size',)
+                .reshape(-1, 1, 1)
+                .repeat(1, rank, 1)
+                .reshape(-1, 1),
             ).reshape(
                 -1, rank
             )  # (batch_size', R)
+            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
+            scale_factors.append(sf[mask_select])
+            res_left[mask_select] = (
+                res_left[mask_select] * update / sf[mask_select].unsqueeze(-1)
+            )
 
         # Marginalize
         if mask_margin.any():
+            update = core_margins[mask_margin, :, t]  # (B', R)
+            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
+            scale_factors.append(sf[mask_margin])
             res_right[mask_margin] = (
-                res_right[mask_margin] * core_margins[mask_margin, :, t]
+                res_right[mask_margin] * update / sf[mask_margin].unsqueeze(-1)
             )
 
         # Free
