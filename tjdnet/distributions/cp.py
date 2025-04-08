@@ -18,7 +18,9 @@ class CPDist(BaseDistribution):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        config.param_net.out_dim = config.rank * config.horizon * config.vocab_size
+        # config.param_net.out_dim_encoder = config.rank * config.horizon * config.vocab_size
+        config.param_net.out_dim_encoder = config.rank * config.horizon
+        config.param_net.out_dim_decoder = config.vocab_size
         super().__init__(config)
 
     def _get_params(
