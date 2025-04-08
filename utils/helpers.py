@@ -91,8 +91,8 @@ def parse_args():
             "llama70b",
             "gpt2r",
             "llamar",
-            "llama3-8B-i",
-            "llama3-8B",
+            "llama3-8b-i",
+            "llama3-8b",
         ],
     )
     parser.add_argument(
@@ -470,8 +470,8 @@ def get_model_and_tokenizer(args):
         "llama13b": "meta-llama/Llama-2-13b-chat-hf",
         "llama70b": "meta-llama/Llama-2-70b-chat-hf",
         "gpt2": "gpt2",
-        "llama3-8B-i": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "llama3-8B": "meta-llama/Meta-Llama-3.1-8B",
+        "llama3-8b-i": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "llama3-8b": "meta-llama/Meta-Llama-3.1-8B",
     }[args.model_type]
 
     if args.tokenizer_type == "word":
