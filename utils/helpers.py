@@ -120,18 +120,18 @@ def parse_args():
     parser.add_argument(
         "--num_layers", type=int, default=1, help="Number of layers in the model head."
     )
-    parser.add_argument(
-        "--activation",
-        type=str,
-        default="relu",
-        help="Activation function to use in the model head.",
-    )
-    parser.add_argument(
-        "--use_layer_norm",
-        default=False,
-        action="store_true",
-        help="Whether to use layer normalization in the model head.",
-    )
+    # parser.add_argument(
+    #     "--activation",
+    #     type=str,
+    #     default="relu",
+    #     help="Activation function to use in the model head.",
+    # )
+    # parser.add_argument(
+    #     "--use_layer_norm",
+    #     default=False,
+    #     action="store_true",
+    #     help="Whether to use layer normalization in the model head.",
+    # )
     parser.add_argument(
         "--rank",
         type=int,
@@ -144,7 +144,7 @@ def parse_args():
         default=1,
         help="Horizon for TJD models. (E.g. if horizon=2 the model will make 2x less forward passes)",
     )
-    parser.add_argument("--dropout", type=float, default=0, help="Dropout rate.")
+    # parser.add_argument("--dropout", type=float, default=0, help="Dropout rate.")
     parser.add_argument(
         "--positivity_func",
         type=str,
@@ -490,10 +490,6 @@ def get_model_and_tokenizer(args):
             rank=args.rank,
             param_net=TensorParamNetConfig(
                 hidden_dim=args.hidden_dim,
-                num_layers=args.num_layers,
-                dropout=args.dropout,
-                activation=args.activation,
-                use_layer_norm=args.use_layer_norm,
                 positivity_func=args.positivity_func,
             ),
         ),

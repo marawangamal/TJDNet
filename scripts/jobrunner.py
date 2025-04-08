@@ -426,9 +426,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.clear:
-        res = query_yes_no("Clear cache?", default="no")
+        res = query_yes_no(f"Clear cache? {args.cache_file}", default="no")
         if res:
-            os.system("rm -r ~/.jobrunner/jobrunner_status_table.csv")
+            os.system(f"rm -rf {args.cache_file}")
             print("Cleared cache.")
         else:
             print("Did not clear cache.")
