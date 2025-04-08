@@ -4,22 +4,32 @@ import torch
 import torch.autograd.profiler as profiler
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
-from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
+from tjdnet.tensorops.ccp import select_margin_ccp_tensor_batched
+from tjdnet.tensorops.cp import select_margin_cp_tensor_batched, sum_cp_tensor
 from tjdnet.utils import sample_topk
 
 
-class CPDist(BaseDistribution):
+class CCPDist(BaseDistribution):
     def __init__(self, config: BaseDistConfig, **kwargs):
-        """CP Distribution
+        """Compressed CP Distribution
 
         Args:
-            n_embd (int): Embedding dimension
-            vocab_size (int): Vocabulary size
-            rank (int): Rank of the CP decomposition
-            horizon (int): Horizon of the model (Number of tokens to predict)
+            config (BaseDistConfig): Configuration object.
+
         """
-        config.param_net.out_dim = config.rank * config.horizon * config.vocab_size
+        config.param_net.out_dim = (
+            config.rank * config.horizon * config.vocab_size_compr
+        )
         super().__init__(config)
+        self.unembed = torch.nn.Parameter(
+            torch.randn(
+                config.vocab_size_compr,
+                config.vocab_size,
+                dtype=torch.float32,
+            )
+            * 2
+            / (config.vocab_size_compr + config.vocab_size)
+        )
 
     def _get_params(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
@@ -27,11 +37,17 @@ class CPDist(BaseDistribution):
         batch_size, seq_len, _ = last_hidden_state.size()
         params = self.param_func(last_hidden_state)
         params_reshaped = params.reshape(
-            batch_size, seq_len, self.rank, self.horizon, self.vocab_size
+            batch_size, seq_len, self.rank, self.horizon, self.vocab_size_compr
         )
         if horizon is not None:
-            return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
-        return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
+            return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, Vc)
+        return params_reshaped  # (B, T, R, H', Vc)
+
+    def _get_ccp_params(
+        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
+    ):
+        cp_params = self._get_params(last_hidden_state)  # (B, T, R, H', Vc)
+        return cp_params, torch.exp(self.unembed)  # (B, T, R, H', Vc), (Vc, V)
 
     def sample(
         self,
@@ -45,9 +61,7 @@ class CPDist(BaseDistribution):
         batch_size = hidden_state.size(0)
         dvc = hidden_state.device
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
-        model_head_params = self._get_params(hidden_state[:, -1:, :]).squeeze(
-            1
-        )  # (B, 1, R, H*, V) => (B, R, H*, V)
+        cp_params, cp_decode = self._get_ccp_params(hidden_state[:, -1:, :])
         for h in range(horizon):
             ops_tensor = torch.cat(
                 (
@@ -61,8 +75,9 @@ class CPDist(BaseDistribution):
                 ),
                 dim=1,
             )  # (B, T)
-            p_ops_tilde, _ = select_margin_cp_tensor_batched(
-                cp_params=model_head_params,
+            p_ops_tilde, _ = select_margin_ccp_tensor_batched(
+                cp_params=cp_params.squeeze(1),  # (B, 1, R, H, V) => (B, R, H, V)
+                cp_decode=cp_decode,  # (Vc, V)
                 ops=ops_tensor,
             )  # (B, V), (B, T)
             if do_sample:
@@ -85,7 +100,7 @@ class CPDist(BaseDistribution):
             points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
 
         Returns:
-            tuple:
+            Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
                 - torch.Tensor: Unormalized distribution `p_tilde` at the points of shape (B, T)
                 - list: Scale factors for `p_tilde`
                 - torch.Tensor: Normalization constants `z` of shape (B, T)
@@ -94,17 +109,21 @@ class CPDist(BaseDistribution):
         # Get indexed distribution
         batch_size, seq_len, _ = last_hidden_state.size()
         horizon = points.size(-1)
-        params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched(
-            cp_params=params.reshape(
-                batch_size * seq_len, self.rank, horizon, self.vocab_size
+        cp_params, cp_decode = self._get_ccp_params(
+            last_hidden_state, horizon
+        )  # (B, T, R, H, Vc), (Vc, V)
+        p_tilde, p_tilde_scale_factors = select_margin_ccp_tensor_batched(
+            cp_params=cp_params.reshape(
+                batch_size * seq_len, self.rank, horizon, self.vocab_size_compr
             ),
+            cp_decode=cp_decode,
             ops=points.reshape(batch_size * seq_len, horizon),
         )  # (BT,), (BT, T)
-        norm_consts, norm_consts_scale_factors = select_margin_cp_tensor_batched(
-            cp_params=params.reshape(
-                batch_size * seq_len, self.rank, horizon, self.vocab_size
+        norm_consts, norm_consts_scale_factors = select_margin_ccp_tensor_batched(
+            cp_params=cp_params.reshape(
+                batch_size * seq_len, self.rank, horizon, self.vocab_size_compr
             ),
+            cp_decode=cp_decode,
             ops=torch.full(
                 (batch_size * seq_len, horizon),
                 -2,

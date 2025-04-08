@@ -84,7 +84,16 @@ def parse_args():
         type=str,
         default="gpt2",
         help="Type of base model to use",
-        choices=["gpt2", "llama7b", "llama13b", "llama70b", "gpt2r", "llamar"],
+        choices=[
+            "gpt2",
+            "llama7b",
+            "llama13b",
+            "llama70b",
+            "gpt2r",
+            "llamar",
+            "llama3-8B-i",
+            "llama3-8B",
+        ],
     )
     parser.add_argument(
         "--model_head",
@@ -93,11 +102,12 @@ def parse_args():
         help="Type of factorization to use for the model.",
         choices=[
             "cp",
+            "ccp",
+            "ucp",
             "mps",
             "umps",
             "full",
             "base",
-            "ucp",
         ],
     )
     parser.add_argument(
@@ -158,6 +168,12 @@ def parse_args():
     #     default=False,
     #     action="store_true",
     #     help="Whether to use attn layer in the model head.",
+    # )
+    # parser.add_argument(
+    #     "--vocab_size_compr",
+    #     type=int,
+    #     default=1,
+    #     help="Bottleneck dimension for the TJD model head.",
     # )
 
     # Training mode
@@ -454,6 +470,8 @@ def get_model_and_tokenizer(args):
         "llama13b": "meta-llama/Llama-2-13b-chat-hf",
         "llama70b": "meta-llama/Llama-2-70b-chat-hf",
         "gpt2": "gpt2",
+        "llama3-8B-i": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "llama3-8B": "meta-llama/Meta-Llama-3.1-8B",
     }[args.model_type]
 
     if args.tokenizer_type == "word":
@@ -498,6 +516,8 @@ def get_model_and_tokenizer(args):
         "llama7b": TJDLLAMA,
         "llama13b": TJDLLAMA,
         "llama70b": TJDLLAMA,
+        "llama3-8b-i": TJDLLAMA,
+        "llama3-8b": TJDLLAMA,
         "gpt2": TJDGPT2,
         "gpt2r": GPT2,
         "llamar": LLAMA,

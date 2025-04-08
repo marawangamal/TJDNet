@@ -1,6 +1,7 @@
 from typing import List, Tuple
 import torch
 import tensorly as tl
+import line_profiler
 
 from tjdnet.tensorops.common import get_breakpoints
 
@@ -56,6 +57,7 @@ def select_margin_cp_tensor_batched(
     res_free = torch.ones(batch_size, rank, vocab_size, device=cp_params.device)
 
     core_margins = cp_params.sum(dim=-1)  # (B, R, T)
+    scale_factors = []
 
     for t in range(horizon):
         mask_select = t < bp_free
@@ -64,23 +66,31 @@ def select_margin_cp_tensor_batched(
 
         # Select
         if mask_select.any():
-            res_left[mask_select] = res_left[mask_select] * (
-                torch.gather(
-                    cp_params[mask_select, :, t, :].reshape(-1, vocab_size),
-                    dim=-1,
-                    index=ops[mask_select, t]  # (batch_size',)
-                    .reshape(-1, 1, 1)
-                    .repeat(1, rank, 1)
-                    .reshape(-1, 1),
-                )
+            update = torch.gather(
+                cp_params[mask_select, :, t, :].reshape(-1, vocab_size),
+                dim=-1,
+                index=ops[mask_select, t]  # (batch_size',)
+                .reshape(-1, 1, 1)
+                .repeat(1, rank, 1)
+                .reshape(-1, 1),
             ).reshape(
                 -1, rank
             )  # (batch_size', R)
+            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
+            scale_factors.append(sf[mask_select])
+            res_left[mask_select] = (
+                res_left[mask_select] * update / sf[mask_select].unsqueeze(-1)
+            )
 
         # Marginalize
         if mask_margin.any():
+            update = core_margins[mask_margin, :, t]  # (B', R)
+            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
+            scale_factors.append(sf[mask_margin])
             res_right[mask_margin] = (
-                res_right[mask_margin] * core_margins[mask_margin, :, t]
+                res_right[mask_margin] * update / sf[mask_margin].unsqueeze(-1)
             )
 
         # Free
@@ -89,15 +99,24 @@ def select_margin_cp_tensor_batched(
 
     # Final result
 
-    # Special case: no free or margin legs (pure select)
+    # Special case: pure select
     if torch.all(bp_free == horizon):
-        return res_left.sum(dim=-1), []  # (B,)
+        return res_left.sum(dim=-1), scale_factors  # (B,)
+    # Special case: pure marginalization
+    elif torch.all(bp_margin == 0):
+        return res_right.sum(dim=-1), scale_factors
+    else:  # General case
+        result = (
+            res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)
+        )  # (B, R, D)
+        return result.sum(dim=1), scale_factors
 
-    result = res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)  # (B, R, D)
-    return result.sum(dim=1), []
+
+# ------------------------------------------------------------------------
+# Deprecated functions (select_margin_cp_tensor_batched generalizes these)
+# ------------------------------------------------------------------------
 
 
-# TODO: replace with `select_margin_cp_tensor_batched`
 def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     """Sum all elements of a CP tensor representation (batched).
 
@@ -117,11 +136,6 @@ def sum_cp_tensor(cp_params: torch.Tensor) -> torch.Tensor:
     if result is None:
         raise ValueError("Empty tensor")
     return result.sum(dim=1)  # (B, R) -> (B)
-
-
-# --------------
-# Older versions
-# --------------
 
 
 def materialize_cp_tensor(
