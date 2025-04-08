@@ -163,18 +163,18 @@ def parse_args():
         help="Initialization method for model head - pretrained or random",
     )
     # TODO: add to cli
-    parser.add_argument(
-        "--use_attn_layer",
-        default=False,
-        action="store_true",
-        help="Whether to use attn layer in the model head.",
-    )
-    parser.add_argument(
-        "--vocab_size_compr",
-        type=int,
-        default=1,
-        help="Bottleneck dimension for the TJD model head.",
-    )
+    # parser.add_argument(
+    #     "--use_attn_layer",
+    #     default=False,
+    #     action="store_true",
+    #     help="Whether to use attn layer in the model head.",
+    # )
+    # parser.add_argument(
+    #     "--vocab_size_compr",
+    #     type=int,
+    #     default=1,
+    #     help="Bottleneck dimension for the TJD model head.",
+    # )
 
     # Training mode
     parser.add_argument(
