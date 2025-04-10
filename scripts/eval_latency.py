@@ -151,34 +151,40 @@ def main(args):
                     1,
                     1,
                     model_head="base",
+                    param_net_config={
+                        "hidden_dim": 5120,
+                    },
                 ),
                 **common_kwargs,
             }
         ]
         + [
             {
-                "name": f"llama::cp::nl2::rank{r}::horizon{h}",
+                "name": f"llama::cp::rank{r}::horizon{h}",
                 "model_fn": create_model_llama_fn(
                     rank=r,
                     horizon=h,
                     model_head="cp",
+                    param_net_config={
+                        "hidden_dim": 5120,
+                    },
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([4, 8, 16, 32], [2, 2, 2, 2])
+            for (r, h) in zip([8, 16], [2, 2])
         ]
-        + [
-            {
-                "name": f"llama::ucp:horizon{h}::rank{r}",
-                "model_fn": create_model_llama_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="ucp",
-                ),
-                **common_kwargs,
-            }
-            for (r, h) in zip([4, 8, 16, 32], [2, 2, 2, 2])
-        ]
+        # + [
+        #     {
+        #         "name": f"llama::ucp:horizon{h}::rank{r}",
+        #         "model_fn": create_model_llama_fn(
+        #             rank=r,
+        #             horizon=h,
+        #             model_head="ucp",
+        #         ),
+        #         **common_kwargs,
+        #     }
+        #     for (r, h) in zip([4, 8, 16, 32], [2, 2, 2, 2])
+        # ]
     )
 
     # Run benchmarks

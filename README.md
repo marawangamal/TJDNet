@@ -6,10 +6,11 @@ Speeding up language model inference via tensorized joint distributions. This co
 
 <h1>TJDNet: Speeding up Language Model Inference via Tensorized Joint Distribution Networks</h1>
 
+
 <i> Speeding up language model inference via tensorized joint distributions </i>
 
 
-<img src="assets/image.png" style="width: 800px;" />
+<img src="assets/image.png" style="width: 500;" />
 <!-- <i>Speeding up language model inference via tensorized joint distributions.</i> -->
 
 <!-- <i> (Left) N forward passes to decode. (Right) TJDNet decoding uses Single forward
@@ -17,66 +18,115 @@ pass through transformer</i> -->
 
 </div>
 
+## Overivew
 
-## Requirements
+This repository provides the implementation for TJDNet, allowing for faster inference with Large Language Models (LLMs) like GPT and LLaMA variants. The core idea is to replace the standard autoregressive sampling head with a tensorized head (e.g., MPS or CP) that predicts the joint distribution of multiple future tokens simultaneously.
 
-Python 3.9 (ensure this exact version or a compatible environment)
+While examples focus on GPT and LLaMA, the framework is designed to be extensible to other transformer architectures. Experimental results are presented [here](#Results).
 
-### Installation 
-To install all dependencies, run the following commands:
+
+## Installation 
+Requires **Python 3.9+**. Using a virtual environment (like venv or conda) is highly recommended.
+
 ```bash
+# 1. Clone the repository (if you haven't already)
+git clone git@github.com:marawangamal/TJDNet.git
+cd tjdnet
+
+# 2. Create and activate a virtual environment (optional but recommended)
+python -m venv .venv
+source .venv/bin/activate  # On Windows use `.venv\Scripts\activate`
+
+# 3. Upgrade pip and install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
-pip install -e .  # Install TJD package
+
+# 4. Install the TJDNet package itself in editable mode
+pip install -e .
+
+# 5. (optional) login to wandb
+wandb login
 ```
 
-Optionally, you can also install human-eval
-```bash
-pip install -e eval/human-eval
-```
+
 
 ## Training
-To fine-tune Lllama7b using the Matrix Product State (MPS) head, run this command (best checkpoint will be saved under `checkpoints`)
+
+To fine-tune Lllama7b using the Canonical Polyadic (CP) head, run this command (best checkpoint will be saved under `checkpoints`)
 ```bash 
 accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py \
-  --dataset gsm8k \
-  --model_type llama7b \
-  --lr 1e-5 \
-  --model_head mps \
-  --num_layers 2 \
-  --hidden_dim 768 \
-  --horizon 2 \
-  --horizon_eval 2 \
-  --rank 2
+    --dataset gsm8k \
+    --model_type llama7b \
+    --epochs 50 \
+    --batch_size 8 \ 
+    --seq_len 128 \ 
+    --lr 1e-5 \ 
+    --model_head cp \ 
+    --hidden_dim 5120 \ 
+    --horizon 2 \ 
+    --horizon_eval 2 \ 
+    --rank 16
 ```
 
 ## Evaluation
-To compute accuracy for all checkpoints of a given experiment run:
+To run evaluation (compute accuracy) run the following command
 ```bash 
-python sripts/eval_acc.py --checkpoint/<experiment_folder>
+python scripts/eval_acc.py -c <checkpoint_path>
 ```
 
-## Results
+<!-- | llama::base::bs::1                 | 2.884 ± 0.003 | 25340.167 ± 0.000            | 25356.000 ± 0.000            | 1213.004 ± 0.015        | 0.000 ± 0.000 |
+| llama::cp::rank8::horizon2::bs::1  | 1.520 ± 0.001 | 27165.341 ± 0.000            | 27182.000 ± 0.000            | 1221.140 ± 0.014        | 0.000 ± 0.000 |
+| llama::cp::rank16::horizon2::bs::1 | 1.565 ± 0.008 | 28445.653 ± 0.000            | 28462.000 ± 0.000            | 1223.598 ± 0.000        | 0.000 ± 0.000 | -->
 
-Results obtained after training LLama7b on GSM8k for 10 epochs.
 
-| Model                            | Latency [s]   | Accuracy      |
+<!-- OLD Version -->
+<!-- | Model                            | Latency [s]   | Accuracy      |
 |:---------------------------------|:--------------|:--------------|
 | llama::baseline             | 1.441 ± 0.007 | 0.1290 |
 | llama::cp::lr32::hd768::rank4::horizon2  | 0.745 ± 0.004 | 0.0492 |
 | llama::cp::lr32::hd768::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |
 | llama::cp::lr32::hd768::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |
 | llama::cp::lr32::hd768::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |
-| llama::cp::lr64::hd768::rank8::horizon2  | - | 0.0417* |
-| llama::cp::lr32::hd1024::rank8::horizon2 | - | 0.0629* |
-| llama::cp::lr32::hd1280::rank8::horizon2 | - | 0.0781* |
-| llama::cp::lr32::hd1536::rank8::horizon2 | - | 0.07126 |
-<!-- (.venv) marawan.gamal@login-1:~/scratch/prod/tjdnet$ cat checkpoints/e50_bs4_sl128_l1e-05_ws100_gcv1.0_mtllama7b_mhcp_hd1024_nl2_arelu_ulnFalse_r8_h2_d0_pfexp_imrandom_tmlora_lr32_umelFalse_he2_mnt128_tk200_nb1_gv3_dagsm8k_ttword_s42_lsepoch_lo1_esepoch_ev1_gsepoch_ge1000_mns68000_eoFalse_caFalse_abs1_wi731bc320/eval_results_b1_sNone_t128.json  -->
+| llama::cp::lr64::hd768::rank8::horizon2  | - | 0.0417 |
+| llama::cp::lr32::hd1024::rank8::horizon2 | - | 0.0629 |
+| llama::cp::lr32::hd1280::rank8::horizon2 | - | 0.0781 |
+| llama::cp::lr32::hd1536::rank8::horizon2 | - | 0.0713 |
+| llama::cp::lr32::hd5120::rank8::horizon2 | - | 0.0925** | -->
 
-<!-- | llama::ucp::rank4::horizon2  | - | - |
-| llama::ucp::rank8::horizon2  | - | - |
-| llama::ucp::rank16::horizon2 | - | - |
-| llama::ucp::rank32::horizon2 | - | - | -->
+
+## Job Runner (SLURM)
+
+Use `scripts/jobrunner.py` to submit and track multiple experiments, particularly on clusters using the SLURM workload manager.
+
+* **Submit a single job:**
+    Wrap your full training or evaluation command string in quotes.
+    ```bash
+    python scripts/jobrunner.py --job "<your_full_command_here>"
+    ```
+
+* **Submit batch jobs from a config file:**
+    Define parameters for multiple jobs in a YAML file (see `config/train.yaml` for format).
+    ```bash
+    python scripts/jobrunner.py -f config/train.yaml
+    ```
+
+* **Check status of submitted jobs:**
+    ```bash
+    python scripts/jobrunner.py -s
+    ```
+
+*(Note: This job runner currently assumes a SLURM environment (`sbatch`, `squeue` commands).)*
+
+
+## Results
+Results obtained after training LLama7b on GSM8k for 50 epochs are given
+
+| Model                              | Latency [s]   | Accuracy      |  
+|:-----------------------------------|:--------------|:--------------|
+| llama::base::bs::1                 | 2.884 ± 0.003 | 0.1290   |
+| llama::cp::rank8::horizon2::bs::1  | 1.520 ± 0.001 | 0.0925** |
+| llama::cp::rank16::horizon2::bs::1 | 1.565 ± 0.008 | - |
+
 
 
 <!-- | Model                            | Latency [s]   | Accuracy      |
@@ -92,87 +142,6 @@ Results obtained after training LLama7b on GSM8k for 10 epochs.
 | llama::ucp::nl2::rank32::horizon2 | - | - | -->
 
 
-
-### Reproducing our GSM8k results
-1. Run jobs specified in [here](/scripts/jobs_jr/train.yaml) (resumable by default)
-2. Run jobs specified in [here](/scripts/jobs_jr/eval.yaml) to compute accuracies, when finished the results will be under `checkpoints/ckpt_dir/eval_results_b32_sNone_t128.json` (resumable by default)
-3. Run [here](/scripts/eval_latency.py) to get table of latencies and manually add the corresponding accuracies
-
-> [!NOTE]
-> - You can run the jobs specified in the yaml files using our helper `scripts/jobrunner.py`. 
-> - You must specify the checkpoints to compute acc for in `/scripts/jobs_jr/eval.yaml`
-
-
-## Creating a custom TJDModel
-
-To add a custom model, see examples under [here](/tjdnet/models/tjdgpt2.py). A custom TJD mdoel must inherit from the TJD class and defin `get_base_model` and `get_last_hidden_state` methods
-
-
-```python
-from tjdnet.models._tjd import TJD
-
-class SimpleModel(nn.Module):
-    def __init__(self, vocab_size: int, n_embd: int):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, n_embd)
-        self.linear = nn.Linear(n_embd, n_embd)
-        
-    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
-        x = self.embedding(input_ids)
-        return self.linear(x)
-
-class TJDSimpleModel(TJD):
-    def __init__(
-        self,
-        # Base Model Parameters
-        vocab_size: int,
-        n_embd: int,
-        model_config: Dict,
-        # TJD Specific Parameters
-        model_head: str = "mps",
-        rank: int = 2,
-        horizon: int = 8,
-        positivity_func: str = "exp",
-    ):
-        super().__init__(
-            n_embd=n_embd,
-            vocab_size=vocab_size,
-            rank=rank,
-            horizon=horizon,
-            model_head=model_head,
-            positivity_func=positivity_func,
-            model_kwargs={model_config}
-        )
-
-    def get_base_model(self, **model_kwargs):
-        """Initialize your base model."""
-        return MySimpleModel(**model_kwargs)
-
-    def get_last_hidden_state(self, input_ids, attention_mask=None):
-        """Get last hidden state from your model."""
-        return self.base_model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        )
-
-def main():
-    model = TJDCustomModel(
-        vocab_size=128, 
-        n_embd=32, 
-        model_config={
-            vocab_size: 128, 
-            n_embd: 32, 
-        }
-    )
-    batch_size, seq_length = 4, 16
-    input_ids = torch.randint(0, 10000, (batch_size, seq_length))
-    attention_mask = torch.ones((batch_size, seq_length))
-    outputs = model(input_ids, attention_mask)
-    print(f"Output shape: {outputs.shape}")
-
-if __name__ == "__main__":
-    main()
-```
 
 
 
