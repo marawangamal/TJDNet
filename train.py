@@ -29,7 +29,6 @@ import os.path as osp
 from re import L
 import time
 import uuid
-import torch.distributed as dist
 
 import wandb
 from transformers import (

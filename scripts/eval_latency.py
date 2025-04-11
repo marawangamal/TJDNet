@@ -14,6 +14,7 @@ Example:
 import gc
 import argparse
 import itertools
+import traceback
 
 import torch
 import pandas as pd
@@ -92,10 +93,15 @@ def main(args):
         "do_sample": False,
     }
     common_kwargs = {
-        "benchmark_fn": lambda model, input_ids: model.generate(
-            input_ids, **gen_kwargs
-        ),
-    }
+        "eval": {
+            "benchmark_fn": lambda model, input_ids: model.generate(
+                input_ids, **gen_kwargs
+            ),
+        },
+        "train": {
+            "benchmark_fn": lambda model, input_ids: model(input_ids, labels=input_ids),
+        },
+    }[args.mode]
     gpt_experiments = (
         [
             {
@@ -104,18 +110,18 @@ def main(args):
                 **common_kwargs,
             }
         ]
-        # + [
-        #     {
-        #         "name": f"gpt2::cp::horizon{h}::rank{r}",
-        #         "model_fn": create_model_gpt_fn(
-        #             rank=r,
-        #             horizon=h,
-        #             model_head="cp",
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     for (h, r) in itertools.product([2, 4], [4, 8, 16])
-        # ]
+        + [
+            {
+                "name": f"gpt2::cp::horizon{h}::rank{r}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cp",
+                ),
+                **common_kwargs,
+            }
+            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+        ]
         # + [
         #     {
         #         "name": f"gpt2::ucp:horizon{h}::rank{r}",
@@ -129,18 +135,18 @@ def main(args):
         #     for (h, r) in itertools.product([2, 4], [4, 8, 16])
         #     # for (r, h) in itertools.product([4, 8, 16], [2, 4])
         # ]
-        + [
-            {
-                "name": f"gpt2::mps::horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="mps",
-                ),
-                **common_kwargs,
-            }
-            for (h, r) in itertools.product([2], [2, 4, 8])
-        ]
+        # + [
+        #     {
+        #         "name": f"gpt2::mps::horizon{h}::rank{r}",
+        #         "model_fn": create_model_gpt_fn(
+        #             rank=r,
+        #             horizon=h,
+        #             model_head="mps",
+        #         ),
+        #         **common_kwargs,
+        #     }
+        #     for (h, r) in itertools.product([2], [2, 4, 8])
+        # ]
     )
 
     llama_experiments = (
@@ -196,7 +202,9 @@ def main(args):
     print(f"Starting benchmarks ({args.device})...")
     results = {}
     input_ids_dict = {
-        "bs::1": torch.randint(0, 100, (1, args.inp_seq_len)).to(args.device),
+        f"bs::{args.batch_size}": torch.randint(
+            0, 100, (args.batch_size, args.inp_seq_len)
+        ).to(args.device),
         # "bs::8": torch.randint(0, 100, (8, args.inp_seq_len)).to(args.device),
         # "bs::32": torch.randint(0, 100, (32, args.inp_seq_len)).to(args.device),
     }
@@ -223,6 +231,7 @@ def main(args):
 
         except Exception as e:
             print(f"Error benchmarking {exp['name']}: {str(e)}")
+            traceback.print_exc()  # This will print the full stack trace
 
     # Print results
     log_results(results, cols=["Model", "Latency [s]", "Accuracy"])
@@ -244,6 +253,12 @@ if __name__ == "__main__":
         type=str,
         choices=["gpt2", "llama"],
         default="gpt2",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["train", "eval"],
+        default="eval",
     )
     parser.add_argument(
         "-b",

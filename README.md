@@ -74,9 +74,12 @@ To run evaluation (compute accuracy) run the following command
 python scripts/eval_acc.py -c <checkpoint_path>
 ```
 
-<!-- | llama::base::bs::1                 | 2.884 ± 0.003 | 25340.167 ± 0.000            | 25356.000 ± 0.000            | 1213.004 ± 0.015        | 0.000 ± 0.000 |
+<!-- 
+| Model                              | Latency [s]   | GPU Memory (allocated)[MB]   | GPU Memory (reserved) [MB]   | CPU Memory (rss) [MB]   | Accuracy      |
+| llama::base::bs::1                 | 2.884 ± 0.003 | 25340.167 ± 0.000            | 25356.000 ± 0.000            | 1213.004 ± 0.015        | 0.000 ± 0.000 |
 | llama::cp::rank8::horizon2::bs::1  | 1.520 ± 0.001 | 27165.341 ± 0.000            | 27182.000 ± 0.000            | 1221.140 ± 0.014        | 0.000 ± 0.000 |
-| llama::cp::rank16::horizon2::bs::1 | 1.565 ± 0.008 | 28445.653 ± 0.000            | 28462.000 ± 0.000            | 1223.598 ± 0.000        | 0.000 ± 0.000 | -->
+| llama::cp::rank16::horizon2::bs::1 | 1.565 ± 0.008 | 28445.653 ± 0.000            | 28462.000 ± 0.000            | 1223.598 ± 0.000        | 0.000 ± 0.000 | 
+-->
 
 
 <!-- OLD Version -->

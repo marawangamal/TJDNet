@@ -28,9 +28,9 @@ class BaseDist(BaseDistribution):
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
         assert config.horizon == 1, "Only horizon=1 is supported for now"
-        config.param_net.out_dim = (
-            config.vocab_size
-        )  # Set TPNet output dim to vocab_size
+        config.param_net.use_decoder = False  # Set TPNet decoder to False
+        config.param_net.out_dim_encoder = config.vocab_size
+        config.param_net.hidden_dim = 1
         super().__init__(config)
         self.vocab_size = config.vocab_size
         self.rank = config.rank
@@ -75,8 +75,8 @@ class BaseDist(BaseDistribution):
                 linear_layer.bias.zero_()
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
-        p_tilde = self.param_func(last_hidden_state)
-        return p_tilde  # (B, T, V)
+        p_tilde = self.param_func(last_hidden_state)  # (B, T, 1, V)
+        return p_tilde.squeeze(-1)  # (B, T, V)
 
     def get_dist(
         self,

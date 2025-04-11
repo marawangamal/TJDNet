@@ -12,8 +12,8 @@ def create_model_llama_fn(
     model_kwargs={"hf_model_name": "meta-llama/Llama-2-7b-chat-hf"},
     vocab_size=32000,
     param_net_config={
-        "num_layers": 2,
-        "hidden_dim": 768,
+        "hidden_dim": 32000,
+        "use_decoder": False,
     },
 ):
     return lambda: TJDLLAMA(
@@ -30,14 +30,23 @@ def create_model_llama_fn(
     )
 
 
-def create_model_gpt_fn(rank, horizon, model_head="cp", vocab_size=768):
+def create_model_gpt_fn(
+    rank,
+    horizon,
+    model_head="cp",
+    vocab_size=768,
+    param_net_config={
+        "hidden_dim": 768,  # should be vocab_size for base
+        "use_decoder": False,
+    },
+):
     return lambda: TJDGPT2(
         TJDConfig(
             base_dist=BaseDistConfig(
                 vocab_size=vocab_size,
                 rank=rank,
                 horizon=horizon,
-                param_net=TensorParamNetConfig(),
+                param_net=TensorParamNetConfig(**param_net_config),
             ),
             model_head=model_head,
         )
