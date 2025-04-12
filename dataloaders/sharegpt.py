@@ -1,7 +1,11 @@
 # sharegptv2.py
 
+
+import os
+from transformers import AutoTokenizer
 from datasets import load_dataset
 
+from dataloaders._base import ROOT_DIR, setup
 from dataloaders.common import BaseChatTemplate, group_texts
 
 
@@ -67,7 +71,13 @@ def load_sharegpt(
     **kwargs,
 ):
 
-    dataset = load_dataset("Aeala/ShareGPT_Vicuna_unfiltered", split="train")
+    dataset = (
+        load_dataset(
+            "Aeala/ShareGPT_Vicuna_unfiltered",
+            split="train",
+            cache_dir=os.path.join(ROOT_DIR, "datasets"),
+        ),
+    )
     dataset = dataset.select(range(max_num_samples))
 
     # Process the selected samples
@@ -90,7 +100,7 @@ def load_sharegpt(
 
 # Usage example:
 if __name__ == "__main__":
-    from transformers import AutoTokenizer
+    setup()
 
     # Example usage
     tokenizer = AutoTokenizer.from_pretrained("gpt2")

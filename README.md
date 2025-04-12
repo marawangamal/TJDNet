@@ -124,11 +124,18 @@ Use `scripts/jobrunner.py` to submit and track multiple experiments, particularl
 ## Results
 Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
-| Model                              | Latency [s]   | Accuracy      |  
-|:-----------------------------------|:--------------|:--------------|
-| llama::base::bs::1                 | 2.884 ± 0.003 | 0.1290   |
-| llama::cp::rank8::horizon2::bs::1  | 1.520 ± 0.001 | 0.0925** |
-| llama::cp::rank16::horizon2::bs::1 | 1.565 ± 0.008 | - |
+| Model                                      | Latency [s]   | Accuracy |  
+|:-------------------------------------------|:--------------|:---------|
+| llama::base::bs::1                         | 2.884 ± 0.003 | 0.1290   |
+| llama::cp::rank8::hd1024::horizon2::bs::1  |               | train*   |
+| llama::cp::rank8::hd1280::horizon2::bs::1  |               | train*   |
+| llama::cp::rank8::hd2048::horizon2::bs::1  |               | eval*    |
+| llama::cp::rank8::hd4096::horizon2::bs::1  |               | 0.0842   |
+| llama::cp::rank8::hd5120::horizon2::bs::1  | 1.520 ± 0.001 | 0.0925** |
+| llama::cp::rank16::hd5120::horizon2::bs::1 | 1.565 ± 0.008 | train*   |
+| llama::cp::rank8::hd8192::horizon2::bs::1  |               | 0.0773   |
+
+
 
 
 
