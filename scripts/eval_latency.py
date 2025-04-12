@@ -20,7 +20,7 @@ import torch
 import pandas as pd
 
 from utils.latency import benchmark_model_v2
-from utils.models import create_model_gpt_fn, create_model_llama_fn
+from utils.models import create_model_gpt_fn, create_model_llama_fn, train_forward
 
 
 class DataParallelWithGenerate(torch.nn.DataParallel):
@@ -98,100 +98,57 @@ def main(args):
                 input_ids, **gen_kwargs
             ),
         },
-        "train": {
-            "benchmark_fn": lambda model, input_ids: model(input_ids, labels=input_ids),
-        },
+        "train": {"benchmark_fn": train_forward},
     }[args.mode]
-    gpt_experiments = (
-        [
-            {
-                "name": "gpt2::base",
-                "model_fn": create_model_gpt_fn(1, 1, model_head="base"),
-                **common_kwargs,
-            }
-        ]
-        + [
-            {
-                "name": f"gpt2::cp::horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="cp",
-                ),
-                **common_kwargs,
-            }
-            for (h, r) in itertools.product([2, 4], [4, 8, 16])
-        ]
-        # + [
-        #     {
-        #         "name": f"gpt2::ucp:horizon{h}::rank{r}",
-        #         "model_fn": create_model_gpt_fn(
-        #             rank=r,
-        #             horizon=h,
-        #             model_head="ucp",
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     for (h, r) in itertools.product([2, 4], [4, 8, 16])
-        #     # for (r, h) in itertools.product([4, 8, 16], [2, 4])
-        # ]
-        # + [
-        #     {
-        #         "name": f"gpt2::mps::horizon{h}::rank{r}",
-        #         "model_fn": create_model_gpt_fn(
-        #             rank=r,
-        #             horizon=h,
-        #             model_head="mps",
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     for (h, r) in itertools.product([2], [2, 4, 8])
-        # ]
-    )
+    gpt_experiments = [
+        {
+            "name": "gpt2::base",
+            "model_fn": create_model_gpt_fn(1, 1, model_head="base"),
+            **common_kwargs,
+        }
+    ] + [
+        {
+            "name": f"gpt2::cp::horizon{h}::rank{r}",
+            "model_fn": create_model_gpt_fn(
+                rank=r,
+                horizon=h,
+                model_head="cp",
+                param_net_config={"hidden_dim": 768, "use_decoder": True},
+            ),
+            **common_kwargs,
+        }
+        for (h, r) in itertools.product([2, 4], [4, 8, 16])
+    ]
 
-    llama_experiments = (
-        [
-            {
-                "name": "llama::base",
-                "model_fn": create_model_llama_fn(
-                    1,
-                    1,
-                    model_head="base",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                    },
-                ),
-                **common_kwargs,
-            }
-        ]
-        + [
-            {
-                "name": f"llama::cp::rank{r}::horizon{h}",
-                "model_fn": create_model_llama_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="cp",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                    },
-                ),
-                **common_kwargs,
-            }
-            for (r, h) in zip([8, 16], [2, 2])
-        ]
-        # + [
-        #     {
-        #         "name": f"llama::ucp:horizon{h}::rank{r}",
-        #         "model_fn": create_model_llama_fn(
-        #             rank=r,
-        #             horizon=h,
-        #             model_head="ucp",
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     for (r, h) in zip([4, 8, 16, 32], [2, 2, 2, 2])
-        # ]
-    )
+    llama_experiments = [
+        {
+            "name": "llama::base",
+            "model_fn": create_model_llama_fn(
+                1,
+                1,
+                model_head="base",
+                param_net_config={
+                    "hidden_dim": 5120,
+                },
+            ),
+            **common_kwargs,
+        }
+    ] + [
+        {
+            "name": f"llama::cp::rank{r}::horizon{h}",
+            "model_fn": create_model_llama_fn(
+                rank=r,
+                horizon=h,
+                model_head="cp",
+                param_net_config={
+                    "hidden_dim": 5120,
+                    "use_decoder": True,
+                },
+            ),
+            **common_kwargs,
+        }
+        for (r, h) in zip([8, 16], [2, 2])
+    ]
 
     # Run benchmarks
     exps = {

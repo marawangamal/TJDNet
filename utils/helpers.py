@@ -120,18 +120,6 @@ def parse_args():
     parser.add_argument(
         "--num_layers", type=int, default=1, help="Number of layers in the model head."
     )
-    # parser.add_argument(
-    #     "--activation",
-    #     type=str,
-    #     default="relu",
-    #     help="Activation function to use in the model head.",
-    # )
-    # parser.add_argument(
-    #     "--use_layer_norm",
-    #     default=False,
-    #     action="store_true",
-    #     help="Whether to use layer normalization in the model head.",
-    # )
     parser.add_argument(
         "--rank",
         type=int,
@@ -144,7 +132,6 @@ def parse_args():
         default=1,
         help="Horizon for TJD models. (E.g. if horizon=2 the model will make 2x less forward passes)",
     )
-    # parser.add_argument("--dropout", type=float, default=0, help="Dropout rate.")
     parser.add_argument(
         "--positivity_func",
         type=str,
@@ -162,19 +149,6 @@ def parse_args():
         ],
         help="Initialization method for model head - pretrained or random",
     )
-    # TODO: add to cli
-    # parser.add_argument(
-    #     "--use_attn_layer",
-    #     default=False,
-    #     action="store_true",
-    #     help="Whether to use attn layer in the model head.",
-    # )
-    # parser.add_argument(
-    #     "--vocab_size_compr",
-    #     type=int,
-    #     default=1,
-    #     help="Bottleneck dimension for the TJD model head.",
-    # )
 
     # Training mode
     parser.add_argument(

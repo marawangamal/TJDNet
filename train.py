@@ -186,6 +186,15 @@ def setup(args, local_rank: int):
         checkpoint_files = [
             f for f in os.listdir(ckpt_dir) if f.startswith("checkpoint-")
         ]
+
+        # Fix files - delete if checkpoint is empty
+        for f in checkpoint_files:
+            if not "trainer_state.json" in os.listdir(osp.join(ckpt_dir, f)):
+                print(f"Deleting empty checkpoint: {f}")
+                os.rmdir(osp.join(ckpt_dir, f))
+                checkpoint_files.remove(f)
+
+        # Check if there are any checkpoint files
         has_checkpoint = len(checkpoint_files) > 0
         if has_checkpoint:
             print(f"Resuming from checkpoint: {ckpt_dir}")

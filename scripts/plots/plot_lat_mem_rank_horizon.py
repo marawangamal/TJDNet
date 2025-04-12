@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import re
 
 from utils.latency import benchmark_model_v2
-from utils.models import create_model_gpt_fn
+from utils.models import create_model_gpt_fn, train_forward
 
 
 def save_fig(results, path="latency_benchmark.png", y_axis="Latency [s]"):
@@ -43,18 +43,35 @@ def save_fig(results, path="latency_benchmark.png", y_axis="Latency [s]"):
 
 def main(args):
 
+    # gen_kwargs = {
+    #     "max_new_tokens": args.out_seq_len,
+    #     "do_sample": False,
+    # }
+
     gen_kwargs = {
         "max_new_tokens": args.out_seq_len,
         "do_sample": False,
     }
-
-    exps = [
-        {
-            "name": f"gpt2::r{r}::h{h}",
-            "model_fn": create_model_gpt_fn(r, h),  # Pass current r, h values
+    common_kwargs = {
+        "eval": {
             "benchmark_fn": lambda model, input_ids: model.generate(
                 input_ids, **gen_kwargs
             ),
+        },
+        "train": {"benchmark_fn": train_forward},
+    }[args.mode]
+
+    exps = [
+        {
+            "name": f"gpt2::cp::hd768::r{r}::h{h}",
+            "model_fn": create_model_gpt_fn(
+                r,
+                h,
+                model_head="cp",
+                param_net_config={"hidden_dim": 768, "use_decoder": True},
+                use_memory_efficient_loss=args.use_memory_efficient_loss,
+            ),
+            **common_kwargs,
         }
         for (r, h) in itertools.product([1, 2, 4, 8, 16, 32, 64], [1, 2, 4])
     ]
@@ -85,11 +102,12 @@ def main(args):
 
     save_fig(
         results,
-        path="results/plots/cp_gpu_lat_benchmark.png",
+        path=f"results/plots/cp_gpu_lat_benchmark_{args.mode}_ume{args.use_memory_efficient_loss}.png",
+        y_axis="Latency [s]",
     )
     save_fig(
         results,
-        path="results/plots/cp_gpu_mem_benchmark.png",
+        path=f"results/plots/cp_gpu_mem_benchmark_{args.mode}_ume{args.use_memory_efficient_loss}.png",
         y_axis="GPU Memory (allocated)[MB]",
     )
 
@@ -102,6 +120,19 @@ if __name__ == "__main__":
         type=str,
         choices=["cuda", "cpu"],
         default="cuda",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["train", "eval"],
+        default="eval",
+    )
+    parser.add_argument(
+        "-u",
+        "--use_memory_efficient_loss",
+        action="store_true",
+        help="Use memory efficient loss",
+        default=False,
     )
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--inp_seq_len", type=int, default=256)
