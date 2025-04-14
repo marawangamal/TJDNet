@@ -32,28 +32,28 @@ groups:
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head base
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim 5120 --horizon 2 --horizon_eval 2 --rank 8
 
-  # - name: sharegpt
-  #   preamble:
-  #     - "#SBATCH --partition=long"
-  #     - "#SBATCH --gres=gpu:a100l:4"
-  #     - "#SBATCH --cpus-per-task=12"
-  #     - "#SBATCH --mem=128G"
-  #     - "#SBATCH --nodes=1"
-  #     - "#SBATCH --time=24:00:00"
+  - name: sharegpt
+    preamble:
+      - "#SBATCH --partition=long"
+      - "#SBATCH --gres=gpu:a100l:4"
+      - "#SBATCH --cpus-per-task=12"
+      - "#SBATCH --mem=128G"
+      - "#SBATCH --nodes=1"
+      - "#SBATCH --time=24:00:00"
 
-  #   paralleljobs:
-  #     - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset sharegpt --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim 5120 --horizon 2 --horizon_eval 2 --rank 8
+    paralleljobs:
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset sharegpt --model_type llama7b --epochs 1 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim 5120 --horizon 2 --horizon_eval 2 --rank 8
 
 
-  # - name: stemp
-  #   preamble:
-  #     - "#SBATCH --partition=short-unkillable"
-  #     - "#SBATCH --gres=gpu:2"
-  #     - "#SBATCH --mem=32G"
-  #     - "#SBATCH --nodes=1"
-  #   paralleljobs:
-  #     # Base
-  #     - python train.py --dataset stemp --model_type llama7b --epochs 10 --batch_size 32 --seq_len 256 --lr 1e-4 --model_head base --compute_acc
-  #     # CP
-  #     - python train.py --dataset stemp --model_type gpt2 --epochs 10 --batch_size 32 --seq_len 256 --lr 1e-4 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 2
-  #     - python train.py --dataset stemp --model_type llama7b --epochs 10 --batch_size 32 --seq_len 256 --lr 1e-4 --model_head cp --num_layers 2 --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 2
+  - name: stemp
+    preamble:
+      - "#SBATCH --partition=short-unkillable"
+      - "#SBATCH --gres=gpu:2"
+      - "#SBATCH --mem=32G"
+      - "#SBATCH --nodes=1"
+    paralleljobs:
+      # Base
+      - python train.py --dataset stemp --model_type llama7b --epochs 10 --batch_size 32 --seq_len 256 --lr 1e-4 --model_head base --compute_acc
+      # CP
+      - python train.py --dataset stemp --model_type gpt2 --epochs 10 --batch_size 32 --seq_len 256 --lr 1e-4 --model_head cp --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 2 --comupte_acc
+      - python train.py --dataset stemp --model_type llama7b --epochs 10 --batch_size 32 --seq_len 256 --lr 1e-4 --model_head cp --hidden_dim 768  --horizon 2 --horizon_eval 2 --rank 2

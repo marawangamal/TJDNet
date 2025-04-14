@@ -99,6 +99,14 @@ def main():
         default=200,
         help="Top-k value for sampling",
     )
+    parser.add_argument(
+        "--dataset",
+        choices=[
+            "gsm8k",
+            "gsm8k::3shot",
+        ],
+        default=None,
+    )
     args = parser.parse_args()
 
     checkpoints: List[str] = [
@@ -120,7 +128,7 @@ def main():
         "stemp": load_syn_temp_data,
         "snum": load_syn_num_data,
         "sbase": load_syn_num_base_data,
-    }[exp_args.dataset](
+    }[args.dataset if args.dataset else exp_args.dataset](
         tokenizer, exp_args.seq_len, max_num_samples=exp_args.max_num_samples
     )
 

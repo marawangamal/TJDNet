@@ -1,8 +1,11 @@
-from typing import Optional
+from typing import Optional, Union
 import torch
 from tqdm import tqdm
 
+from dataloaders.common import BaseChatTemplate
 from utils.utils import AverageMeter
+
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
 # TODO: rename prompt_ids
@@ -21,15 +24,15 @@ def collate_fn(batch, tokenizer):
 
 
 def compute_accuracy(
-    model,
-    tokenizer,
-    test_dataset,
-    chat_template,
-    max_new_tokens=128,
-    horizon=1,
-    top_k=50,
-    do_sample=True,
-    batch_size=1,
+    model: torch.nn.Module,
+    tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
+    test_dataset: torch.utils.data.Dataset,
+    chat_template: BaseChatTemplate,
+    max_new_tokens: int = 128,
+    horizon: int = 1,
+    top_k: int = 50,
+    do_sample: bool = True,
+    batch_size: int = 1,
     max_num_samples: Optional[int] = 50,
     on_batch_end=None,
     avg_meter_kwargs={},
@@ -47,7 +50,7 @@ def compute_accuracy(
     acc_meter = AverageMeter(**avg_meter_kwargs)
 
     # Create tqdm progress bar
-    total_samples = len(test_dataset)
+    total_samples = len(test_dataset)  # type: ignore
     if max_num_samples:
         total_samples = min(total_samples, max_num_samples)
 
@@ -69,9 +72,14 @@ def compute_accuracy(
             if i < batches_to_skip:
                 continue
             batch = {k: v.to(model.device) for k, v in batch.items()}
-            outputs = model.generate(
+            input_ids, attention_mask = chat_template.format_batch(
                 input_ids=batch["input_ids"],
                 attention_mask=batch["attention_mask"],
+                tokenizer=tokenizer,
+            )
+            outputs = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
                 top_k=top_k,
                 do_sample=do_sample,
@@ -84,7 +92,7 @@ def compute_accuracy(
             y_true = tokenizer.batch_decode(batch["labels"])
             # Compute accuracy
             correct_mask = [
-                chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)
+                chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
                 for b in range(len(y_pred))
             ]
             batch_correct = sum(correct_mask)

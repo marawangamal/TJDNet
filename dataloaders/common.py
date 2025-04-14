@@ -1,4 +1,8 @@
+from typing import Union
 from git import Optional
+import torch
+
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
 class BaseChatTemplate:
@@ -9,6 +13,26 @@ class BaseChatTemplate:
     @classmethod
     def get_sample_prompt(cls):
         raise NotImplementedError
+
+    @classmethod
+    def format_batch(
+        cls,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Prepares the input for the model. (Eg. add few shot examples, etc.)
+
+        Args:
+            input_ids (torch.Tensor): Input ids of the batch. (B, T)
+            attention_mask (torch.Tensor): Attention mask of the batch. (B, T)
+            tokenizer (Union[PreTrainedTokenizer, PreTrainedTokenizerFast]): Tokenizer to use.
+
+        Returns:
+            torch.Tensor: Input ids of the batch after formatting. (B, T)
+            torch.Tensor: Attention mask of the batch after formatting. (B, T)
+        """
+        return input_ids, attention_mask
 
     @classmethod
     def safe_parse(cls, generation: str, eos_token: str) -> Optional[str]:
