@@ -103,7 +103,7 @@ def main():
         "--dataset",
         choices=[
             "gsm8k",
-            "gsm8k::3shot",
+            "gsm8k::few",
         ],
         default=None,
     )
@@ -119,7 +119,7 @@ def main():
     # 1. Setup
     exp_args = argparse.Namespace(**exp_args_dict)
     model, tokenizer = get_model_and_tokenizer(exp_args)
-    chat_template = get_chat_template(exp_args)
+    chat_template = get_chat_template(args if args.dataset else exp_args)
     lm_dataset = {
         "shakespeare": load_shakespeare_data,
         "wikitext": load_wikitext_data,
@@ -128,7 +128,7 @@ def main():
         "stemp": load_syn_temp_data,
         "snum": load_syn_num_data,
         "sbase": load_syn_num_base_data,
-    }[args.dataset if args.dataset else exp_args.dataset](
+    }[args.dataset.split("::")[0] if args.dataset else exp_args.dataset](
         tokenizer, exp_args.seq_len, max_num_samples=exp_args.max_num_samples
     )
 

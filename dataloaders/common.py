@@ -18,9 +18,9 @@ class BaseChatTemplate:
     def format_batch(
         cls,
         input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """Prepares the input for the model. (Eg. add few shot examples, etc.)
 
         Args:
