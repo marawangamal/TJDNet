@@ -90,7 +90,7 @@ def compute_accuracy(
             # Batched decoding
             y_pred = tokenizer.batch_decode(outputs)
             y_true = tokenizer.batch_decode(batch["labels"])
-            print(f"y_pred:\n {y_pred}\ny_true:\n {y_true}")
+            # print(f"y_pred:\n {y_pred}\ny_true:\n {y_true}")
             # Compute accuracy
             correct_mask = [
                 chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore

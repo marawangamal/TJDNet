@@ -28,8 +28,10 @@ import os
 import os.path as osp
 from re import L
 import time
+from typing import Union
 import uuid
 
+import torch
 import wandb
 from transformers import (
     DataCollatorForLanguageModeling,
@@ -37,7 +39,10 @@ from transformers import (
     TrainingArguments,
 )
 
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
+
+from dataloaders.common import BaseChatTemplate
 from utils.accuracy import compute_accuracy
 from utils.generation import GenerationCallback
 from dataloaders.gsm8k import load_gsm8k_data
@@ -64,14 +69,14 @@ CHECKPOINT_DIR = "checkpoints"
 class TJDTrainer(Trainer):
     def __init__(
         self,
-        test_dataset,
-        tokenizer,
-        chat_template,
-        horizon,
-        top_k,
-        num_beams,
-        eos_token,
-        acc_batch_size=1,
+        test_dataset: torch.utils.data.Dataset,
+        tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
+        chat_template: BaseChatTemplate,
+        horizon: int,
+        top_k: int,
+        num_beams: int,
+        eos_token: str,
+        acc_batch_size: int = 1,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -97,7 +102,7 @@ class TJDTrainer(Trainer):
         if self.test_dataset:
             acc, _ = compute_accuracy(
                 self.model,
-                tokenizer=self.tokenizer,
+                tokenizer=self.tokenizer,  # type: ignore
                 test_dataset=self.test_dataset,
                 chat_template=self.chat_template,
                 horizon=self.horizon,
