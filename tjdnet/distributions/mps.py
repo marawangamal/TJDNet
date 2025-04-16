@@ -1,22 +1,14 @@
-from typing import List, Optional, Tuple
+from typing import Optional
 import torch
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
-from tjdnet.tensorops.mps import (
-    select_from_mps_tensor,
-    select_margin_mps_tensor,
-    select_margin_mps_tensor_batched,
-    sum_mps_tensor,
-)
+from tjdnet.tensorops.mps import select_margin_mps_tensor_batched
 from tjdnet.utils import sample_topk
 
 
 # TODO: try one-hot instead of ones for alpha and beta
 class MPSDist(BaseDistribution):
     def __init__(self, config: BaseDistConfig, **kwargs):
-        # config.param_net.out_dim = config.horizon * (
-        #     config.rank * config.vocab_size * config.rank
-        # )
         config.param_net.out_dim_encoder = config.horizon * config.rank * config.rank
         config.param_net.out_dim_decoder = config.vocab_size
         super().__init__(config)

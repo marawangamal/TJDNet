@@ -9,27 +9,16 @@ import torch
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.distributions.base import BaseDist
-from tjdnet.distributions.ccp import CCPDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.full import FullDist
 from tjdnet.distributions.mps import MPSDist
 from tjdnet.distributions.ucp import UCPDist
 from tjdnet.distributions.umps import UMPSDist
-from tjdnet.tensorops.common import (
-    get_inactive_indices,
-    get_windowed_input_ids,
-    pop_tensor,
-)
-from tjdnet.utils import pad_seqs, sample_topk, spec_sample
-from tjdnet.beam_search import beam_search, get_candidates
-
-import line_profiler
-
+from tjdnet.tensorops.common import get_windowed_input_ids
 
 DIST_MAP: Dict[str, Type[BaseDistribution]] = {
     "full": FullDist,
     "cp": CPDist,
-    "ccp": CCPDist,
     "mps": MPSDist,
     "umps": UMPSDist,
     "base": BaseDist,
