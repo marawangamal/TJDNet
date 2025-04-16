@@ -63,7 +63,7 @@ class MPSDist(BaseDistribution):
                 self.rank,
                 self.rank,
                 self.vocab_size,
-            ).permute(1, 2, 3, 4, 6, 5),
+            ).permute(0, 1, 2, 3, 5, 4),
             beta,
         )
 
