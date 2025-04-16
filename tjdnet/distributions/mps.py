@@ -5,6 +5,7 @@ from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.tensorops.mps import (
     select_from_mps_tensor,
     select_margin_mps_tensor,
+    select_margin_mps_tensor_batched,
     sum_mps_tensor,
 )
 from tjdnet.utils import sample_topk
@@ -75,14 +76,14 @@ class MPSDist(BaseDistribution):
         top_k: int = 200,
         **kwargs,
     ) -> torch.Tensor:
-        batch_size = hidden_state.size(0)
-        assert batch_size == 1, "Batch size must be 1 for generation"
         horizon = self._get_horizon(horizon)
+        batch_size = hidden_state.size(0)
         dvc = hidden_state.device
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
         alpha, core, beta = self.get_mps_params(
             hidden_state[:, -1:, :],
         )  # (B, 1, R), (B, 1, H, R, V, R), (B, 1, R)
+
         for h in range(horizon):
             ops_tensor = torch.cat(
                 (
@@ -96,23 +97,16 @@ class MPSDist(BaseDistribution):
                 ),
                 dim=1,
             )  # (B, T)
-            p_ops_tilde, _ = select_margin_mps_tensor(
-                alpha=alpha.reshape(self.rank),
-                beta=beta.reshape(self.rank),
-                core=core.reshape(
-                    self.horizon,
-                    self.rank,
-                    self.vocab_size,
-                    self.rank,
-                )[:horizon],
-                ops=ops_tensor.reshape(-1),
+            p_ops_tilde, _ = select_margin_mps_tensor_batched(
+                alpha=alpha.squeeze(1),
+                beta=beta.squeeze(1),
+                core=core.squeeze(1)[:horizon],
+                ops=ops_tensor,
             )  # (V,), (T,)
             if do_sample:
-                next_token = sample_topk(
-                    p_ops_tilde.reshape(1, -1), top_k, num_samples=1
-                )
+                next_token = sample_topk(p_ops_tilde, top_k, num_samples=1)
             else:  # greedy sampling
-                next_token = sample_topk(p_ops_tilde.reshape(1, -1), 1, num_samples=1)
+                next_token = sample_topk(p_ops_tilde, 1, num_samples=1)
             y_hat = torch.cat([y_hat, next_token], dim=1)
         return y_hat  # (B, H)
 
@@ -140,33 +134,37 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self.get_mps_params(
             last_hidden_state,
         )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)
-        p_tilde, p_scale_factors = select_from_mps_tensor(
-            alpha=alpha.reshape(batch_size * seq_len, self.rank),
-            beta=beta.reshape(batch_size * seq_len, self.rank),
-            core=core.reshape(
-                batch_size * seq_len,
-                self.horizon,
-                self.rank,
-                self.vocab_size,
-                self.rank,
-            )[:, :horizon],
-            indices=points.reshape(batch_size * seq_len, -1),
-        )  # (batch_size, n_vocab)
 
-        z, z_scale_factors = sum_mps_tensor(
-            alpha=alpha.reshape(batch_size * seq_len, self.rank),
-            beta=beta.reshape(batch_size * seq_len, self.rank),
-            core=core.reshape(
-                batch_size * seq_len,
-                self.horizon,
-                self.rank,
-                self.vocab_size,
-                self.rank,
-            )[:, :horizon],
+        prepared_alpha = alpha.reshape(batch_size * seq_len, self.rank)
+        prepared_beta = beta.reshape(batch_size * seq_len, self.rank)
+        prepared_core = core.reshape(
+            batch_size * seq_len,
+            self.horizon,
+            self.rank,
+            self.vocab_size,
+            self.rank,
+        )[:, :horizon]
+
+        p_tilde, p_tilde_scale_factors = select_margin_mps_tensor_batched(
+            alpha=prepared_alpha,
+            beta=prepared_beta,
+            core=prepared_core,
+            ops=points.reshape(batch_size * seq_len, horizon),
+        )  # (BT,), (BT, T)
+        norm_consts, norm_consts_scale_factors = select_margin_mps_tensor_batched(
+            alpha=prepared_alpha,
+            beta=prepared_beta,
+            core=prepared_core,
+            ops=torch.full(
+                (batch_size * seq_len, horizon),
+                -2,
+                dtype=torch.long,
+                device=last_hidden_state.device,
+            ),
         )
         return (
             p_tilde.reshape(batch_size, seq_len),
-            [s.reshape(batch_size, seq_len) for s in p_scale_factors],
-            z.reshape(batch_size, seq_len),
-            [s.reshape(batch_size, seq_len) for s in z_scale_factors],
+            [s.reshape(batch_size, seq_len) for s in p_tilde_scale_factors],
+            norm_consts.reshape(batch_size, seq_len),
+            [s.reshape(batch_size, seq_len) for s in norm_consts_scale_factors],
         )
