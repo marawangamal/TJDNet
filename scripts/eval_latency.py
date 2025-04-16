@@ -100,26 +100,45 @@ def main(args):
         },
         "train": {"benchmark_fn": train_forward},
     }[args.mode]
-    gpt_experiments = [
-        {
-            "name": "gpt2::base",
-            "model_fn": create_model_gpt_fn(1, 1, model_head="base"),
-            **common_kwargs,
-        }
-    ] + [
-        {
-            "name": f"gpt2::cp::horizon{h}::rank{r}",
-            "model_fn": create_model_gpt_fn(
-                rank=r,
-                horizon=h,
-                model_head="cp",
-                param_net_config={"hidden_dim": 768, "use_decoder": True},
-            ),
-            **common_kwargs,
-        }
-        for (h, r) in itertools.product([2, 4], [4, 8, 16])
-    ]
 
+    # GPT-2
+    gpt_experiments = (
+        [
+            {
+                "name": "gpt2::base",
+                "model_fn": create_model_gpt_fn(1, 1, model_head="base"),
+                **common_kwargs,
+            }
+        ]
+        + [
+            {
+                "name": f"gpt2::cp::horizon{h}::rank{r}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cp",
+                    param_net_config={"hidden_dim": 768, "use_decoder": True},
+                ),
+                **common_kwargs,
+            }
+            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+        ]
+        + [
+            {
+                "name": f"gpt2::ucp::horizon{h}::rank{r}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="ucp",
+                    param_net_config={"hidden_dim": 768, "use_decoder": True},
+                ),
+                **common_kwargs,
+            }
+            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+        ]
+    )
+
+    # LLaMA
     llama_experiments = [
         {
             "name": "llama::base",

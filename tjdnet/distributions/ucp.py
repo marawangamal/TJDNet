@@ -27,14 +27,16 @@ class UCPDist(BaseDistribution):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        config.param_net.out_dim = config.rank * config.vocab_size
+        # config.param_net.out_dim = config.rank * config.vocab_size
+        config.param_net.out_dim_encoder = config.rank
+        config.param_net.out_dim_decoder = config.vocab_size
         super().__init__(config)
 
     def _get_params(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
     ):
         batch_size, seq_len, _ = last_hidden_state.size()  # (B, T, D)
-        params = self.param_func(last_hidden_state)
+        params = self.param_func(last_hidden_state)  # (B, T, R, V)
         params_reshaped = params.reshape(
             batch_size, seq_len, self.rank, 1, self.vocab_size
         )
@@ -46,42 +48,13 @@ class UCPDist(BaseDistribution):
         pos_encodings = pos_encodings.reshape(
             1, 1, 1, self.horizon, self.vocab_size
         ).expand(batch_size, seq_len, self.rank, self.horizon, self.vocab_size)
+
         params_reshaped = params_reshaped + pos_encodings  # (B, T, R, H, V)
 
         if horizon is not None:
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
 
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
-
-    def get_dist(
-        self,
-        hidden_state: torch.Tensor,
-        ops: torch.Tensor,
-        use_cache: bool = False,
-        save_cache: bool = False,
-    ):
-        """Get distribution specified by ops.
-
-        Args:
-            hidden_state (torch.Tensor): Last hidden state of the transformer of shape (D)
-            ops (torch.Tensor): Operation codes of shape (T,) specifying:
-                -2: marginalize mode (sum reduction)
-                -1: keep mode as free index
-                [0,V): select index v in mode
-            use_cache (bool, optional): Whether to use cached values. Defaults to False.
-        """
-        params = self._get_params_from_cache(
-            hidden_state.reshape(1, 1, -1), use_cache, save_cache
-        )  # (1, 1, R, H, V)
-        # return select_margin_cp_tensor(
-        #     cp_params=params.reshape(self.rank, self.horizon, self.vocab_size),
-        #     ops=ops,
-        # )
-        p_tilde, _ = select_margin_cp_tensor_batched(
-            cp_params=params.reshape(1, self.rank, self.horizon, self.vocab_size),
-            ops=ops.unsqueeze(0),
-        )  # (1, V), (1, T)
-        return p_tilde.squeeze(0), []  # (V,)
 
     def sample(
         self,
@@ -122,67 +95,6 @@ class UCPDist(BaseDistribution):
             y_hat = torch.cat([y_hat, next_token], dim=1)
         return y_hat  # (B, H)
 
-    def evaluate_at_points(
-        self,
-        last_hidden_state: torch.Tensor,
-        points: torch.Tensor,
-        **kwargs,
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """Evaluate the distribution at the given points.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H)
-            horizon (int, optional): Number of steps to consider. Defaults to model horizon.
-
-        Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B, H) and scale_tensors (empty list)
-        """
-        # Get indexed distribution
-        batch_size, seq_len, _ = last_hidden_state.size()
-        horizon = points.size(-1)
-        params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        # (B, T, R, H, V) => (B, T)
-        # p_tilde = select_from_cp_tensor(
-        #     params.reshape(
-        #         batch_size * seq_len, self.rank, horizon, self.vocab_size
-        #     ),
-        #     points.reshape(batch_size * seq_len, horizon),
-        # )
-        p_tilde, _ = select_margin_cp_tensor_batched(
-            cp_params=params.reshape(
-                batch_size * seq_len, self.rank, horizon, self.vocab_size
-            ),
-            ops=points.reshape(batch_size * seq_len, horizon),
-        )  # (BT,), (BT, T)
-        return p_tilde.reshape(batch_size, seq_len), []  # (B,T)
-
-    def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """Get the normalization constants for the BT distributions.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-
-        Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
-        """
-        batch_size, seq_len, _ = last_hidden_state.size()
-        horizon = self._get_horizon(horizon)
-        # Get indexed distribution
-        params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        with profiler.record_function("normalize_cp_tensor"):
-            norm_consts = sum_cp_tensor(
-                cp_params=params.reshape(
-                    batch_size * seq_len, self.rank, horizon, self.vocab_size
-                ),
-            )
-            return (
-                norm_consts.reshape(batch_size, seq_len),  # (B, T)
-                [],
-            )
-
     def evaluate_at_points_and_get_norm_consts(
         self,
         last_hidden_state: torch.Tensor,
@@ -206,24 +118,26 @@ class UCPDist(BaseDistribution):
         batch_size, seq_len, _ = last_hidden_state.size()
         horizon = points.size(-1)
         params = self._get_params(last_hidden_state, horizon)  # (B, T, R, H, V)
-        # p_tilde = select_from_cp_tensor(
-        #     params.reshape(batch_size * seq_len, self.rank, horizon, self.vocab_size),
-        #     points.reshape(batch_size * seq_len, horizon),
-        # )
-        p_tilde, _ = select_margin_cp_tensor_batched(
+        p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched(
             cp_params=params.reshape(
                 batch_size * seq_len, self.rank, horizon, self.vocab_size
             ),
             ops=points.reshape(batch_size * seq_len, horizon),
         )  # (BT,), (BT, T)
-        norm_consts = sum_cp_tensor(
+        norm_consts, norm_consts_scale_factors = select_margin_cp_tensor_batched(
             cp_params=params.reshape(
                 batch_size * seq_len, self.rank, horizon, self.vocab_size
+            ),
+            ops=torch.full(
+                (batch_size * seq_len, horizon),
+                -2,
+                dtype=torch.long,
+                device=last_hidden_state.device,
             ),
         )
         return (
             p_tilde.reshape(batch_size, seq_len),
-            [],
+            [s.reshape(batch_size, seq_len) for s in p_tilde_scale_factors],
             norm_consts.reshape(batch_size, seq_len),
-            [],
+            [s.reshape(batch_size, seq_len) for s in norm_consts_scale_factors],
         )

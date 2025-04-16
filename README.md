@@ -97,7 +97,20 @@ python scripts/eval_acc.py -c <checkpoint_path>
 | llama::cp::lr32::hd5120::rank8::horizon2 | - | 0.0925** | -->
 
 
-## Job Runner (SLURM)
+## Scripts
+
+TJDNet provides several scripts for analysis and benchmarking:
+
+- `scripts/eval_acc.py`: Evaluate model accuracy
+- `scripts/eval_latency.py`: 
+- `scripts/plots/plot_output_dist_spectrum.py`: Visualize specturm of output token distribution
+- `scripts/plots/plot_lat_mem_rank_horizon.py`: Benchmark latency and memory vs. rank and horizon
+- `scripts/jobrunner.py`: SLURM job submission utility (Described in more detail below)
+
+Run any script with `--help` for usage information.
+
+
+### SLURM batch Job runner
 
 Use `scripts/jobrunner.py` to submit and track multiple experiments, particularly on clusters using the SLURM workload manager.
 
@@ -124,16 +137,19 @@ Use `scripts/jobrunner.py` to submit and track multiple experiments, particularl
 ## Results
 Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
-| Model                                      | Latency [s]   | Accuracy |  
-|:-------------------------------------------|:--------------|:---------|
-| llama::base::bs::1                         | 2.884 ± 0.003 | 0.1290   |
-| llama::cp::rank8::hd1024::horizon2::bs::1  |               | train*   |
-| llama::cp::rank8::hd1280::horizon2::bs::1  |               | train*   |
-| llama::cp::rank8::hd2048::horizon2::bs::1  |               | eval*    |
-| llama::cp::rank8::hd4096::horizon2::bs::1  |               | 0.0842   |
-| llama::cp::rank8::hd5120::horizon2::bs::1  | 1.520 ± 0.001 | 0.0925** |
-| llama::cp::rank16::hd5120::horizon2::bs::1 | 1.565 ± 0.008 | train*   |
-| llama::cp::rank8::hd8192::horizon2::bs::1  |               | 0.0773   |
+| Model                                               | Latency [s]   | Accuracy |  
+|:----------------------------------------------------|:--------------|:---------|
+| llama::base::bs::1                                  | 2.884 ± 0.003 | 0.1290   |
+| llama::cp::rank8::hd1024::horizon2::bs::1           |               | incomp.  |
+| llama::cp::rank8::hd1280::horizon2::bs::1           |               | incomp.  |
+| llama::cp::rank8::hd2048::horizon2::bs::1           |               | 0.0902   |
+| llama::cp::rank8::hd4096::horizon2::bs::1           |               | 0.0842   |
+| llama::cp::rank8::hd5120::horizon2::bs::1           | 1.520 ± 0.001 | 0.0925   |
+| llama::cp::rank16::hd5120::horizon2::bs::1          | 1.565 ± 0.008 | train*   |
+| llama::cp::rank32::hd5120::horizon2::bs::1          | 1.565 ± 0.008 | eval*    |
+| llama::cp::rank8::hd8192::horizon2::bs::1           |               | 0.0773   |
+| llama::cp::rank8::hd8192::horizon2::bs::1::ueml     |               | train*   |
+
 
 
 

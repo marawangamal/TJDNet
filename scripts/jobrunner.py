@@ -399,6 +399,7 @@ class SlurmJobManager:
 
 
 if __name__ == "__main__":
+    # TODO: simplify args -- only need -f <path_to_yaml> and ---interactive --status --dev --job --preamble_path
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-f",
@@ -408,9 +409,17 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--overwrite", action="store_true", default=False)
     parser.add_argument("-s", "--status", action="store_true", default=False)
     parser.add_argument("-c", "--clear", action="store_true", default=False)
-    parser.add_argument("--filter", action="store_true", default=False)
     parser.add_argument(
-        "--cache_file", type=str, default="~/.jobrunner/jobrunner_status_table.csv"
+        "--filter",
+        action="store_true",
+        default=False,
+        help="Interactive mode for batch jobs (allows filtering of jobs to submit).",
+    )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        default=False,
+        help="Run in development mode (~/.jobrunner/jobrunner_status_table_dev.csv)",
     )
     parser.add_argument(
         "--job", type=str, default=None, help="Submit a single job directly."
@@ -424,24 +433,29 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    cache_file = (
+        "~/.jobrunner/jobrunner_status_table.csv"
+        if not args.dev
+        else "~/.jobrunner/jobrunner_status_table_dev.csv"
+    )
 
     if args.clear:
-        res = query_yes_no(f"Clear cache? {args.cache_file}", default="no")
+        res = query_yes_no(f"Clear cache? {cache_file}", default="no")
         if res:
-            os.system(f"rm -rf {args.cache_file}")
+            os.system(f"rm -rf {cache_file}")
             print("Cleared cache.")
         else:
             print("Did not clear cache.")
         sys.exit()
 
     if args.status:
-        SlurmJobManager.status(cache_file=args.cache_file)
+        SlurmJobManager.status(cache_file=cache_file)
     else:
         SlurmJobManager(
             args.filepath,
             args.overwrite,
             args.filter,
-            cache_file=args.cache_file,
+            cache_file=cache_file,
             job=args.job,
             preamble_path=args.preamble_path,
         ).submit_jobs()

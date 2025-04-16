@@ -8,7 +8,7 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer
 
-from dataloaders.gsm8k import ChatTemplateGSM8k
+from dataloaders.gsm8k import ChatTemplateGSM8k, ChatTemplateGSM8kFewShot
 from dataloaders.shakespeare import ChatTemplateShakespeare
 from dataloaders.sharegpt import ChatTemplateShareGPT
 from dataloaders.syn_number_bases import ChatTemplateSynNumBase
@@ -496,9 +496,11 @@ def get_model_and_tokenizer(args):
     return model, tokenizer
 
 
+# TODO: just take in args.dataset
 def get_chat_template(args):
     chat_templates = {
         "gsm8k": ChatTemplateGSM8k,
+        "gsm8k::few": ChatTemplateGSM8kFewShot,
         "shakespeare": ChatTemplateShakespeare,
         "sharegpt": ChatTemplateShareGPT,
         "snum": ChatTemplateSynNum,

@@ -1,3 +1,13 @@
+"""Plot memory usage layer-wise distribution.
+
+Usage:
+    python scripts/plots/plot_mem_dist.py --model_family [gpt2/llama]
+
+Example:
+     python scripts/plots/plot_mem_dist.py --model_family gpt2
+
+"""
+
 import argparse
 import gc
 import torch
@@ -53,22 +63,35 @@ def plot_params_dist(results, path="cp_params.png"):
 
 def main(args):
     model_fn = {
-        "gpt2": create_model_gpt_fn,
-        "llama": create_model_llama_fn,
+        "gpt2": lambda r, h, m: create_model_gpt_fn(
+            r, h, m, param_net_config={"hidden_dim": 768, "use_decoder": True}
+        ),
+        "llama": lambda r, h, m: create_model_llama_fn(
+            r, h, m, param_net_config={"hidden_dim": 32000, "use_decoder": True}
+        ),
     }[args.model_family]
-    exps = [
-        {
-            "name": f"{args.model_family}::r{r}::h{h}",
-            "model_fn": model_fn(r, h),  # Pass current r, h values
-        }
-        for (r, h) in itertools.product([1, 16, 32], [2])
-        # for (r, h) in zip([2], [2])
-    ] + [
-        {
-            "name": f"{args.model_family}::base",
-            "model_fn": model_fn(1, 1, model_head="base"),
-        }
-    ]
+    exps = (
+        [
+            {
+                "name": f"{args.model_family}::mhcp::r{r}::h{h}",
+                "model_fn": model_fn(r, h, "cp"),  # Pass current r, h values
+            }
+            for (r, h) in itertools.product([2], [2, 4, 6])
+        ]
+        + [
+            {
+                "name": f"{args.model_family}::mhucp::r{r}::h{h}",
+                "model_fn": model_fn(r, h, "ucp"),  # Pass current r, h values
+            }
+            for (r, h) in itertools.product([2], [2, 4, 6])
+        ]
+        + [
+            {
+                "name": f"{args.model_family}::mhbase",
+                "model_fn": model_fn(1, 1, "base"),
+            }
+        ]
+    )
 
     results = {}
     pbar = tqdm(exps, desc="Computing parameters")

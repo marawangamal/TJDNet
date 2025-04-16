@@ -1,7 +1,10 @@
 # gsm8k.py
 
+from typing import Union
 from datasets import load_dataset
 from git import Optional
+import torch
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from dataloaders.common import BaseChatTemplate, group_texts
 
@@ -51,6 +54,54 @@ class ChatTemplateGSM8k(BaseChatTemplate):
             )
         except Exception as e:
             return None
+
+
+class ChatTemplateGSM8kFewShot(ChatTemplateGSM8k):
+    @classmethod
+    def format_batch(
+        cls,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
+    ) -> tuple[torch.Tensor, Union[torch.Tensor, None]]:
+        prefix = torch.tensor(
+            tokenizer.encode(
+                """
+            [QUESTION]
+            Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
+
+            [ANSWER]
+            Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72
+
+            [QUESTION]
+            Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?
+            """,
+                # special tokens disabled
+                add_special_tokens=False,
+            )
+        ).to(
+            input_ids.device
+        )  # (seq_len,)
+
+        batch_size = input_ids.shape[0]
+        prefix_size = prefix.shape[0]
+
+        # Add prefix to the input_ids
+        input_ids = torch.cat(
+            (prefix.unsqueeze(0).expand(batch_size, -1), input_ids), dim=1
+        )
+        attention_mask = (
+            torch.cat(
+                (
+                    torch.ones(batch_size, prefix_size, device=attention_mask.device),
+                    attention_mask,
+                ),
+                dim=1,
+            )
+            if attention_mask is not None
+            else None
+        )
+        return input_ids, attention_mask
 
 
 def parse_qa(example, eos_token="<|endoftext|>"):

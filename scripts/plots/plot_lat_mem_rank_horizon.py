@@ -1,3 +1,13 @@
+"""Plot latency and memory while varying rankm & horizon.
+
+Usage:
+    python scripts/plots/plot_lat_mem_rank_horizon.py --device [device] --mode [train/eval]
+
+Example:
+    python scripts/plots/plot_lat_mem_rank_horizon.py --device cuda --mode train
+
+"""
+
 import gc
 import argparse
 import itertools
@@ -14,24 +24,44 @@ from utils.models import create_model_gpt_fn, train_forward
 
 
 def save_fig(results, path="latency_benchmark.png", y_axis="Latency [s]"):
-    # Group data by horizon
+    # Group data by model head and horizon
     data = {}
 
     for name, metrics in results.items():
-        # Get rank and horizon from name
-        r = int(re.search(r"r(\d+)", name).group(1))
-        h = int(re.search(r"h(\d+)", name).group(1))
+        # Get model head, rank and horizon from name
+        model_head = re.search(r"mh(\w+)::", name).group(1)  # type: ignore
+        r = int(re.search(r"r(\d+)", name).group(1))  # type: ignore
+        h = int(re.search(r"h(\d+)", name).group(1))  # type: ignore
 
         # Store data point
-        if h not in data:
-            data[h] = {"ranks": [], "latencies": []}
-        data[h]["ranks"].append(r)
-        data[h]["latencies"].append(metrics[y_axis]["mean"])
+        key = (model_head, h)
+        if key not in data:
+            data[key] = {"ranks": [], "latencies": []}
+        data[key]["ranks"].append(r)
+        data[key]["latencies"].append(metrics[y_axis]["mean"])
+
+    # Get unique horizons and model heads
+    unique_horizons = sorted(set(h for _, h in data.keys()))
+    unique_model_heads = sorted(set(mh for mh, _ in data.keys()))
+
+    # Create color map for horizons and markers for model heads
+    markers = ["o", "s", "^", "D", "v", "<", ">", "p", "*"]
+    colors = plt.cm.tab10.colors  # type: ignore
 
     # Create plot
     plt.figure()
-    for h, points in data.items():
-        plt.plot(points["ranks"], points["latencies"], "o-", label=f"h={h}")
+    for (model_head, h), points in data.items():
+        horizon_idx = unique_horizons.index(h)
+        head_idx = unique_model_heads.index(model_head)
+
+        plt.plot(
+            points["ranks"],
+            points["latencies"],
+            marker=markers[head_idx % len(markers)],
+            color=colors[horizon_idx % len(colors)],
+            linestyle="-",
+            label=f"{model_head}, h={h}",
+        )
 
     plt.xlabel("Rank")
     plt.ylabel(y_axis)
@@ -42,11 +72,6 @@ def save_fig(results, path="latency_benchmark.png", y_axis="Latency [s]"):
 
 
 def main(args):
-
-    # gen_kwargs = {
-    #     "max_new_tokens": args.out_seq_len,
-    #     "do_sample": False,
-    # }
 
     gen_kwargs = {
         "max_new_tokens": args.out_seq_len,
@@ -63,7 +88,7 @@ def main(args):
 
     exps = [
         {
-            "name": f"gpt2::cp::hd768::r{r}::h{h}",
+            "name": f"gpt2::mhcp::hd768::r{r}::h{h}",
             "model_fn": create_model_gpt_fn(
                 r,
                 h,
@@ -73,7 +98,20 @@ def main(args):
             ),
             **common_kwargs,
         }
-        for (r, h) in itertools.product([1, 2, 4, 8, 16, 32, 64], [1, 2, 4])
+        for (r, h) in itertools.product([1, 2, 4, 8, 16, 32], [1, 2, 4])
+    ] + [
+        {
+            "name": f"gpt2::mhucp::hd768::r{r}::h{h}",
+            "model_fn": create_model_gpt_fn(
+                r,
+                h,
+                model_head="ucp",
+                param_net_config={"hidden_dim": 768, "use_decoder": True},
+                use_memory_efficient_loss=args.use_memory_efficient_loss,
+            ),
+            **common_kwargs,
+        }
+        for (r, h) in itertools.product([1, 2, 4, 8, 16, 32], [1, 2, 4])
     ]
 
     print(f"Starting benchmarks ({args.device})...")

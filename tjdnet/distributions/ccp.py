@@ -1,3 +1,4 @@
+# TODO: remove this file. No longer needed with new TPNet.
 from typing import List, Tuple
 from git import Optional
 import torch
