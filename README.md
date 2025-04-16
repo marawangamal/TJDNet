@@ -97,7 +97,20 @@ python scripts/eval_acc.py -c <checkpoint_path>
 | llama::cp::lr32::hd5120::rank8::horizon2 | - | 0.0925** | -->
 
 
-## Job Runner (SLURM)
+## Scripts
+
+TJDNet provides several scripts for analysis and benchmarking:
+
+- `scripts/eval_acc.py`: Evaluate model accuracy
+- `scripts/eval_latency.py`: 
+- `scripts/plots/plot_output_dist_spectrum.py`: Visualize specturm of output token distribution
+- `scripts/plots/plot_lat_mem_rank_horizon.py`: Benchmark latency and memory vs. rank and horizon
+- `scripts/jobrunner.py`: SLURM job submission utility (Described in more detail below)
+
+Run any script with `--help` for usage information.
+
+
+### SLURM batch Job runner
 
 Use `scripts/jobrunner.py` to submit and track multiple experiments, particularly on clusters using the SLURM workload manager.
 
