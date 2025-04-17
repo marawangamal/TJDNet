@@ -1,8 +1,122 @@
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 import torch
 
 from tjdnet.tensorops.common import get_breakpoints, mps_to_tensor
 from tjdnet.beam_search import beam_search
+from tjdnet.utils import diagnose
+
+
+def select_margin_mps_tensor_batched(
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    core: torch.Tensor,
+    ops: torch.Tensor,
+    use_scale_factors: bool = True,
+):
+    """Performs selection and marginalization operations on a CP tensor representation.
+
+    Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
+    applies a sequence of operations on each mode:
+        - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ
+        - Marginalization: For op = -2, sums all elements in aᵢⱼ
+        - Free index: For op = -1, keeps aᵢⱼ unchanged
+
+    Args:
+        alpha (torch.Tensor): Alpha tensor of shape (B, R)
+        beta (torch.Tensor): Beta tensor of shape (B, R)
+        core (torch.Tensor): Core tensor of shape (B, H, R, V, R)
+        ops (torch.Tensor): Operation codes of shape (T,) specifying:
+            -2: marginalize mode (sum reduction)
+            -1: keep mode as free index
+            [0,V): select index v in mode
+
+    Note:
+        - The number of free indices in `ops` must be at most 1
+        - Edge tensors `alpha` and `beta` are cloned and detached to avoid in-place operations.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]:
+            - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
+            - Scale factors list of shape (T,)
+    """
+
+    # Validation:
+    assert len(core.shape) == 5, "MPS params tensor must be 5D (batched)"
+    assert len(ops.shape) == 2, "Invalid ops tensor: must be 2D (batched)"
+    assert (ops >= -2).all() and (
+        ops < core.size(3)
+    ).all(), "Invalid ops tensor: must be in range [-2, vocab_size)"
+    assert ops.size(0) == core.size(0), "Batch size mismatch"
+
+    batch_size, horizon, rank, vocab_size, rank = core.size()
+
+    # Get breakpoints for 1st free leg and 1st margin leg
+    bp_free, bp_margin = get_breakpoints(ops)  # (batch_size,), (batch_size,)
+
+    # Detach the input tensors for intermediate calculations
+    res_left = alpha.detach().clone()
+    res_right = beta.detach().clone()
+    res_free = (
+        torch.eye(rank, rank, device=core.device)
+        .reshape(1, rank, 1, rank)
+        .repeat(batch_size, 1, vocab_size, 1)
+    )
+
+    core_margins = core.sum(dim=3)  # (B, H, R, R)
+    diagnose(core_margins, "core_margins")
+    scale_factors = []
+
+    for t in range(horizon):
+        mask_select = t < bp_free
+        mask_margin = t >= bp_margin
+        mask_free = ~mask_select & ~mask_margin
+
+        # Select
+        if mask_select.any():
+            core_select = torch.gather(
+                # (B, H, R, V, R) -> (B', R, V, R) -> (B', R, 1, R) -> (B', R, R)
+                core[mask_select, t],
+                dim=2,
+                index=ops[mask_select, t]  # (B',)
+                .reshape(-1, 1, 1, 1)
+                .expand(-1, rank, -1, rank),  # (B', R, 1, R)
+            ).squeeze(2)
+            #  (B', 1, R) @ (B', R, R) -> (B', 1, R) -> (B', R)
+            update = (res_left[mask_select].unsqueeze(1) @ core_select).squeeze(1)
+            sf = torch.ones(batch_size, device=core.device)  # (B,)
+            # if use_scale_factors:
+            sf[mask_select] = torch.linalg.norm(update, dim=-1)
+            scale_factors.append(sf)
+            res_left[mask_select] = update / sf[mask_select].unsqueeze(-1)
+            diagnose(core_margins, "res_left")
+
+        # Marginalize
+        if mask_margin.any():
+            core_margin = core_margins[mask_margin, t]  # (B', R, R)
+            # (B', R, R) @ (B', R, 1) -> (B', R, 1) -> (B', R)
+            update = (core_margin @ res_right[mask_margin].unsqueeze(-1)).squeeze(-1)
+            sf = torch.ones(batch_size, device=core.device)  # (B,)
+            # if use_scale_factors:
+            sf[mask_margin] = torch.linalg.norm(update, dim=-1)
+            scale_factors.append(sf)
+            res_right[mask_margin] = update / sf[mask_margin].unsqueeze(-1)
+            diagnose(core_margins, "res_right")
+
+        # Free
+        if mask_free.any():
+            res_free[mask_free] = core[mask_free, t]  # (B', R, V, R)
+
+    # Special case: pure select
+    if torch.all(bp_free == horizon):
+        # (B, R) * (B, R)
+        return (res_left * beta).sum(dim=-1), scale_factors
+    # Special case: pure marginalization
+    elif torch.all(bp_margin == 0):
+        # return res_right.sum(dim=-1), scale_factors
+        return (alpha * res_right).sum(dim=-1), scale_factors
+    else:  # General case
+        result = torch.einsum("bi, bivj, bj -> bv", res_left, res_free, res_right)
+        return result, scale_factors
 
 
 def select_from_mps_tensor(

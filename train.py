@@ -321,7 +321,7 @@ def main():
         top_k=args.top_k,
         num_beams=args.num_beams,
         eos_token=(
-            tokenizer.eos_token
+            tokenizer.eos_token  # type: ignore
             if args.tokenizer_type == "word"
             else tokenizer.sep_token
         ),
