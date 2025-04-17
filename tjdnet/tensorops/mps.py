@@ -72,20 +72,18 @@ def select_margin_mps_tensor_batched(
         # Select
         if mask_select.any():
             core_select = torch.gather(
-                # (B, H, R, V, R) -> (B', R, V, R)
+                # (B, H, R, V, R) -> (B', R, V, R) -> (B', R, 1, R) -> (B', R, R)
                 core[mask_select, t],
                 dim=2,
                 index=ops[mask_select, t]  # (B',)
                 .reshape(-1, 1, 1, 1)
                 .expand(-1, rank, -1, rank),  # (B', R, 1, R)
-            ).squeeze(
-                2
-            )  # (B', R, R)
+            ).squeeze(2)
             #  (B', 1, R) @ (B', R, R) -> (B', 1, R) -> (B', R)
             update = (res_left[mask_select].unsqueeze(1) @ core_select).squeeze(1)
             sf = torch.ones(batch_size, device=core.device)  # (B,)
-            if use_scale_factors:
-                sf[mask_select] = torch.linalg.norm(update, dim=-1)
+            # if use_scale_factors:
+            sf[mask_select] = torch.linalg.norm(update, dim=-1)
             scale_factors.append(sf)
             res_left[mask_select] = update / sf[mask_select].unsqueeze(-1)
             diagnose(core_margins, "res_left")
@@ -96,8 +94,8 @@ def select_margin_mps_tensor_batched(
             # (B', R, R) @ (B', R, 1) -> (B', R, 1) -> (B', R)
             update = (core_margin @ res_right[mask_margin].unsqueeze(-1)).squeeze(-1)
             sf = torch.ones(batch_size, device=core.device)  # (B,)
-            if use_scale_factors:
-                sf[mask_margin] = torch.linalg.norm(update, dim=-1)
+            # if use_scale_factors:
+            sf[mask_margin] = torch.linalg.norm(update, dim=-1)
             scale_factors.append(sf)
             res_right[mask_margin] = update / sf[mask_margin].unsqueeze(-1)
             diagnose(core_margins, "res_right")
@@ -106,16 +104,18 @@ def select_margin_mps_tensor_batched(
         if mask_free.any():
             res_free[mask_free] = core[mask_free, t]  # (B', R, V, R)
 
-    scale_factors = [] if not use_scale_factors else scale_factors
+    # if not use_scale_factors:
+    #     scale_factors = []
 
     # Special case: no free legs
     if torch.all(bp_free == bp_margin):
         result = torch.einsum("bi, bj -> b", res_left, res_right)
-        diagnose(core_margins, "result::special_case")
+        diagnose(result, "result::special_case")
     else:
+        print("entering general case")
         # NOTE: Cannot backward pass through this operation
         result = torch.einsum("bi, bivj, bj -> bv", res_left, res_free, res_right)
-        diagnose(core_margins, "result")
+        diagnose(result, "result")
 
     return result, scale_factors
 
