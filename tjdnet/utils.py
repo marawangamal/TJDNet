@@ -106,3 +106,23 @@ def get_positional_encodings(
     encoding[:, 1::2] = torch.cos(pos / (10000 ** (_2i / d_model)))[:, :end_pos]
 
     return encoding  # (seq_len, d_model)
+
+
+# NOTE:
+# Materialized tensor shapes:
+# - alpha: (B, R)
+# - beta: (B, R)
+# - core: (B, H, R, D, R)
+# - res_left: (B, R)
+# - res_right: (B, R)
+# - res_free: (B, R, D, R)
+
+
+def diagnose(tens: torch.Tensor, tens_name: str = "tensor"):
+    assert not torch.isnan(
+        tens
+    ).any(), f"NaN found in {tens_name} -- (min: {tens.min()}, max: {tens.max()})"
+
+    assert not torch.isinf(
+        tens
+    ).any(), f"Inf found in {tens_name} -- (min: {tens.min()}, max: {tens.max()})"

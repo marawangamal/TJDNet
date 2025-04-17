@@ -15,6 +15,7 @@ from tjdnet.distributions.mps import MPSDist
 from tjdnet.distributions.ucp import UCPDist
 from tjdnet.distributions.umps import UMPSDist
 from tjdnet.tensorops.common import get_windowed_input_ids
+from tjdnet.utils import diagnose
 
 DIST_MAP: Dict[str, Type[BaseDistribution]] = {
     "full": FullDist,
@@ -451,6 +452,20 @@ class TJD(ABC, torch.nn.Module):
             - sum([torch.log(z) for z in p_tilde_scale_factors])  # (B, T')
             + sum([torch.log(z) for z in norm_const_scale_factors])
         )  # (B, T-H)
+
+        # Loss validation
+        assert (loss >= 0).all(), "Loss < 0"
+        diagnose(loss, "loss")
+        diagnose(p_tilde, "p_tilde")
+        diagnose(norm_const, "norm_const")
+        [
+            diagnose(z, f"p_tilde_scale_factors::{i}")
+            for i, z in enumerate(p_tilde_scale_factors)
+        ]
+        [
+            diagnose(z, f"norm_const_scale_factors::{i}")
+            for i, z in enumerate(norm_const_scale_factors)
+        ]
 
         # Train loss
         # NLL computation requires only each horizon-th element
