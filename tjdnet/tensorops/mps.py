@@ -32,6 +32,7 @@ def select_margin_mps_tensor_batched(
 
     Note:
         - The number of free indices in `ops` must be at most 1
+        - Edge tensors `alpha` and `beta` are cloned and detached to avoid in-place operations.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
@@ -52,8 +53,9 @@ def select_margin_mps_tensor_batched(
     # Get breakpoints for 1st free leg and 1st margin leg
     bp_free, bp_margin = get_breakpoints(ops)  # (batch_size,), (batch_size,)
 
-    res_left = alpha
-    res_right = beta
+    # Detach the input tensors for intermediate calculations
+    res_left = alpha.detach().clone()
+    res_right = beta.detach().clone()
     res_free = (
         torch.eye(rank, rank, device=core.device)
         .reshape(1, rank, 1, rank)
@@ -104,20 +106,17 @@ def select_margin_mps_tensor_batched(
         if mask_free.any():
             res_free[mask_free] = core[mask_free, t]  # (B', R, V, R)
 
-    # if not use_scale_factors:
-    #     scale_factors = []
-
-    # Special case: no free legs
-    if torch.all(bp_free == bp_margin):
-        result = torch.einsum("bi, bj -> b", res_left, res_right)
-        diagnose(result, "result::special_case")
-    else:
-        print("entering general case")
-        # NOTE: Cannot backward pass through this operation
+    # Special case: pure select
+    if torch.all(bp_free == horizon):
+        # (B, R) * (B, R)
+        return (res_left * beta).sum(dim=-1), scale_factors
+    # Special case: pure marginalization
+    elif torch.all(bp_margin == 0):
+        # return res_right.sum(dim=-1), scale_factors
+        return (alpha * res_right).sum(dim=-1), scale_factors
+    else:  # General case
         result = torch.einsum("bi, bivj, bj -> bv", res_left, res_free, res_right)
-        diagnose(result, "result")
-
-    return result, scale_factors
+        return result, scale_factors
 
 
 def select_from_mps_tensor(
