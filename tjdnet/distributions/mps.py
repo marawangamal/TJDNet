@@ -8,9 +8,14 @@ from tjdnet.utils import sample_topk
 
 # TODO: try one-hot instead of ones for alpha and beta
 class MPSDist(BaseDistribution):
-    def __init__(self, config: BaseDistConfig, **kwargs):
-        config.param_net.out_dim_encoder = config.horizon * config.rank * config.rank
-        config.param_net.out_dim_decoder = config.vocab_size
+    def __init__(self, config: BaseDistConfig, bypass_config: bool = False, **kwargs):
+        if not bypass_config:
+            config.param_net.out_dim_encoder = (
+                config.horizon * config.rank * config.rank
+            )
+            config.param_net.out_dim_decoder = config.vocab_size
+        else:
+            print("WARNING: bypassing config for MPSDist")
         super().__init__(config)
         self.alpha = torch.ones(config.rank) * 0.1
         self.beta = torch.ones(config.rank) * 0.1
