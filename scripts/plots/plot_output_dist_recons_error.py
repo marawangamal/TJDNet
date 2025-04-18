@@ -31,10 +31,12 @@ def train_tc(
     test_loader: torch.utils.data.DataLoader,
     tensor_model: str = "mps",
 ) -> Tuple[list, list]:
-    """Returns tensor containing completion errors for increasing rank approximations.
+    """Train a tensor completion model on the dataset and compute reconstruction error.
 
     Args:
-        dataset (torch.utils.data.TensorDataset): Tensor dataset containing the model outputs.
+        train_loader (torch.utils.data.DataLoader): DataLoader for training data.
+        test_loader (torch.utils.data.DataLoader): DataLoader for testing data.
+        tensor_model (str): Tensor model to use for completion. Default is "mps".
 
     Returns:
         - errors (list): Errors achieved at different tensor ranks.
