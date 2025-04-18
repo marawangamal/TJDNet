@@ -40,6 +40,7 @@ Example status table:
 """
 
 import argparse
+import datetime
 import os
 import sys
 import os.path as osp
@@ -120,6 +121,7 @@ class SlurmJobManager:
         self.overwrite = overwrite
         self.interactive_mode = interactive_mode
 
+        # Fix the __init__ method - single job creation
         if job:  # Run a single job
             # Get preamble from file if provided
             if preamble_path:
@@ -132,7 +134,7 @@ class SlurmJobManager:
                     "group_name": ["single_job"],
                     "preamble": [preamble],
                     "command": [job],
-                    # "created_at":
+                    "created_at": [self._get_timestamp()],
                 }
             )
         else:
@@ -150,8 +152,8 @@ class SlurmJobManager:
                     "job_status": [],
                     "preamble": [],
                     "command": [],
-                    # "created_at": [],
-                    # "is_starred": [],
+                    "created_at": [],
+                    "is_starred": [],
                 }
             )
         # Create cache directory if it doesn't exist
@@ -162,6 +164,10 @@ class SlurmJobManager:
     def parse_file(filepath):
         with open(filepath, "r") as stream:
             return yaml.safe_load(stream)
+
+    @staticmethod
+    def _get_timestamp():
+        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def _query_select_rows(
         self,
@@ -263,6 +269,7 @@ class SlurmJobManager:
             "job_status": "SUBMIT",
             "preamble": job["preamble"],
             "command": job["command"],
+            "created_at": self._get_timestamp(),
         }
 
         # Update previous row if exists
@@ -504,11 +511,11 @@ class SlurmJobManager:
         if filter_str:
             status_table = cls._filter_table(status_table, filter_str)
 
-        # Limit columns displayed
-        reduced = status_table[["job_id", "job_status", "command"]]
+        # Print the status table
+        reduced = status_table[["job_id", "job_status", "command", "created_at"]]
         print(reduced)
 
-        # totals
+        # Print totals table
         keys = [
             "UNKNOWN",
             "SUBMIT",
