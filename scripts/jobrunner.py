@@ -488,7 +488,13 @@ class SlurmJobManager:
         return statuses
 
     @classmethod
-    def status(cls, cache_file: str, filter_str: Optional[str] = None):
+    def status(
+        cls,
+        cache_file: str,
+        filter_str: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        sort_ascending: bool = False,
+    ):
         """Check the status of all jobs in the status table."""
         outpath = osp.join(osp.expanduser(cache_file))
         if not osp.exists(outpath):
@@ -510,6 +516,18 @@ class SlurmJobManager:
         # Apply filter if provided
         if filter_str:
             status_table = cls._filter_table(status_table, filter_str)
+
+        # Apply sorting if requested
+        if sort_by and sort_by in status_table.columns:
+            if sort_by in status_table.columns:
+                status_table = status_table.sort_values(
+                    by=sort_by, ascending=sort_ascending
+                )
+                print(f"Sorted by {sort_by} ({'asc' if sort_ascending else 'desc'})")
+            else:
+                print(
+                    f"Warning: Cannot sort by '{sort_by}'. Column not found. Available columns: {', '.join(status_table.columns)}"
+                )
 
         # Print the status table
         reduced = status_table[["job_id", "job_status", "command", "created_at"]]
@@ -537,7 +555,6 @@ class SlurmJobManager:
 
 
 if __name__ == "__main__":
-    # TODO: simplify args -- only need -f <path_to_yaml> and ---interact --dev --job --preamble_path
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-f",
@@ -560,19 +577,6 @@ if __name__ == "__main__":
         help="Submit a single job directly.",
     )
     parser.add_argument(
-        "-s",
-        "--status",
-        action="store_true",
-        default=False,
-        help="Interactive mode: view, filter and update rows in the status table.",
-    )
-    parser.add_argument(
-        "--filter",
-        type=str,
-        default=None,
-        help="Submit a single job directly.",
-    )
-    parser.add_argument(
         "--dev",
         action="store_true",
         default=False,
@@ -586,6 +590,34 @@ if __name__ == "__main__":
         help="Path to preamble file for single jobs.",
     )
 
+    # -----------------------
+    # Status table arguments
+    # -----------------------
+    parser.add_argument(
+        "-s",
+        "--status",
+        action="store_true",
+        default=False,
+        help="Interactive mode: view, filter and update rows in the status table.",
+    )
+    parser.add_argument(
+        "--filter",
+        type=str,
+        default=None,
+        help="Submit a single job directly.",
+    )
+    parser.add_argument(
+        "--sort_by",
+        type=str,
+        default=None,
+        help="Sort the status table by a specific column.",
+    )
+    parser.add_argument(
+        "--sort_asc",
+        action="store_true",
+        default=False,
+        help="Sort the status table in ascending order.",
+    )
     args = parser.parse_args()
 
     cache_file = (
@@ -595,7 +627,12 @@ if __name__ == "__main__":
     )
 
     if args.status:
-        SlurmJobManager.status(cache_file=cache_file, filter_str=args.filter)
+        SlurmJobManager.status(
+            cache_file=cache_file,
+            filter_str=args.filter,
+            sort_by=args.sort_by,
+            sort_ascending=args.sort_asc,
+        )
     else:
         SlurmJobManager(
             file=args.filepath,
