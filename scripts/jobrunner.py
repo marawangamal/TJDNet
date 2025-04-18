@@ -6,8 +6,10 @@ It keeps track of job statuses and provides a way to check on all previously sub
 Usage:
     python jobrunner.py -f config.yaml           # Submit all jobs
     python jobrunner.py -f config.yaml -i        # Select jobs interactively
-    python jobrunner.py -s                       # Check status of all jobs
     python jobrunner.py -j "python train.py"     # Submit a single job
+
+    python jobrunner.py -s                                           # Check status of all jobs
+    python jobrunner.py -s --filter train.py --sort_by job_status    # Filter and sort jobs
 
 Example YAML configuration:
     common_preamble_declarations:  # Common declarations for all jobs
