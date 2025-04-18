@@ -4,11 +4,10 @@ This module allows you to define jobs in a YAML file and submit them in batches 
 It keeps track of job statuses and provides a way to check on all previously submitted jobs.
 
 Usage:
-    python jobrunner.py -f config.yaml  # Submit jobs
-    python jobrunner.py -s              # Check status of all jobs
-    python jobrunner.py -c              # Clear job history cache
-    python jobrunner.py --filter        # Filter jobs to submit
-    python jobrunner.py --job "python train.py --model_type llama --lr 1e-5" -p path/to/preamble.sh  # Submit a single job
+    python jobrunner.py -f config.yaml           # Submit all jobs
+    python jobrunner.py -f config.yaml -i        # Select jobs interactively
+    python jobrunner.py -s                       # Check status of all jobs
+    python jobrunner.py -j "python train.py"     # Submit a single job
 
 Example YAML configuration:
     common_preamble_declarations:  # Common declarations for all jobs
@@ -45,7 +44,8 @@ import os
 import sys
 import os.path as osp
 import pickle
-from typing import Optional
+import time
+from typing import Callable, Optional
 
 import yaml
 import pandas as pd
@@ -104,7 +104,7 @@ class SlurmJobManager:
         self,
         file,
         overwrite=False,
-        filter=False,
+        interactive_mode=False,
         cache_file: str = "~/.jobrunner/jobrunner_status_table.csv",
         job: Optional[str] = None,  # single job
         preamble_path: Optional[str] = None,  # for single jobs.
@@ -118,7 +118,7 @@ class SlurmJobManager:
         self.cache_file = cache_file
         self.file = file
         self.overwrite = overwrite
-        self.filter = filter
+        self.interactive_mode = interactive_mode
 
         if job:  # Run a single job
             # Get preamble from file if provided
@@ -132,6 +132,7 @@ class SlurmJobManager:
                     "group_name": ["single_job"],
                     "preamble": [preamble],
                     "command": [job],
+                    # "created_at":
                 }
             )
         else:
@@ -149,6 +150,8 @@ class SlurmJobManager:
                     "job_status": [],
                     "preamble": [],
                     "command": [],
+                    # "created_at": [],
+                    # "is_starred": [],
                 }
             )
         # Create cache directory if it doesn't exist
@@ -285,7 +288,7 @@ class SlurmJobManager:
                 query="Filter previous jobs? Enter job(s) to filter, or 'n' to skip: ",
                 columns=["group_name", "command"],
             )
-            if self.filter
+            if self.interactive_mode
             else range(len(self.jobs))
         )
 
@@ -343,37 +346,165 @@ class SlurmJobManager:
         df.to_csv(outpath, index=False)
         print(self.status_table[["job_id", "job_status", "command"]])
 
+    @staticmethod
+    def _filter_table(table: pd.DataFrame, filter_str: str) -> pd.DataFrame:
+        """Filter the table based on a filter string.
+
+        The filter string can be:
+        1. A simple string which will match against the command column
+        2. A JSON string to filter on multiple columns
+        (e.g. '{"job_status": "RUNNING", "command": "llama"}')
+
+        Args:
+            table (pd.DataFrame): DataFrame to filter.
+            filter_str (str): Filter string or JSON string to filter the table.
+
+        Returns:
+            pd.DataFrame: Filtered table.
+        """
+        import json
+
+        # Try to parse as JSON first
+        try:
+            filter_dict = json.loads(filter_str)
+
+            # If it's a JSON object, apply column-specific filtering
+            if isinstance(filter_dict, dict):
+                print(f"Filtering with JSON: {filter_dict}")
+                mask = pd.Series(True, index=table.index)
+
+                for col, pattern in filter_dict.items():
+                    if col in table.columns:
+                        # Handle different types of columns
+                        if table[col].dtype == "object":
+                            # String columns
+                            col_mask = (
+                                table[col]
+                                .astype(str)
+                                .str.contains(str(pattern), case=False, na=False)
+                            )
+                        else:
+                            # Numeric columns - try exact match first, then substring
+                            try:
+                                # For exact numeric match
+                                if isinstance(pattern, (int, float)):
+                                    col_mask = table[col] == pattern
+                                else:
+                                    # For string pattern on numeric column, convert to string first
+                                    col_mask = (
+                                        table[col]
+                                        .astype(str)
+                                        .str.contains(
+                                            str(pattern), case=False, na=False
+                                        )
+                                    )
+                            except:
+                                # Fallback to string contains
+                                col_mask = (
+                                    table[col]
+                                    .astype(str)
+                                    .str.contains(str(pattern), case=False, na=False)
+                                )
+
+                        mask = mask & col_mask
+                    else:
+                        print(
+                            f"Warning: Column '{col}' not found in table. Available columns: {', '.join(table.columns)}"
+                        )
+
+                filtered_table = table[mask]
+
+                if len(filtered_table) == 0:
+                    print(f"No jobs match filter criteria: {filter_str}")
+                    return table
+                else:
+                    print(
+                        f"Showing {len(filtered_table)} jobs matching criteria: {filter_str}"
+                    )
+                    return filtered_table
+
+        except json.JSONDecodeError:
+            # If not valid JSON, treat as simple string filter on command column
+            print(f"Using simple string filter: '{filter_str}'")
+
+        # Simple string filter on command column
+        filtered_table = table[
+            table["command"].str.contains(filter_str, case=False, na=False)
+        ]
+
+        if len(filtered_table) == 0:
+            print(f"No jobs match filter '{filter_str}' in command column.")
+            return table
+        else:
+            print(
+                f"Showing {len(filtered_table)} jobs with command containing '{filter_str}'."
+            )
+            return filtered_table
+
+    @staticmethod
+    def _get_job_statuses(
+        job_ids: list, on_add_status: Optional[Callable[[str], str]] = None
+    ):
+        """Get the status of a list of job IDs."""
+
+        # # Ensure `job_id` is an integer
+        # status = []
+
+        # # import pdb; pdb.set_trace()
+        # for job_id in status_table["job_id"]:
+        #     try:
+        #         job_id_int =
+        #         # Get job status
+        #         out = os.popen("sacct -j {} --format state".format(job_id_int)).read()
+        #         status_i = out.split("\n")[2].strip()
+        #         # If status in table ensds with *, then add * to status_i
+        #         if (
+        #             status_table[status_table["job_id"] == job_id]["job_status"]
+        #             .values[0]
+        #             .endswith("*")
+        #         ):
+        #             status_i = "{}*".format(status_i)
+        #         status.append(status_i)
+        #     except:
+        #         status.append("UNKNOWN")
+        # status_table["job_status"] = status
+        # status_table.to_csv(outpath)
+
+        statuses = []
+        for job_id in [str(int(job_id)) for job_id in job_ids]:
+            try:
+                out = os.popen("sacct -j {} --format state".format(job_id)).read()
+                status = out.split("\n")[2].strip()
+                statuses.append(on_add_status(status) if on_add_status else status)
+            except:
+                statuses.append("UNKNOWN")
+        return statuses
+
     @classmethod
-    def status(cls, cache_file: str):
+    def status(cls, cache_file: str, filter_str: Optional[str] = None):
+        """Check the status of all jobs in the status table."""
         outpath = osp.join(osp.expanduser(cache_file))
         if not osp.exists(outpath):
             print("No status table found. Run `jobrunner.py -f <filepath>` first.")
             return
         status_table = pd.read_csv(outpath)
 
-        # Ensure `job_id` is an integer
-        status = []
+        # Get job statuses
 
-        # import pdb; pdb.set_trace()
-        for job_id in status_table["job_id"]:
-            try:
-                job_id_int = str(int(job_id))
-                # Get job status
-                out = os.popen("sacct -j {} --format state".format(job_id_int)).read()
-                status_i = out.split("\n")[2].strip()
-                # If status in table ensds with *, then add * to status_i
-                if (
-                    status_table[status_table["job_id"] == job_id]["job_status"]
-                    .values[0]
-                    .endswith("*")
-                ):
-                    status_i = "{}*".format(status_i)
-                status.append(status_i)
-            except:
-                status.append("UNKNOWN")
-        status_table["job_status"] = status
-        status_table.to_csv(outpath)
+        def add_asterisk(job_id: str):
+            if job_id in status_table["job_status"].values:
+                return "{}*".format(job_id)
+            return job_id
 
+        job_ids = status_table["job_id"].tolist()
+        statuses = cls._get_job_statuses(job_ids, on_add_status=add_asterisk)
+        status_table["job_status"] = statuses
+
+        # Apply filter if provided
+        if filter_str:
+            status_table = cls._filter_table(status_table, filter_str)
+
+        # Limit columns displayed
         reduced = status_table[["job_id", "job_status", "command"]]
         print(reduced)
 
@@ -399,62 +530,69 @@ class SlurmJobManager:
 
 
 if __name__ == "__main__":
-    # TODO: simplify args -- only need -f <path_to_yaml> and ---interactive --status --dev --job --preamble_path
+    # TODO: simplify args -- only need -f <path_to_yaml> and ---interact --dev --job --preamble_path
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-f",
         "--filepath",
         type=str,
+        help="Path to the YAML batch job file.",
     )
-    parser.add_argument("-o", "--overwrite", action="store_true", default=False)
-    parser.add_argument("-s", "--status", action="store_true", default=False)
-    parser.add_argument("-c", "--clear", action="store_true", default=False)
     parser.add_argument(
-        "--filter",
+        "-i",
+        "--interact",
         action="store_true",
         default=False,
-        help="Interactive mode for batch jobs (allows filtering of jobs to submit).",
+        help="Choose jobs to submit interactively.",
+    )
+    parser.add_argument(
+        "-j",
+        "--job",
+        type=str,
+        default=None,
+        help="Submit a single job directly.",
+    )
+    parser.add_argument(
+        "-s",
+        "--status",
+        action="store_true",
+        default=False,
+        help="Interactive mode: view, filter and update rows in the status table.",
+    )
+    parser.add_argument(
+        "--filter",
+        type=str,
+        default=None,
+        help="Submit a single job directly.",
     )
     parser.add_argument(
         "--dev",
         action="store_true",
         default=False,
-        help="Run in development mode (~/.jobrunner/jobrunner_status_table_dev.csv)",
-    )
-    parser.add_argument(
-        "--job", type=str, default=None, help="Submit a single job directly."
+        help="Use development file (~/.jobrunner/jobrunner_status_table_dev.csv)",
     )
     parser.add_argument(
         "-p",
         "--preamble_path",
         type=str,
         default="configs/slurm/preamble-short-unkillable-g4.txt",
-        help="Path to a preamble file for single jobs.",
+        help="Path to preamble file for single jobs.",
     )
 
     args = parser.parse_args()
+
     cache_file = (
         "~/.jobrunner/jobrunner_status_table.csv"
         if not args.dev
         else "~/.jobrunner/jobrunner_status_table_dev.csv"
     )
 
-    if args.clear:
-        res = query_yes_no(f"Clear cache? {cache_file}", default="no")
-        if res:
-            os.system(f"rm -rf {cache_file}")
-            print("Cleared cache.")
-        else:
-            print("Did not clear cache.")
-        sys.exit()
-
     if args.status:
-        SlurmJobManager.status(cache_file=cache_file)
+        SlurmJobManager.status(cache_file=cache_file, filter_str=args.filter)
     else:
         SlurmJobManager(
-            args.filepath,
-            args.overwrite,
-            args.filter,
+            file=args.filepath,
+            interactive_mode=args.interact,
             cache_file=cache_file,
             job=args.job,
             preamble_path=args.preamble_path,
