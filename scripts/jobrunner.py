@@ -101,6 +101,43 @@ def load_object(filename):
     return out
 
 
+def get_job_statuses(
+    job_ids: list, on_add_status: Optional[Callable[[str], str]] = None
+):
+    """Get the status of a list of job IDs."""
+    statuses = []
+    for job_id in [str(int(job_id)) for job_id in job_ids]:
+        try:
+            out = os.popen("sacct -j {} --format state".format(job_id)).read()
+            status = out.split("\n")[2].strip()
+            statuses.append(on_add_status(status) if on_add_status else status)
+        except:
+            statuses.append("UNKNOWN")
+    return statuses
+
+
+def get_status_table(
+    cache_file: str = "~/.jobrunner/jobrunner_status_table.csv",
+):
+    """Get the status table from the cache file."""
+    outpath = osp.join(osp.expanduser(cache_file))
+    if not osp.exists(outpath):
+        print("No status table found. Run `jobrunner.py -f <filepath>` first.")
+        exit(1)
+    status_table = pd.read_csv(outpath)
+
+    def add_asterisk(job_id: str):
+        if job_id in status_table["job_status"].values:
+            return "{}*".format(job_id)
+        return job_id
+
+    job_ids = status_table["job_id"].tolist()
+    statuses = get_job_statuses(job_ids, on_add_status=add_asterisk)
+    status_table["job_status"] = statuses
+
+    return status_table
+
+
 class SlurmJobManager:
 
     def __init__(
@@ -144,7 +181,8 @@ class SlurmJobManager:
 
         # Create cache file if it doesn't exist
         if osp.exists(osp.expanduser(self.cache_file)):
-            self.status_table = pd.read_csv(osp.expanduser(self.cache_file))
+            # self.status_table = pd.read_csv(osp.expanduser(self.cache_file))
+            self.status_table = get_status_table(cache_file=self.cache_file)
 
         else:
             self.status_table = pd.DataFrame(
@@ -450,45 +488,6 @@ class SlurmJobManager:
             )
             return filtered_table
 
-    @staticmethod
-    def _get_job_statuses(
-        job_ids: list, on_add_status: Optional[Callable[[str], str]] = None
-    ):
-        """Get the status of a list of job IDs."""
-
-        # # Ensure `job_id` is an integer
-        # status = []
-
-        # # import pdb; pdb.set_trace()
-        # for job_id in status_table["job_id"]:
-        #     try:
-        #         job_id_int =
-        #         # Get job status
-        #         out = os.popen("sacct -j {} --format state".format(job_id_int)).read()
-        #         status_i = out.split("\n")[2].strip()
-        #         # If status in table ensds with *, then add * to status_i
-        #         if (
-        #             status_table[status_table["job_id"] == job_id]["job_status"]
-        #             .values[0]
-        #             .endswith("*")
-        #         ):
-        #             status_i = "{}*".format(status_i)
-        #         status.append(status_i)
-        #     except:
-        #         status.append("UNKNOWN")
-        # status_table["job_status"] = status
-        # status_table.to_csv(outpath)
-
-        statuses = []
-        for job_id in [str(int(job_id)) for job_id in job_ids]:
-            try:
-                out = os.popen("sacct -j {} --format state".format(job_id)).read()
-                status = out.split("\n")[2].strip()
-                statuses.append(on_add_status(status) if on_add_status else status)
-            except:
-                statuses.append("UNKNOWN")
-        return statuses
-
     @classmethod
     def status(
         cls,
@@ -498,22 +497,9 @@ class SlurmJobManager:
         sort_ascending: bool = False,
     ):
         """Check the status of all jobs in the status table."""
-        outpath = osp.join(osp.expanduser(cache_file))
-        if not osp.exists(outpath):
-            print("No status table found. Run `jobrunner.py -f <filepath>` first.")
-            return
-        status_table = pd.read_csv(outpath)
 
         # Get job statuses
-
-        def add_asterisk(job_id: str):
-            if job_id in status_table["job_status"].values:
-                return "{}*".format(job_id)
-            return job_id
-
-        job_ids = status_table["job_id"].tolist()
-        statuses = cls._get_job_statuses(job_ids, on_add_status=add_asterisk)
-        status_table["job_status"] = statuses
+        status_table = get_status_table(cache_file=cache_file)
 
         # Apply filter if provided
         if filter_str:
