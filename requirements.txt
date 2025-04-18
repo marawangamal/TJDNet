@@ -11,3 +11,4 @@ pandas
 tabulate
 scikit-learn
 pyaml
+seaborn
