@@ -148,7 +148,9 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama::cp::rank16::hd5120::horizon2::bs::1          | 1.565 ± 0.008 | train*   |  wi6444da0f
 | llama::cp::rank32::hd5120::horizon2::bs::1          | 1.565 ± 0.008 | eval*    |  wia41dcb87
 | llama::cp::rank8::hd8192::horizon2::bs::1           |               | 0.0773   |
-| llama::cp::rank8::hd8192::horizon2::bs::1::ueml     |               | train*   |
+| llama::cp::rank8::hd5192::horizon3::bs::1           |               | eval*    |
+| llama::cp::rank8::hd5192::horizon4::bs::1           |               | train*   |
+| llama::cp::rank8::hd5192::horizon2::bs::1::ueml     |               | train*   |
 
 
 
