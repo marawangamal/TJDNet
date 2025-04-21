@@ -347,9 +347,12 @@ class TJD(ABC, torch.nn.Module):
                 hidden_state = self.get_attn_last_hidden_state(
                     input_ids=active_seqs, attention_mask=current_attention
                 )
+
+                horizon_curr = min(horizon, max_new_tokens - time_step)
+
                 y_hat = self.model_head.sample(
                     hidden_state,
-                    horizon,
+                    horizon_curr,
                     do_sample=do_sample,
                     top_k=top_k,
                 )  # (B_active, horizon)

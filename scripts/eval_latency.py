@@ -136,38 +136,86 @@ def main(args):
             }
             for (h, r) in itertools.product([2, 4], [4, 8, 16])
         ]
+        + [
+            {
+                "name": f"gpt2::mps::horizon{h}::rank{r}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="mps",
+                    param_net_config={"hidden_dim": 768, "use_decoder": True},
+                ),
+                **common_kwargs,
+            }
+            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+        ]
     )
 
     # LLaMA
-    llama_experiments = [
-        {
-            "name": "llama::base",
-            "model_fn": create_model_llama_fn(
-                1,
-                1,
-                model_head="base",
-                param_net_config={
-                    "hidden_dim": 5120,
-                },
-            ),
-            **common_kwargs,
-        }
-    ] + [
-        {
-            "name": f"llama::cp::rank{r}::horizon{h}",
-            "model_fn": create_model_llama_fn(
-                rank=r,
-                horizon=h,
-                model_head="cp",
-                param_net_config={
-                    "hidden_dim": 5120,
-                    "use_decoder": True,
-                },
-            ),
-            **common_kwargs,
-        }
-        for (r, h) in zip([8, 16], [2, 2])
-    ]
+    llama_experiments = (
+        [
+            {
+                "name": "llama::base",
+                "model_fn": create_model_llama_fn(
+                    1,
+                    1,
+                    model_head="base",
+                    param_net_config={
+                        "hidden_dim": 5120,
+                    },
+                ),
+                **common_kwargs,
+            }
+        ]
+        + [
+            {
+                "name": f"llama::cp::rank{r}::horizon{h}",
+                "model_fn": create_model_llama_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cp",
+                    param_net_config={
+                        "hidden_dim": 5120,
+                        "use_decoder": True,
+                    },
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([8, 16], [2, 2])
+        ]
+        + [
+            {
+                "name": f"llama::ucp::rank{r}::horizon{h}",
+                "model_fn": create_model_llama_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="ucp",
+                    param_net_config={
+                        "hidden_dim": 5120,
+                        "use_decoder": True,
+                    },
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([8, 16], [2, 2])
+        ]
+        + [
+            {
+                "name": f"llama::mps::rank{r}::horizon{h}",
+                "model_fn": create_model_llama_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="ucp",
+                    param_net_config={
+                        "hidden_dim": 5120,
+                        "use_decoder": True,
+                    },
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([2, 4], [2, 2])
+        ]
+    )
 
     # Run benchmarks
     exps = {
