@@ -446,6 +446,9 @@ class TJD(ABC, torch.nn.Module):
                 print("p_tilde >= norm_const")
                 print("p_tilde:", p_tilde)
                 print("norm_const:", norm_const)
+
+            if not (p_tilde <= norm_const).all():
+                print("p_tilde > norm_const")
             assert (p_tilde <= norm_const).all(), "p_tilde <= norm_const"
 
         loss = (
