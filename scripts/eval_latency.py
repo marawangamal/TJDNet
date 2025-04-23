@@ -149,6 +149,19 @@ def main(args):
             }
             for (h, r) in itertools.product([2, 4], [4, 8, 16])
         ]
+        + [
+            {
+                "name": f"gpt2::umps::horizon{h}::rank{r}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="umps",
+                    param_net_config={"hidden_dim": 768, "use_decoder": True},
+                ),
+                **common_kwargs,
+            }
+            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+        ]
     )
 
     # LLaMA
