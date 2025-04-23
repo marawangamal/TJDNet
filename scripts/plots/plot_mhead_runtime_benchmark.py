@@ -130,7 +130,11 @@ def main(args):
         except Exception as e:
             print(f"Error benchmarking {exp['name']}: {str(e)}")
 
-    results_grouped = group_arr(results, lambda x: parse_model_head(x["name"]))
+    results_grouped = group_arr(
+        results,
+        lambda x: parse_model_head(x["name"]),
+        lambda d: d["horizon"],
+    )
 
     plot_groups(
         results_grouped,

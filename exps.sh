@@ -1,2 +1,0 @@
-# python train.py --dataset stemp --model_type gpt2 --epochs 50 --batch_size 8  --seq_len 128 --lr 1e-5 --model_head mps --hidden_dim 768  --horizon 2 --horizon_eval 4 --rank 2 --compute_acc
-python train.py --dataset stemp --model_type gpt2 --epochs 50 --batch_size 8  --seq_len 128 --lr 1e-5 --model_head mps --hidden_dim 768  --horizon 6 --horizon_eval 6 --rank 2 --compute_acc
