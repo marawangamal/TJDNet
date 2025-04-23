@@ -21,6 +21,8 @@ import seaborn as sns
 import numpy as np
 from scipy.sparse import coo_matrix
 
+from tjdnet.models.cp_regressor import CPRegressor
+
 # set tl backend to pytorch
 tl.set_backend("pytorch")
 
@@ -94,8 +96,8 @@ def train_tc(
     """Train a tensor completion model on the dataset and compute reconstruction error.
 
     Args:
-        y: torch.Tensor: Input tensor (e.g., model output). Shape: (B, D).
-        x: torch.Tensor: Target tensor (e.g., ground truth). Shape: (B,)
+        x: torch.Tensor: Input tensor (e.g., model output). Shape: (B, V, V, ...)
+        y: torch.Tensor: Target tensor (e.g., ground truth). Shape: (B,)
 
     Returns:
         - errors (list): Errors achieved at different tensor ranks.
@@ -118,6 +120,39 @@ def train_tc(
     return errors, ranks
 
 
+def train_tc_v2(
+    y_train: torch.Tensor,
+    x_train: torch.Tensor,
+    x_test: torch.Tensor,
+    y_test: torch.Tensor,
+    vocab_size: int = 4,
+) -> Tuple[list, list]:
+    """Train a tensor completion model on the dataset and compute reconstruction error.
+
+    Args:
+        x: torch.Tensor: Input tensor (e.g., model output). Shape: (B, V, V, ...)
+        y: torch.Tensor: Target tensor (e.g., ground truth). Shape: (B,)
+
+    Returns:
+        - errors (list): Errors achieved at different tensor ranks.
+        - ranks (list): Rank values.
+    """
+    # coords tensors are already (N, H)
+    errors = []
+    ranks = []
+
+    for rank in [1, 2, 4, 8, 16]:
+        reg = CPRegressor(
+            vocab_size, horizon=x_train.shape[1], rank=rank, device=x_train.device
+        )
+        reg.fit(x_train, y_train, epochs=2000)
+        preds = reg.predict(x_test)
+        error = torch.linalg.norm(preds - y_test).item()
+        errors.append(torch.linalg.norm(preds.squeeze(-1) - y_test).item())
+        ranks.append(rank)
+    return errors, ranks
+
+
 def coords_to_onehot(coords: torch.Tensor, V: int) -> torch.Tensor:
     """Return a float32 one-hot tensor suitable for CPRegressor."""
     N = coords.size(0)
@@ -125,6 +160,20 @@ def coords_to_onehot(coords: torch.Tensor, V: int) -> torch.Tensor:
     rows = torch.arange(N)
     out[rows, coords[:, 0], coords[:, 1], coords[:, 2]] = 1.0
     return out
+
+
+def coords_to_onehot_sparse(coords: torch.Tensor, vocab_size: int):
+    batch_size, horizon = coords.shape
+    vals = torch.ones(batch_size, dtype=torch.double)
+    # idx = torch.stack([coords[:, d] for d in range(horizon)], dim=0)
+    batch_idx = torch.arange(batch_size)
+    idx_tuple = tuple(
+        coords[:, d] for d in range(coords.shape[1])
+    )  # H tensors, each (num_pts,)
+    idx_tens = torch.stack((batch_idx, *idx_tuple), dim=0)  # H tensors, each (num_pts,)
+    return torch.sparse_coo_tensor(
+        idx_tens, vals, (batch_size,) + (vocab_size,) * horizon
+    )
 
 
 def test(seed: int = 0) -> None:
@@ -162,10 +211,16 @@ def test(seed: int = 0) -> None:
     x_test, y_test = x[n_train:], y[n_train:]
 
     # 3. run the training routine for several candidate ranks
-    errors, ranks = train_tc(
+    # errors, ranks = train_tc(
+    #     y_train=y_train,
+    #     x_train=coords_to_onehot(x_train, vocab_size),
+    #     x_test=coords_to_onehot(x_test, vocab_size),
+    #     y_test=y_test,
+    # )
+    errors, ranks = train_tc_v2(
         y_train=y_train,
-        x_train=coords_to_onehot(x_train, vocab_size),
-        x_test=coords_to_onehot(x_test, vocab_size),
+        x_train=x_train,
+        x_test=x_test,
         y_test=y_test,
     )
 
