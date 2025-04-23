@@ -105,19 +105,33 @@ def generate_dataset(
         for i in range(progress, num_samples, batch_size):
             # Adjust batch size for the last iteration
             batch_size_curr = min(batch_size, num_samples - i)
-            # Generate completely random sequences
-            y = torch.randint(
-                0, len(tokenizer), (batch_size_curr, horizon), device=device
-            )
+
             x = (
                 torch.tensor(tokenizer.encode(start_str), device=device)
                 .reshape(1, -1)
                 .repeat(batch_size_curr, 1)
             )
 
-            # Get model predictions
-            outputs = model(torch.cat([x, y], dim=1))
-            logits = outputs.logits  # Shape: (B, H, V)
+            # === Generate random seqs ==========
+            # # Generate completely random sequences
+            # y = torch.randint(
+            #     0, len(tokenizer), (batch_size_curr, horizon), device=device
+            # )
+
+            # outputs = model(torch.cat([x, y], dim=1))
+            # logits = outputs.logits  # Shape: (B, H, V)
+
+            # === Generate realisitic seqs ==========
+            outputs = model.generate(
+                x,
+                max_new_tokens=horizon,
+                do_sample=True,
+                return_dict_in_generate=True,
+                output_logits=True,
+            )
+            y = outputs.sequences
+            logits = torch.stack(outputs.logits, dim=1)
+
             probs = torch.nn.functional.softmax(logits, dim=-1)
             # (B, H, V) -> (B, H)
             prob_seq = torch.gather(
