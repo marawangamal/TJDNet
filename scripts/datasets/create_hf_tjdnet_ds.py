@@ -129,13 +129,13 @@ def generate_dataset(
                 return_dict_in_generate=True,
                 output_logits=True,
             )
-            y = outputs.sequences
+            y = outputs.sequences[:, x.size(1) :]
             logits = torch.stack(outputs.logits, dim=1)
 
             probs = torch.nn.functional.softmax(logits, dim=-1)
             # (B, H, V) -> (B, H)
             prob_seq = torch.gather(
-                probs[:, :-1, :],  # Shape: (B, H, V)
+                probs,  # Shape: (B, H, V)
                 index=y.unsqueeze(-1),  # Shape: (B, H, 1)
                 dim=-1,
             ).squeeze(-1)
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--horizon",
         type=int,
-        default=4,
+        default=32,
     )
     parser.add_argument(
         "-n",
