@@ -159,6 +159,21 @@ class MPSDist(BaseDistribution):
                 device=last_hidden_state.device,
             ),
         )
+
+        assert len(p_tilde_scale_factors) == len(
+            norm_consts_scale_factors
+        ), "Scale factors for p_tilde and norm_consts should have the same length"
+
+        if (
+            len(p_tilde_scale_factors) == 0
+            and len(norm_consts_scale_factors) == 0
+            and not torch.all(p_tilde <= norm_consts)
+        ):
+            # If no scale factors are used, and p_tilde is less than norm_consts throw an error
+            raise ValueError(
+                "p_tilde is less than norm_consts, please check the input points."
+            )
+
         return (
             p_tilde.reshape(batch_size, seq_len),
             [s.reshape(batch_size, seq_len) for s in p_tilde_scale_factors],

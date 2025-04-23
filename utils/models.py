@@ -40,7 +40,7 @@ def create_model_gpt_fn(
     vocab_size=768,
     param_net_config={
         "hidden_dim": 768,  # should be vocab_size for base
-        "use_decoder": False,
+        "use_decoder": True,
     },
     **kwargs,
 ):

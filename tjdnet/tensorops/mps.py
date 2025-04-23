@@ -13,31 +13,34 @@ def select_margin_mps_tensor_batched(
     ops: torch.Tensor,
     use_scale_factors: bool = True,
 ):
-    """Performs selection and marginalization operations on a CP tensor representation.
+    """Performs selection and marginalization operations on a MPS tensor representation.
 
-    Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
-    applies a sequence of operations on each mode:
-        - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ
-        - Marginalization: For op = -2, sums all elements in aᵢⱼ
-        - Free index: For op = -1, keeps aᵢⱼ unchanged
+    This function processes an MPS (Matrix Product State) tensor by applying
+    selection or marginalization operations on each tensor in the chain according
+    to the operation codes provided in `ops`.
 
     Args:
-        alpha (torch.Tensor): Alpha tensor of shape (B, R)
-        beta (torch.Tensor): Beta tensor of shape (B, R)
-        core (torch.Tensor): Core tensor of shape (B, H, R, V, R)
-        ops (torch.Tensor): Operation codes of shape (T,) specifying:
-            -2: marginalize mode (sum reduction)
+        alpha (torch.Tensor): Left boundary tensor of shape (B, R)
+        beta (torch.Tensor): Right boundary tensor of shape (B, R)
+        core (torch.Tensor): Core tensors of shape (B, H, R, V, R) where:
+            B is batch size
+            H is the number of modes (cores)
+            R is the bond dimension
+            V is the vocabulary size
+        ops (torch.Tensor): Operation codes of shape (B, H) specifying:
+            -2: marginalize mode (sum over all indices)
             -1: keep mode as free index
-            [0,V): select index v in mode
+            >=0: select specific index in mode
+        use_scale_factors (bool): Whether to return scale factors. Default: True
 
-    Note:
-        - The number of free indices in `ops` must be at most 1
-        - Edge tensors `alpha` and `beta` are cloned and detached to avoid in-place operations.
+    Notes:
+        - The number of free indices (-1) in `ops` must be at most 1
+        - Boundary tensors are cloned to avoid in-place modifications
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
-            - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
-            - Scale factors list of shape (T,)
+            - result_tensor: Tensor of shape determined by free indices
+            - scale_factors: Scale factors of shape (B,) if use_scale_factors=True, else None
     """
 
     # Validation:
@@ -47,6 +50,7 @@ def select_margin_mps_tensor_batched(
         ops < core.size(3)
     ).all(), "Invalid ops tensor: must be in range [-2, vocab_size)"
     assert ops.size(0) == core.size(0), "Batch size mismatch"
+    # TODO: add validation that ops must be in order select, free, marginalize
 
     batch_size, horizon, rank, vocab_size, rank = core.size()
 
@@ -62,14 +66,14 @@ def select_margin_mps_tensor_batched(
         .repeat(batch_size, 1, vocab_size, 1)
     )
 
-    core_margins = core.sum(dim=3)  # (B, H, R, R)
+    core_margins = core.sum(dim=3)  # (B, H, R, V, R) => (B, H, R, R)
     diagnose(core_margins, "core_margins")
     scale_factors = []
 
     for t in range(horizon):
-        mask_select = t < bp_free
-        mask_margin = t >= bp_margin
-        mask_free = ~mask_select & ~mask_margin
+        mask_select = t < bp_free  # (B,)
+        mask_margin = t >= bp_margin  # (B,)
+        mask_free = ~mask_select & ~mask_margin  # (B,)
 
         # Select
         if mask_select.any():
@@ -84,11 +88,18 @@ def select_margin_mps_tensor_batched(
             #  (B', 1, R) @ (B', R, R) -> (B', 1, R) -> (B', R)
             update = (res_left[mask_select].unsqueeze(1) @ core_select).squeeze(1)
             sf = torch.ones(batch_size, device=core.device)  # (B,)
-            # if use_scale_factors:
-            sf[mask_select] = torch.linalg.norm(update, dim=-1)
+            if use_scale_factors:
+                sf[mask_select] = torch.linalg.norm(update, dim=-1)
             scale_factors.append(sf)
             res_left[mask_select] = update / sf[mask_select].unsqueeze(-1)
             diagnose(core_margins, "res_left")
+
+        # Free
+        if mask_free.any():
+            res_free[mask_free] = core[mask_free, t]  # (B', R, V, R)
+
+    for t in range(horizon - 1, -1, -1):
+        mask_margin = t >= bp_margin  # (B,)
 
         # Marginalize
         if mask_margin.any():
@@ -96,15 +107,14 @@ def select_margin_mps_tensor_batched(
             # (B', R, R) @ (B', R, 1) -> (B', R, 1) -> (B', R)
             update = (core_margin @ res_right[mask_margin].unsqueeze(-1)).squeeze(-1)
             sf = torch.ones(batch_size, device=core.device)  # (B,)
-            # if use_scale_factors:
-            sf[mask_margin] = torch.linalg.norm(update, dim=-1)
+            if use_scale_factors:
+                sf[mask_margin] = torch.linalg.norm(update, dim=-1)
             scale_factors.append(sf)
             res_right[mask_margin] = update / sf[mask_margin].unsqueeze(-1)
             diagnose(core_margins, "res_right")
 
-        # Free
-        if mask_free.any():
-            res_free[mask_free] = core[mask_free, t]  # (B', R, V, R)
+    if not use_scale_factors:
+        scale_factors = []
 
     # Special case: pure select
     if torch.all(bp_free == horizon):
@@ -112,11 +122,16 @@ def select_margin_mps_tensor_batched(
         return (res_left * beta).sum(dim=-1), scale_factors
     # Special case: pure marginalization
     elif torch.all(bp_margin == 0):
-        # return res_right.sum(dim=-1), scale_factors
         return (alpha * res_right).sum(dim=-1), scale_factors
     else:  # General case
+        # NOTE: Backprop fails through this path
         result = torch.einsum("bi, bivj, bj -> bv", res_left, res_free, res_right)
         return result, scale_factors
+
+
+# ------------------------------------------------------------------------
+# Deprecated functions (select_margin_mps_tensor_batched generalizes these)
+# ------------------------------------------------------------------------
 
 
 def select_from_mps_tensor(

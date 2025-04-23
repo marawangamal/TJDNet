@@ -105,6 +105,7 @@ TJDNet provides several scripts for analysis and benchmarking:
 - `scripts/eval_latency.py`: 
 - `scripts/plots/plot_output_dist_spectrum.py`: Visualize specturm of output token distribution
 - `scripts/plots/plot_lat_mem_rank_horizon.py`: Benchmark latency and memory vs. rank and horizon
+- `scripts/datasets/create_hf_tjdnet_ds.py`: Generate huggingface tjdnet model generation likelihoods dataset
 - `scripts/jobrunner.py`: SLURM job submission utility (Described in more detail below)
 
 Run any script with `--help` for usage information.
@@ -134,6 +135,13 @@ Use `scripts/jobrunner.py` to submit and track multiple experiments, particularl
 *(Note: This job runner currently assumes a SLURM environment (`sbatch`, `squeue` commands).)*
 
 
+### Generate Huggingface Dataset
+
+Use `scripts/create_hf_tjdnet_ds.py` to create the hf dataset then run 
+```bash
+huggingface-cli upload mremila/tjdnet datasets/tjdnet --repo-type dataset
+```
+
 ## Results
 Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
@@ -148,9 +156,18 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama::cp::rank16::hd5120::horizon2::bs::1          | 1.565 ± 0.008 | 0.0857   |
 | llama::cp::rank32::hd5120::horizon2::bs::1          | 1.565 ± 0.008 | 0.0750   |  
 | llama::cp::rank8::hd8192::horizon2::bs::1           |               | 0.0773   |
-| llama::cp::rank8::hd5192::horizon3::bs::1           |               | eval*    |  wi74d661e6
+| llama::cp::rank8::hd5192::horizon3::bs::1           |               | 0.050    | 
 | llama::cp::rank8::hd5192::horizon4::bs::1           |               | train*   |  wi90f8a8c8
-| llama::cp::rank8::hd5192::horizon2::bs::1::ueml     |               | train*   |  wid2fdd9e6
+| llama::cp::rank8::hd5192::horizon2::bs::1::umel     |               | 0.055    |  
+
+
+<!-- | Model                                                    | Latency [s]   | Accuracy |  
+|:---------------------------------------------------------|:--------------|:---------|
+| llama::base::bs::1                                       | 2.884 ± 0.003 | 0.1290   |
+| llama::cp::rank8::hd5120::horizon2::bs::1                | 1.520 ± 0.001 | 0.0925   |
+| llama::mps::rank8::hd5120::horizon2::bs::1               |               |          |
+| multi-head  (r=1)                                        |   |    |
+| oslodets    (tp1)                                        |   |    | -->
 
 
 

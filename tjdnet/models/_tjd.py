@@ -446,10 +446,13 @@ class TJD(ABC, torch.nn.Module):
                 print("p_tilde >= norm_const")
                 print("p_tilde:", p_tilde)
                 print("norm_const:", norm_const)
+
+            if not (p_tilde <= norm_const).all():
+                print("p_tilde > norm_const")
             assert (p_tilde <= norm_const).all(), "p_tilde <= norm_const"
 
         loss = (
-            -torch.log(p_tilde + self.eps)  # (B, T')
+            -torch.log(p_tilde)  # (B, T')
             + torch.log(norm_const)  # (B, T')
             # Contraction Stability Scale Factors
             - sum([torch.log(z) for z in p_tilde_scale_factors])  # (B, T')
