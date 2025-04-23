@@ -8,7 +8,7 @@ Example:
 import os
 from argparse import Namespace
 import argparse
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 from datasets import load_dataset
@@ -125,6 +125,8 @@ def train_tc_v2(
     x_train: torch.Tensor,
     x_test: torch.Tensor,
     y_test: torch.Tensor,
+    y_val: Optional[torch.Tensor] = None,
+    x_val: Optional[torch.Tensor] = None,
     vocab_size: int = 4,
 ) -> Tuple[list, list]:
     """Train a tensor completion model on the dataset and compute reconstruction error.
@@ -146,7 +148,18 @@ def train_tc_v2(
             rank=rank,
             device=x_train.device,
         )
-        reg.fit(x_train, y_train, epochs=1000, atol=1e-2, rtol=5e-2)
+        reg.fit(
+            x_train,
+            y_train,
+            x_val=x_val,
+            y_val=y_val,
+            lr=1e-3,
+            epochs=1000,
+            batch_size=512,
+            rtol=1e-3,  # ≥ 0.1% relative improvement
+            atol=1e-5,  # ≥ absolute improvement
+            patience=10,
+        )
         preds = reg.predict(x_test)
         error = torch.linalg.norm(preds - y_test).item()
         errors.append(error)
@@ -251,11 +264,19 @@ def main(args: Namespace):
     for subset in tqdm.tqdm(subsets, desc="Processing subsets"):
         dataset = load_dataset("mremila/tjdnet", name=subset["name"])
         dataset = dataset.select_columns(["x", "y", "py|x"])
+
+        # Split train to train and validation sets
+        dataset["train"], dataset["val"] = (
+            dataset["train"].train_test_split(test_size=0.2, seed=42).values()
+        )
+
         errors, ranks = train_tc_v2(
             x_train=torch.tensor(dataset["train"]["y"]),
             y_train=torch.tensor(dataset["train"]["py|x"]),
             x_test=torch.tensor(dataset["test"]["y"]),
             y_test=torch.tensor(dataset["test"]["py|x"]),
+            x_val=torch.tensor(dataset["val"]["y"]),
+            y_val=torch.tensor(dataset["val"]["py|x"]),
             vocab_size=torch.max(torch.tensor(dataset["train"]["y"])) + 1,
         )
 

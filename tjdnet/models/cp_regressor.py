@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -42,16 +43,24 @@ class CPRegressor(nn.Module):
     # fit with tqdm + simple early stopping
     # ------------------------------------------------------------------ #
 
+    def _eval_loss(self, x_val: torch.Tensor, y_val: torch.Tensor) -> float:
+        with torch.no_grad():
+            mse_loss = nn.MSELoss()
+            pred = self.predict(x_val)
+            return mse_loss(pred, y_val).item()
+
     def fit(
         self,
         X: torch.Tensor,
         y: torch.Tensor,
+        x_val: Optional[torch.Tensor] = None,
+        y_val: Optional[torch.Tensor] = None,
         *,
-        lr: float = 1e-2,
+        lr: float = 1e-4,
         epochs: int = 1000,
         batch_size: int = 512,
-        rtol: float = 5e-2,  # ≥5 % relative improvement
-        atol: float = 1e-2,  # ≥0.01 absolute drop
+        rtol: float = 5e-2,  # relative tolerance
+        atol: float = 1e-2,  # absolute tolerance
         patience: int = 10,
     ):
         """Train CPRegressor with Adam.
@@ -93,8 +102,19 @@ class CPRegressor(nn.Module):
                 opt.step()
                 running += loss.item() * xb.size(0)
 
-            epoch_loss = running / len(ds)
-            bar.set_postfix(loss=f"{epoch_loss:.6f}")
+            train_loss = running / len(ds)
+            eval_loss = (
+                self._eval_loss(x_val, y_val)
+                if x_val is not None and y_val is not None
+                else None
+            )
+
+            bar.set_postfix(
+                train_loss=f"{train_loss:.6f}",
+                eval_loss=f"{eval_loss:.6f}" if eval_loss else None,
+            )
+
+            epoch_loss = train_loss if eval_loss is None else eval_loss
 
             # initialise best_loss after first epoch
             if best_loss == float("inf"):
