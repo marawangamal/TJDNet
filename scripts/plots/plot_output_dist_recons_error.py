@@ -234,9 +234,7 @@ if __name__ == "__main__":
         help="Run the test function.",
     )
     args = parser.parse_args()
-    # if args.test:
-    #     test()
-    # else:
-    #     main(args)
-
-    test()
+    if args.test:
+        test()
+    else:
+        main(args)
