@@ -159,7 +159,7 @@ def plot_groups(
     grouped: Dict[str, Any],
     x_key: str,
     y_key: str,
-    path: Union[str, Path],  # ← was str | Path
+    path: Union[str, Path],
     *,
     style_dims: Sequence[str] = ("marker", "color"),
     style_cycles: Union[Dict[str, Sequence[Any]], None] = None,
@@ -171,11 +171,18 @@ def plot_groups(
     sort_by_x: bool = True,
 ) -> None:
     """
-    Generic plotter where *N* top-level group dimensions map to *N*
-    matplotlib style properties (marker, colour, …).
+    Plot a line for every leaf in a ``group_arr`` result, mapping successive
+    group levels to Matplotlib style properties.
 
     Parameters
     ----------
+    grouped : dict
+        Nested dictionary produced by :func:`group_arr`.
+    x_key, y_key : str
+        Keys in each result dictionary to read the *x* and *y* values from.
+    path : str or pathlib.Path
+        Output file (extension decides image format).  Missing parent
+        directories are created automatically.
     style_dims
         Ordered sequence of matplotlib line properties that will be
         controlled by the first, second, … group levels.
@@ -186,7 +193,32 @@ def plot_groups(
     custom_maps
         Pre-assign specific style values to some keys:
         {"color": {"dev": "tab:red", "prod": "tab:green"}}.
+    title, x_label, y_label : str, optional
+        Plot title and axis labels.  The axis labels default to *x_key* /
+        *y_key* when omitted.
+    figsize : tuple[int, int], default ``(10, 6)``
+        Figure size in inches.
+    sort_by_x : bool, default ``True``
+        If *True*, each (x, y) series is sorted by *x* before plotting.
+
+    Raises
+    ------
+    ValueError
+        If *grouped* is empty.
+
+    Notes
+    -----
+    * Group levels beyond ``len(style_dims)`` are **not** visually encoded
+      but are concatenated into the legend label.
+    * Matplotlib default colour cycle is used for ``"color"`` whenever no
+      custom cycle or map is supplied.
+
+    Returns
+    -------
+    None
+        The plot is written to *path* and the figure is closed.
     """
+
     leaves = _walk_groups(grouped)
     if not leaves:
         raise ValueError("Nothing to plot – `grouped` is empty")
