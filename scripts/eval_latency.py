@@ -122,7 +122,7 @@ def main(args):
                 **common_kwargs,
             }
             # for (h, r) in itertools.product([2, 4], [4, 8, 16])
-            for (r, h) in zip([16], [2])
+            for (r, h) in zip([8], [2])
         ]
         # + [
         #     {
@@ -195,7 +195,7 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([1, 16], [2, 2])
+            for (r, h) in zip([1, 8], [2, 2])
         ]
         # + [
         #     {

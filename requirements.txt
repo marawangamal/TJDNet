@@ -12,3 +12,4 @@ tabulate
 scikit-learn
 pyaml
 seaborn
+huggingface_hub[cli]

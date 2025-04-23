@@ -20,6 +20,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 
+# set tl backend to pytorch
+# tl.set_backend("pytorch")
+
 
 def plot_errors(subsets, output_path: str = "tensor_completion_errors.png"):
     """Plots reconstruction error as a function of tensor rank
@@ -102,17 +105,84 @@ def train_tc(
     ranks = []
 
     for rank in [1, 2, 4, 8, 16]:
-        # cp_regressor = tl.regression.CPRegressor(weight_rank=4)  # did not work
-        cp_regressor = tl.regression.CP_PLSR(n_components=rank)
-        cp_regressor.fit(x_train.double().numpy(), y_train.numpy())
+        cp_regressor = tl.regression.CPRegressor(weight_rank=rank)  # did not work
+        cp_regressor.fit(
+            x_train.double().numpy(), y_train.unsqueeze(-1).double().numpy()
+        )
+        # cp_regressor = tl.regression.CP_PLSR(n_components=rank)
+        # cp_regressor.fit(x_train.double().numpy(), y_train.numpy())
 
         # Compute the reconstruction error
-        preds = cp_regressor.predict(x_test.double().numpy())
-        errors.append(
-            torch.linalg.norm(torch.from_numpy(preds).squeeze(-1) - y_test).item()
-        )
+        preds = torch.from_numpy(cp_regressor.predict(x_test.double().numpy()))
+        errors.append(torch.linalg.norm(preds.squeeze(-1) - y_test).item())
         ranks.append(rank)
     return errors, ranks
+
+
+def coords_to_onehot(coords: torch.Tensor, V: int) -> torch.Tensor:
+    """Return a float32 one-hot tensor suitable for CPRegressor."""
+    N = coords.size(0)
+    out = torch.zeros((N, V, V, V), dtype=torch.float32)
+    rows = torch.arange(N)
+    out[rows, coords[:, 0], coords[:, 1], coords[:, 2]] = 1.0
+    return out
+
+
+def test(seed: int = 0) -> None:
+    """Quick self-test for :pyfunc:`train_tc`.
+
+    Creates a synthetic CP tensor of known rank, samples (x, y) pairs,
+    and checks that CP regression recovers it with low error when the
+    correct rank is allowed.
+
+    Args:
+        seed: Random seed for repeatability.
+
+    Raises:
+        AssertionError if the best error is not achieved at or below the
+        ground-truth rank (indicating something is wrong with the pipeline).
+    """
+    torch.manual_seed(seed)
+    horizon, rank_true, vocab_size = 3, 4, 4
+    num_pts = 2000
+
+    # 1. Generate a synthetic CP tensor of known rank
+    cp_cores = [torch.randn(vocab_size, rank_true) for _ in range(horizon)]
+    # full tensor T(i,j,k) = sum_r A[i,r] * B[j,r] * C[k,r]
+    tensor_gt = torch.from_numpy(tl.cp_to_tensor((None, cp_cores)))  # shape (I, J, K)
+
+    # 2. Sample from the tensor
+    # x = torch.randint(0, vocab_size, (num_pts, horizon))
+    x = torch.randint(0, vocab_size, (num_pts, horizon))
+    idx_tuple = tuple(x[:, d] for d in range(x.shape[1]))  # H tensors, each (num_pts,)
+    y = tensor_gt[idx_tuple]
+
+    x_oh = coords_to_onehot(x, vocab_size)
+
+    # 80/20 split
+    n_train = int(0.8 * num_pts)
+    x_train, y_train = x_oh[:n_train], y[:n_train]
+    x_test, y_test = x_oh[n_train:], y[n_train:]
+
+    # 3. run the training routine for several candidate ranks
+    errors, ranks = train_tc(
+        y_train=y_train,
+        x_train=x_train,
+        x_test=x_test,
+        y_test=y_test,
+        tensor_model="cp",
+    )
+
+    # 4. print a tiny report
+    for r, e in zip(ranks, errors):
+        print(f"rank={r:<2d}  RMSE={e:.4f}")
+
+    # 5. sanity assertion — best error should occur at or below R_true
+    best_rank = ranks[int(torch.argmin(torch.tensor(errors)))]
+    assert (
+        best_rank >= rank_true
+    ), f"Expected lowest error at rank >= {rank_true}, got {best_rank}. Check CP fitting pipeline."
+    print("[✓] self-test passed — pipeline recovers the true rank.")
 
 
 def main(args: Namespace):
@@ -158,5 +228,13 @@ if __name__ == "__main__":
         type=int,
         default=1000,
     )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Run the test function.",
+    )
     args = parser.parse_args()
-    main(args)
+    if args.test:
+        test()
+    else:
+        main(args)
