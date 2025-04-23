@@ -91,40 +91,6 @@ def train_tc(
     x_train: torch.Tensor,
     x_test: torch.Tensor,
     y_test: torch.Tensor,
-    tensor_model: str = "mps",
-) -> Tuple[list, list]:
-    """Train a tensor completion model on the dataset and compute reconstruction error.
-
-    Args:
-        x: torch.Tensor: Input tensor (e.g., model output). Shape: (B, V, V, ...)
-        y: torch.Tensor: Target tensor (e.g., ground truth). Shape: (B,)
-
-    Returns:
-        - errors (list): Errors achieved at different tensor ranks.
-        - ranks (list): Rank values.
-    """
-
-    errors = []
-    ranks = []
-
-    for rank in [1, 2, 4, 8, 16]:
-        cp_regressor = tl.regression.CPRegressor(weight_rank=rank)  # did not work
-        cp_regressor.fit(x_train.double(), y_train.unsqueeze(-1).double())
-        # cp_regressor = tl.regression.CP_PLSR(n_components=rank)
-        # cp_regressor.fit(x_train.double().numpy(), y_train.numpy())
-
-        # Compute the reconstruction error
-        preds = cp_regressor.predict(x_test.double())
-        errors.append(torch.linalg.norm(preds.squeeze(-1) - y_test).item())
-        ranks.append(rank)
-    return errors, ranks
-
-
-def train_tc_v2(
-    y_train: torch.Tensor,
-    x_train: torch.Tensor,
-    x_test: torch.Tensor,
-    y_test: torch.Tensor,
     y_val: Optional[torch.Tensor] = None,
     x_val: Optional[torch.Tensor] = None,
     vocab_size: int = 4,
@@ -167,29 +133,6 @@ def train_tc_v2(
     return errors, ranks
 
 
-def coords_to_onehot(coords: torch.Tensor, V: int) -> torch.Tensor:
-    """Return a float32 one-hot tensor suitable for CPRegressor."""
-    N = coords.size(0)
-    out = torch.zeros((N, V, V, V), dtype=torch.float32)
-    rows = torch.arange(N)
-    out[rows, coords[:, 0], coords[:, 1], coords[:, 2]] = 1.0
-    return out
-
-
-def coords_to_onehot_sparse(coords: torch.Tensor, vocab_size: int):
-    batch_size, horizon = coords.shape
-    vals = torch.ones(batch_size, dtype=torch.double)
-    # idx = torch.stack([coords[:, d] for d in range(horizon)], dim=0)
-    batch_idx = torch.arange(batch_size)
-    idx_tuple = tuple(
-        coords[:, d] for d in range(coords.shape[1])
-    )  # H tensors, each (num_pts,)
-    idx_tens = torch.stack((batch_idx, *idx_tuple), dim=0)  # H tensors, each (num_pts,)
-    return torch.sparse_coo_tensor(
-        idx_tens, vals, (batch_size,) + (vocab_size,) * horizon
-    )
-
-
 def test(seed: int = 0) -> None:
     """Quick self-test for :pyfunc:`train_tc`.
 
@@ -225,13 +168,7 @@ def test(seed: int = 0) -> None:
     x_test, y_test = x[n_train:], y[n_train:]
 
     # 3. run the training routine for several candidate ranks
-    # errors, ranks = train_tc(
-    #     y_train=y_train,
-    #     x_train=coords_to_onehot(x_train, vocab_size),
-    #     x_test=coords_to_onehot(x_test, vocab_size),
-    #     y_test=y_test,
-    # )
-    errors, ranks = train_tc_v2(
+    errors, ranks = train_tc(
         y_train=y_train,
         x_train=x_train,
         x_test=x_test,
@@ -270,7 +207,7 @@ def main(args: Namespace):
             dataset["train"].train_test_split(test_size=0.2, seed=42).values()
         )
 
-        errors, ranks = train_tc_v2(
+        errors, ranks = train_tc(
             x_train=torch.tensor(dataset["train"]["y"]),
             y_train=torch.tensor(dataset["train"]["py|x"]),
             x_test=torch.tensor(dataset["test"]["y"]),
