@@ -19,9 +19,10 @@ import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+from scipy.sparse import coo_matrix
 
 # set tl backend to pytorch
-# tl.set_backend("pytorch")
+tl.set_backend("pytorch")
 
 
 def plot_errors(subsets, output_path: str = "tensor_completion_errors.png"):
@@ -106,14 +107,12 @@ def train_tc(
 
     for rank in [1, 2, 4, 8, 16]:
         cp_regressor = tl.regression.CPRegressor(weight_rank=rank)  # did not work
-        cp_regressor.fit(
-            x_train.double().numpy(), y_train.unsqueeze(-1).double().numpy()
-        )
+        cp_regressor.fit(x_train.double(), y_train.unsqueeze(-1).double())
         # cp_regressor = tl.regression.CP_PLSR(n_components=rank)
         # cp_regressor.fit(x_train.double().numpy(), y_train.numpy())
 
         # Compute the reconstruction error
-        preds = torch.from_numpy(cp_regressor.predict(x_test.double().numpy()))
+        preds = cp_regressor.predict(x_test.double())
         errors.append(torch.linalg.norm(preds.squeeze(-1) - y_test).item())
         ranks.append(rank)
     return errors, ranks
@@ -149,7 +148,7 @@ def test(seed: int = 0) -> None:
     # 1. Generate a synthetic CP tensor of known rank
     cp_cores = [torch.randn(vocab_size, rank_true) for _ in range(horizon)]
     # full tensor T(i,j,k) = sum_r A[i,r] * B[j,r] * C[k,r]
-    tensor_gt = torch.from_numpy(tl.cp_to_tensor((None, cp_cores)))  # shape (I, J, K)
+    tensor_gt = tl.cp_to_tensor((None, cp_cores))  # shape (I, J, K)
 
     # 2. Sample from the tensor
     # x = torch.randint(0, vocab_size, (num_pts, horizon))
@@ -157,20 +156,17 @@ def test(seed: int = 0) -> None:
     idx_tuple = tuple(x[:, d] for d in range(x.shape[1]))  # H tensors, each (num_pts,)
     y = tensor_gt[idx_tuple]
 
-    x_oh = coords_to_onehot(x, vocab_size)
-
     # 80/20 split
     n_train = int(0.8 * num_pts)
-    x_train, y_train = x_oh[:n_train], y[:n_train]
-    x_test, y_test = x_oh[n_train:], y[n_train:]
+    x_train, y_train = x[:n_train], y[:n_train]
+    x_test, y_test = x[n_train:], y[n_train:]
 
     # 3. run the training routine for several candidate ranks
     errors, ranks = train_tc(
         y_train=y_train,
-        x_train=x_train,
-        x_test=x_test,
+        x_train=coords_to_onehot(x_train, vocab_size),
+        x_test=coords_to_onehot(x_test, vocab_size),
         y_test=y_test,
-        tensor_model="cp",
     )
 
     # 4. print a tiny report
@@ -204,7 +200,6 @@ def main(args: Namespace):
             y_train=torch.tensor(dataset["train"]["py|x"]),
             x_test=torch.tensor(dataset["test"]["y"]),
             y_test=torch.tensor(dataset["test"]["py|x"]),
-            tensor_model="mps",
         )
 
         # Store errors and ranks
