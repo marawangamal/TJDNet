@@ -15,29 +15,32 @@ def select_margin_mps_tensor_batched(
 ):
     """Performs selection and marginalization operations on a MPS tensor representation.
 
-    Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
-    applies a sequence of operations on each mode:
-        - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ
-        - Marginalization: For op = -2, sums all elements in aᵢⱼ
-        - Free index: For op = -1, keeps aᵢⱼ unchanged
+    This function processes an MPS (Matrix Product State) tensor by applying
+    selection or marginalization operations on each tensor in the chain according
+    to the operation codes provided in `ops`.
 
     Args:
-        alpha (torch.Tensor): Alpha tensor of shape (B, R)
-        beta (torch.Tensor): Beta tensor of shape (B, R)
-        core (torch.Tensor): Core tensor of shape (B, H, R, V, R)
+        alpha (torch.Tensor): Left boundary tensor of shape (B, R)
+        beta (torch.Tensor): Right boundary tensor of shape (B, R)
+        core (torch.Tensor): Core tensors of shape (B, H, R, V, R) where:
+            B is batch size
+            H is the number of modes (cores)
+            R is the bond dimension
+            V is the vocabulary size
         ops (torch.Tensor): Operation codes of shape (B, H) specifying:
-            -2: marginalize mode (sum reduction)
+            -2: marginalize mode (sum over all indices)
             -1: keep mode as free index
-            [0,V): select index v in mode
+            >=0: select specific index in mode
+        use_scale_factors (bool): Whether to return scale factors. Default: True
 
-    Note:
-        - The number of free indices in `ops` must be at most 1
-        - Edge tensors `alpha` and `beta` are cloned and detached to avoid in-place operations.
+    Notes:
+        - The number of free indices (-1) in `ops` must be at most 1
+        - Boundary tensors are cloned to avoid in-place modifications
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
-            - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
-            - Scale factors list of shape (T,)
+            - result_tensor: Tensor of shape determined by free indices
+            - scale_factors: Scale factors of shape (B,) if use_scale_factors=True, else None
     """
 
     # Validation:
@@ -99,7 +102,6 @@ def select_margin_mps_tensor_batched(
         mask_margin = t >= bp_margin  # (B,)
 
         # Marginalize
-        # BUG: This is not correct - it ends up doing A3 A2 A1 beta vs A1 A2 A3 beta
         if mask_margin.any():
             core_margin = core_margins[mask_margin, t]  # (B', R, R)
             # (B', R, R) @ (B', R, 1) -> (B', R, 1) -> (B', R)
