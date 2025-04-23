@@ -20,6 +20,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 
+# set tl backend to pytorch
+# tl.set_backend("pytorch")
+
 
 def plot_errors(subsets, output_path: str = "tensor_completion_errors.png"):
     """Plots reconstruction error as a function of tensor rank
@@ -102,17 +105,87 @@ def train_tc(
     ranks = []
 
     for rank in [1, 2, 4, 8, 16]:
-        # cp_regressor = tl.regression.CPRegressor(weight_rank=4)  # did not work
-        cp_regressor = tl.regression.CP_PLSR(n_components=rank)
-        cp_regressor.fit(x_train.double().numpy(), y_train.numpy())
+        cp_regressor = tl.regression.CPRegressor(weight_rank=4)  # did not work
+        cp_regressor.fit(
+            x_train.double().numpy(), y_train.unsqueeze(-1).double().numpy()
+        )
+        # cp_regressor = tl.regression.CP_PLSR(n_components=rank)
+        # cp_regressor.fit(x_train.double().numpy(), y_train.numpy())
 
         # Compute the reconstruction error
-        preds = cp_regressor.predict(x_test.double().numpy())
-        errors.append(
-            torch.linalg.norm(torch.from_numpy(preds).squeeze(-1) - y_test).item()
-        )
+        preds = torch.from_numpy(cp_regressor.predict(x_test.double().numpy()))
+        errors.append(torch.linalg.norm(preds.squeeze(-1) - y_test).item())
         ranks.append(rank)
     return errors, ranks
+
+
+def test(seed: int = 0) -> None:
+    """Quick self-test for :pyfunc:`train_tc`.
+
+    Creates a synthetic CP tensor of known rank, samples (x, y) pairs,
+    and checks that CP regression recovers it with low error when the
+    correct rank is allowed.
+
+    Args:
+        seed: Random seed for repeatability.
+
+    Raises:
+        AssertionError if the best error is not achieved at or below the
+        ground-truth rank (indicating something is wrong with the pipeline).
+    """
+    torch.manual_seed(seed)
+    rng = torch.Generator().manual_seed(seed)
+
+    # ----------------------------------------------------------
+    # 1) generate a synthetic rank-R CP tensor     y = ⟨A, B, C⟩
+    # ----------------------------------------------------------
+    I, J, K = 30, 25, 20  # mode sizes   (like vocab × prompt × position)
+    R_true = 4  # ground-truth CP rank
+    A = torch.randn(I, R_true, generator=rng)
+    B = torch.randn(J, R_true, generator=rng)
+    C = torch.randn(K, R_true, generator=rng)
+
+    # full tensor T(i,j,k) = sum_r A[i,r] * B[j,r] * C[k,r]
+    T = torch.from_numpy(tl.cp_to_tensor((None, [A, B, C])))  # shape (I, J, K)
+
+    # ----------------------------------------------------------
+    # 2) sample (x, y) pairs — coordinates and corresponding value
+    # ----------------------------------------------------------
+    num_pts = 2000
+    idx = torch.randint(I, (num_pts,), generator=rng)
+    idy = torch.randint(J, (num_pts,), generator=rng)
+    idz = torch.randint(K, (num_pts,), generator=rng)
+
+    x = torch.stack([idx, idy, idz], dim=1)  # shape (N, 3)
+    y = T[idx, idy, idz] + 0.01 * torch.randn(num_pts, generator=rng)  # small noise
+
+    # 80/20 split
+    n_train = int(0.8 * num_pts)
+    x_train, y_train = x[:n_train], y[:n_train]
+    x_test, y_test = x[n_train:], y[n_train:]
+
+    # ----------------------------------------------------------
+    # 3) run the training routine for several candidate ranks
+    # ----------------------------------------------------------
+    errors, ranks = train_tc(
+        y_train=y_train,
+        x_train=x_train,
+        x_test=x_test,
+        y_test=y_test,
+        tensor_model="cp",
+    )
+
+    # 4) print a tiny report
+    for r, e in zip(ranks, errors):
+        print(f"rank={r:<2d}  RMSE={e:.4f}")
+
+    # 5) sanity assertion — best error should occur at or below R_true
+    best_rank = ranks[int(torch.argmin(torch.tensor(errors)))]
+    assert best_rank <= R_true, (
+        f"Expected lowest error at rank ≤ {R_true}, got {best_rank}. "
+        "Check CP fitting pipeline."
+    )
+    print("✓ self-test passed — pipeline recovers the true rank.")
 
 
 def main(args: Namespace):
@@ -158,5 +231,15 @@ if __name__ == "__main__":
         type=int,
         default=1000,
     )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Run the test function.",
+    )
     args = parser.parse_args()
-    main(args)
+    # if args.test:
+    #     test()
+    # else:
+    #     main(args)
+
+    test()

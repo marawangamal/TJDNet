@@ -46,6 +46,9 @@ pip install -e .
 
 # 5. (optional) login to wandb
 wandb login
+
+# 6. (optional) login to huggingface -- needed to run llama models
+huggingface-cli login
 ```
 
 
@@ -85,11 +88,11 @@ python scripts/eval_acc.py -c <checkpoint_path>
 <!-- OLD Version -->
 <!-- | Model                            | Latency [s]   | Accuracy      |
 |:---------------------------------|:--------------|:--------------|
-| llama::baseline             | 1.441 ± 0.007 | 0.1290 |
+| llama::baseline                          | 1.441 ± 0.007 | 0.1290 |
 | llama::cp::lr32::hd768::rank4::horizon2  | 0.745 ± 0.004 | 0.0492 |
-| llama::cp::lr32::hd768::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |
-| llama::cp::lr32::hd768::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |
-| llama::cp::lr32::hd768::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |
+| llama::cp::lr32::hd768::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |  372,572,160
+| llama::cp::lr32::hd768::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |  741,212,160
+| llama::cp::lr32::hd768::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |  147,8492,160
 | llama::cp::lr64::hd768::rank8::horizon2  | - | 0.0417 |
 | llama::cp::lr32::hd1024::rank8::horizon2 | - | 0.0629 |
 | llama::cp::lr32::hd1280::rank8::horizon2 | - | 0.0781 |
@@ -159,33 +162,43 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama::cp::rank8::hd5192::horizon3::bs::1           |               | 0.050    | 
 | llama::cp::rank8::hd5192::horizon4::bs::1           |               | train*   |  wi90f8a8c8
 | llama::cp::rank8::hd5192::horizon2::bs::1::umel     |               | 0.055    |  
+| llama::mps::rank2::hd5192::horizon2::bs::1          |               | train*   |  
+| llama::mps::rank4::hd5192::horizon2::bs::1          |               | train*   |  
 
 
-<!-- | Model                                                    | Latency [s]   | Accuracy |  
-|:---------------------------------------------------------|:--------------|:---------|
-| llama::base::bs::1                                       | 2.884 ± 0.003 | 0.1290   |
-| llama::cp::rank8::hd5120::horizon2::bs::1                | 1.520 ± 0.001 | 0.0925   |
-| llama::mps::rank8::hd5120::horizon2::bs::1               |               |          |
-| multi-head  (r=1)                                        |   |    |
-| oslodets    (tp1)                                        |   |    | -->
+<!-- 
+| Model                                                    | Latency [s]   | Accuracy |  Head Params (M) |
+|:---------------------------------------------------------|:--------------|:---------|-------------------
+| llama::base::bs::1                                       | 2.884 ± 0.003 | 0.1290   |                  |
+| llama::cp::rank8::hd5120::horizon2::bs::1                | 1.520 ± 0.001 | 0.0925   |  573             |
+| llama::mps::rank2::hd5120::horizon2::bs::1               | 1.485 ± 0.011 |          |                  |
+| multi-head  (r=1)                                        |               |          |                  |
+| oslodets    (r=8)                                        |               | 0.0540   |  373             |
+| oslodets    (r=16)                                       |               | 0.0549   |  741             |
+| oslodets    (r=32)                                       |               | 0.0584   |  1478            |
+-->
 
 
+<!-- | llama::cp::lr32::hd768::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |  372,572,160
+| llama::cp::lr32::hd768::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |  741,212,160
+| llama::cp::lr32::hd768::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |  1478,492,160 -->
 
 
+ <!-- Model                               | Latency [s]   | Accuracy      |                                      
+|:-----------------------------------|:--------------|:--------------|
+| llama::base::bs::1                 | 2.915 ± 0.006 | 0.000 ± 0.000 |
+| llama::cp::rank1::horizon2::bs::1  | 1.478 ± 0.002 | 0.000 ± 0.000 |
+| llama::cp::rank8::horizon2::bs::1  | 1.522 ± 0.004 | 0.000 ± 0.000 |
+| llama::mps::rank2::horizon2::bs::1 | 1.485 ± 0.011 | 0.000 ± 0.000 |
+| llama::mps::rank4::horizon4::bs::1 | 0.773 ± 0.002 | 0.000 ± 0.000 |
+| Model                              | Latency [s]   | GPU Memory (allocated)[MB]   | GPU Memory (reserved) [MB]   | CPU Memory (rss) [MB]   | Accuracy      |
+|:-----------------------------------|:--------------|:-----------------------------|:-----------------------------|:------------------------|:--------------|
+| llama::base::bs::1                 | 2.915 ± 0.006 | 25760.249 ± 0.000            | 25776.000 ± 0.000            | 1216.600 ± 0.013        | 0.000 ± 0.000 |
+| llama::cp::rank1::horizon2::bs::1  | 1.478 ± 0.002 | 26045.067 ± 0.000            | 26062.000 ± 0.000            | 1224.218 ± 0.010        | 0.000 ± 0.000 |
+| llama::cp::rank8::horizon2::bs::1  | 1.522 ± 0.004 | 27165.341 ± 0.000            | 27182.000 ± 0.000            | 1225.691 ± 0.000        | 0.000 ± 0.000 |
+| llama::mps::rank2::horizon2::bs::1 | 1.485 ± 0.011 | 26045.067 ± 0.000            | 26062.000 ± 0.000            | 1226.035 ± 0.000        | 0.000 ± 0.000 |
+| llama::mps::rank4::horizon4::bs::1 | 0.773 ± 0.002 | 26202.665 ± 0.000            | 26222.000 ± 0.000            | 1226.441 ± 0.000        | 0.000 ± 0.000 | -->
 
-
-
-<!-- | Model                            | Latency [s]   | Accuracy      |
-|:---------------------------------|:--------------|:--------------|
-| llama::base::bs::1               | 1.441 ± 0.007 | 0.1290 |
-| llama::cp::nl2::rank4::horizon2  | 0.745 ± 0.004 | 0.0492 |
-| llama::cp::nl2::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |
-| llama::cp::nl2::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |
-| llama::cp::nl2::rank32::horizon2 | 0.833 ± 0.028 | - |
-| llama::ucp::nl2::rank4::horizon2  | - | - |
-| llama::ucp::nl2::rank8::horizon2  | - | - |
-| llama::ucp::nl2::rank16::horizon2 | - | - |
-| llama::ucp::nl2::rank32::horizon2 | - | - | -->
 
 
 
