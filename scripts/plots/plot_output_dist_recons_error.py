@@ -139,11 +139,14 @@ def train_tc_v2(
     """
     # coords tensors are already (N, H)
     errors, ranks = [], []
-    for rank in tqdm.tqdm([1, 2, 4, 8, 16], desc="Training CPRegressor"):
+    for rank in tqdm.tqdm([1, 2, 4, 8, 16], desc="Training CPRegressor", leave=False):
         reg = CPRegressor(
-            vocab_size, horizon=x_train.shape[1], rank=rank, device=x_train.device
+            vocab_size,
+            horizon=x_train.shape[1],
+            rank=rank,
+            device=x_train.device,
         )
-        reg.fit(x_train, y_train, epochs=2000)
+        reg.fit(x_train, y_train, epochs=1000, atol=1e-2, rtol=5e-2)
         preds = reg.predict(x_test)
         error = torch.linalg.norm(preds - y_test).item()
         errors.append(error)
@@ -255,6 +258,11 @@ def main(args: Namespace):
             y_test=torch.tensor(dataset["test"]["py|x"]),
             vocab_size=torch.max(torch.tensor(dataset["train"]["y"])) + 1,
         )
+
+        # Print a tiny report
+        print("-" * 80 + f"\nSubset: {subset['name']}")
+        for r, e in zip(ranks, errors):
+            print(f"rank={r:<2d}  RMSE={e:.4f}")
 
         # Store errors and ranks
         subset["errors"] = errors

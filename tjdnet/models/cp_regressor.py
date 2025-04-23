@@ -41,6 +41,7 @@ class CPRegressor(nn.Module):
     # ------------------------------------------------------------------ #
     # fit with tqdm + simple early stopping
     # ------------------------------------------------------------------ #
+
     def fit(
         self,
         X: torch.Tensor,
@@ -49,7 +50,8 @@ class CPRegressor(nn.Module):
         lr: float = 1e-2,
         epochs: int = 1000,
         batch_size: int = 512,
-        rtol: float = 1e-3,  # relative tolerance (fractional improvement)
+        rtol: float = 5e-2,  # ≥5 % relative improvement
+        atol: float = 1e-2,  # ≥0.01 absolute drop
         patience: int = 10,
     ):
         """Train CPRegressor with Adam.
@@ -60,7 +62,7 @@ class CPRegressor(nn.Module):
             lr (float, optional): Learning rate. Defaults to 1e-2.
             epochs (int, optional): Max num epochs. Defaults to 1000.
             batch_size (int, optional): Batch Size. Defaults to 512.
-            rtol (float, optional): Relative tolerance for early stopping. Defaults to 1e-3.
+            rtol (float, optional): Relative tolerance for early stopping. Defaults to 5e-2 (i.e 5%).
             patience (int, optional): Early stopping patience. Defaults to 10.
 
         Returns:
@@ -69,32 +71,38 @@ class CPRegressor(nn.Module):
         ds = TensorDataset(X, y)
         dl = DataLoader(ds, batch_size=batch_size, shuffle=True)
         opt = torch.optim.Adam(self.parameters(), lr=lr)
-        loss_fn = nn.MSELoss()
+        mse = nn.MSELoss()
 
         best_loss, wait = float("inf"), 0
-        epoch_bar = tqdm(range(epochs), desc="epochs", leave=False)
+        bar = tqdm(range(epochs), desc="epochs", leave=False)
 
-        for _ in epoch_bar:
+        improvement_checks = [
+            # relative
+            lambda best, curr: (best - curr) / best > rtol,
+            # absolute
+            lambda best, curr: best - curr > atol,
+        ]
+
+        for _ in bar:
             running = 0.0
             self.train()
             for xb, yb in dl:
                 opt.zero_grad()
-                loss = loss_fn(self(xb), yb)
+                loss = mse(self(xb), yb)
                 loss.backward()
                 opt.step()
                 running += loss.item() * xb.size(0)
 
             epoch_loss = running / len(ds)
-            epoch_bar.set_postfix(loss=f"{epoch_loss:.6f}")
+            bar.set_postfix(loss=f"{epoch_loss:.6f}")
 
-            # ------------- early-stopping with relative tolerance -------------
+            # initialise best_loss after first epoch
             if best_loss == float("inf"):
                 best_loss = epoch_loss
                 continue
 
-            improvement = (best_loss - epoch_loss) / best_loss
-            if improvement > rtol:
-                best_loss, wait = epoch_loss, 0
+            if any(fn(best_loss, epoch_loss) for fn in improvement_checks):
+                best_loss, wait = epoch_loss, 0  # significant improvement
             else:
                 wait += 1
                 if wait >= patience:
