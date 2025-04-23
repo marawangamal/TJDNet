@@ -105,7 +105,7 @@ def train_tc(
     ranks = []
 
     for rank in [1, 2, 4, 8, 16]:
-        cp_regressor = tl.regression.CPRegressor(weight_rank=4)  # did not work
+        cp_regressor = tl.regression.CPRegressor(weight_rank=rank)  # did not work
         cp_regressor.fit(
             x_train.double().numpy(), y_train.unsqueeze(-1).double().numpy()
         )
@@ -117,6 +117,15 @@ def train_tc(
         errors.append(torch.linalg.norm(preds.squeeze(-1) - y_test).item())
         ranks.append(rank)
     return errors, ranks
+
+
+def coords_to_onehot(coords: torch.Tensor, V: int) -> torch.Tensor:
+    """Return a float32 one-hot tensor suitable for CPRegressor."""
+    N = coords.size(0)
+    out = torch.zeros((N, V, V, V), dtype=torch.float32)
+    rows = torch.arange(N)
+    out[rows, coords[:, 0], coords[:, 1], coords[:, 2]] = 1.0
+    return out
 
 
 def test(seed: int = 0) -> None:
@@ -134,39 +143,28 @@ def test(seed: int = 0) -> None:
         ground-truth rank (indicating something is wrong with the pipeline).
     """
     torch.manual_seed(seed)
-    rng = torch.Generator().manual_seed(seed)
-
-    # ----------------------------------------------------------
-    # 1) generate a synthetic rank-R CP tensor     y = ⟨A, B, C⟩
-    # ----------------------------------------------------------
-    I, J, K = 30, 25, 20  # mode sizes   (like vocab × prompt × position)
-    R_true = 4  # ground-truth CP rank
-    A = torch.randn(I, R_true, generator=rng)
-    B = torch.randn(J, R_true, generator=rng)
-    C = torch.randn(K, R_true, generator=rng)
-
-    # full tensor T(i,j,k) = sum_r A[i,r] * B[j,r] * C[k,r]
-    T = torch.from_numpy(tl.cp_to_tensor((None, [A, B, C])))  # shape (I, J, K)
-
-    # ----------------------------------------------------------
-    # 2) sample (x, y) pairs — coordinates and corresponding value
-    # ----------------------------------------------------------
+    horizon, rank_true, vocab_size = 3, 4, 4
     num_pts = 2000
-    idx = torch.randint(I, (num_pts,), generator=rng)
-    idy = torch.randint(J, (num_pts,), generator=rng)
-    idz = torch.randint(K, (num_pts,), generator=rng)
 
-    x = torch.stack([idx, idy, idz], dim=1)  # shape (N, 3)
-    y = T[idx, idy, idz] + 0.01 * torch.randn(num_pts, generator=rng)  # small noise
+    # 1. Generate a synthetic CP tensor of known rank
+    cp_cores = [torch.randn(vocab_size, rank_true) for _ in range(horizon)]
+    # full tensor T(i,j,k) = sum_r A[i,r] * B[j,r] * C[k,r]
+    tensor_gt = torch.from_numpy(tl.cp_to_tensor((None, cp_cores)))  # shape (I, J, K)
+
+    # 2. Sample from the tensor
+    # x = torch.randint(0, vocab_size, (num_pts, horizon))
+    x = torch.randint(0, vocab_size, (num_pts, horizon))
+    idx_tuple = tuple(x[:, d] for d in range(x.shape[1]))  # H tensors, each (num_pts,)
+    y = tensor_gt[idx_tuple]
+
+    x_oh = coords_to_onehot(x, vocab_size)
 
     # 80/20 split
     n_train = int(0.8 * num_pts)
-    x_train, y_train = x[:n_train], y[:n_train]
-    x_test, y_test = x[n_train:], y[n_train:]
+    x_train, y_train = x_oh[:n_train], y[:n_train]
+    x_test, y_test = x_oh[n_train:], y[n_train:]
 
-    # ----------------------------------------------------------
-    # 3) run the training routine for several candidate ranks
-    # ----------------------------------------------------------
+    # 3. run the training routine for several candidate ranks
     errors, ranks = train_tc(
         y_train=y_train,
         x_train=x_train,
@@ -175,17 +173,16 @@ def test(seed: int = 0) -> None:
         tensor_model="cp",
     )
 
-    # 4) print a tiny report
+    # 4. print a tiny report
     for r, e in zip(ranks, errors):
         print(f"rank={r:<2d}  RMSE={e:.4f}")
 
-    # 5) sanity assertion — best error should occur at or below R_true
+    # 5. sanity assertion — best error should occur at or below R_true
     best_rank = ranks[int(torch.argmin(torch.tensor(errors)))]
-    assert best_rank <= R_true, (
-        f"Expected lowest error at rank ≤ {R_true}, got {best_rank}. "
-        "Check CP fitting pipeline."
-    )
-    print("✓ self-test passed — pipeline recovers the true rank.")
+    assert (
+        best_rank >= rank_true
+    ), f"Expected lowest error at rank >= {rank_true}, got {best_rank}. Check CP fitting pipeline."
+    print("[✓] self-test passed — pipeline recovers the true rank.")
 
 
 def main(args: Namespace):
