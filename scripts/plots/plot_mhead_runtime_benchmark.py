@@ -23,8 +23,12 @@ from utils.models import create_model_gpt_fn, train_forward
 from utils.utils import group_arr, plot_groups
 
 
-def parse_model_head(exp_name):
-    return re.search(r"mh(\w+)::", exp_name).group(1)  # type: ignore
+def parse_model_head(name):
+    return re.search(r"mh(\w+)::", name).group(1)  # type: ignore
+
+
+def parse_model_horizon(name):
+    return int(re.search(r"h(\d+)", name).group(1))  # type: ignore
 
 
 def main(args):
@@ -58,6 +62,7 @@ def main(args):
                 ),
                 **common_kwargs,
             }
+            # for (r, h) in zip([1], [1])
             for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
         ]
         + [
@@ -133,7 +138,7 @@ def main(args):
     results_grouped = group_arr(
         results,
         lambda x: parse_model_head(x["name"]),
-        lambda d: d["horizon"],
+        lambda d: parse_model_horizon(d["name"]),
     )
 
     plot_groups(
