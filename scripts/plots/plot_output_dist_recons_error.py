@@ -130,7 +130,7 @@ def train_tc_v2(
     """Train a tensor completion model on the dataset and compute reconstruction error.
 
     Args:
-        x: torch.Tensor: Input tensor (e.g., model output). Shape: (B, V, V, ...)
+        x: torch.Tensor: Input tensor (e.g., model output). Shape: (B, H)
         y: torch.Tensor: Target tensor (e.g., ground truth). Shape: (B,)
 
     Returns:
@@ -138,17 +138,15 @@ def train_tc_v2(
         - ranks (list): Rank values.
     """
     # coords tensors are already (N, H)
-    errors = []
-    ranks = []
-
-    for rank in [1, 2, 4, 8, 16]:
+    errors, ranks = [], []
+    for rank in tqdm.tqdm([1, 2, 4, 8, 16], desc="Training CPRegressor"):
         reg = CPRegressor(
             vocab_size, horizon=x_train.shape[1], rank=rank, device=x_train.device
         )
         reg.fit(x_train, y_train, epochs=2000)
         preds = reg.predict(x_test)
         error = torch.linalg.norm(preds - y_test).item()
-        errors.append(torch.linalg.norm(preds.squeeze(-1) - y_test).item())
+        errors.append(error)
         ranks.append(rank)
     return errors, ranks
 
@@ -250,11 +248,12 @@ def main(args: Namespace):
     for subset in tqdm.tqdm(subsets, desc="Processing subsets"):
         dataset = load_dataset("mremila/tjdnet", name=subset["name"])
         dataset = dataset.select_columns(["x", "y", "py|x"])
-        errors, ranks = train_tc(
+        errors, ranks = train_tc_v2(
             x_train=torch.tensor(dataset["train"]["y"]),
             y_train=torch.tensor(dataset["train"]["py|x"]),
             x_test=torch.tensor(dataset["test"]["y"]),
             y_test=torch.tensor(dataset["test"]["py|x"]),
+            vocab_size=torch.max(torch.tensor(dataset["train"]["y"])) + 1,
         )
 
         # Store errors and ranks
