@@ -182,7 +182,9 @@ def test(seed: int = 0) -> None:
     assert (
         best_rank >= rank_true
     ), f"Expected lowest error at rank >= {rank_true}, got {best_rank}. Check CP fitting pipeline."
-    print("[✓] self-test passed — pipeline recovers the true rank.")
+    print(
+        f"[✓] self-test passed — pipeline recovers the true rank (true_rank={rank_true})"
+    )
 
 
 def main(args: Namespace):
