@@ -121,21 +121,22 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+            # for (h, r) in itertools.product([2, 4], [4, 8, 16])
+            for (r, h) in zip([16], [2])
         ]
-        + [
-            {
-                "name": f"gpt2::ucp::horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="ucp",
-                    param_net_config={"hidden_dim": 768, "use_decoder": True},
-                ),
-                **common_kwargs,
-            }
-            for (h, r) in itertools.product([2, 4], [4, 8, 16])
-        ]
+        # + [
+        #     {
+        #         "name": f"gpt2::ucp::horizon{h}::rank{r}",
+        #         "model_fn": create_model_gpt_fn(
+        #             rank=r,
+        #             horizon=h,
+        #             model_head="ucp",
+        #             param_net_config={"hidden_dim": 768, "use_decoder": True},
+        #         ),
+        #         **common_kwargs,
+        #     }
+        #     for (h, r) in itertools.product([2, 4], [4, 8, 16])
+        # ]
         + [
             {
                 "name": f"gpt2::mps::horizon{h}::rank{r}",
@@ -147,7 +148,7 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+            for (r, h) in zip([2, 4, 8], [2, 4])
         ]
         + [
             {
@@ -160,7 +161,7 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (h, r) in itertools.product([2, 4], [4, 8, 16])
+            for (r, h) in zip([2, 4, 8], [2, 4])
         ]
     )
 
@@ -194,24 +195,24 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([8, 16], [2, 2])
+            for (r, h) in zip([1, 16], [2, 2])
         ]
-        + [
-            {
-                "name": f"llama::ucp::rank{r}::horizon{h}",
-                "model_fn": create_model_llama_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="ucp",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                        "use_decoder": True,
-                    },
-                ),
-                **common_kwargs,
-            }
-            for (r, h) in zip([8, 16], [2, 2])
-        ]
+        # + [
+        #     {
+        #         "name": f"llama::ucp::rank{r}::horizon{h}",
+        #         "model_fn": create_model_llama_fn(
+        #             rank=r,
+        #             horizon=h,
+        #             model_head="ucp",
+        #             param_net_config={
+        #                 "hidden_dim": 5120,
+        #                 "use_decoder": True,
+        #             },
+        #         ),
+        #         **common_kwargs,
+        #     }
+        #     for (r, h) in zip([8, 16], [2, 2])
+        # ]
         + [
             {
                 "name": f"llama::mps::rank{r}::horizon{h}",
@@ -226,7 +227,7 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([2, 4], [2, 2])
+            for (r, h) in zip([2, 4, 8], [2, 4])
         ]
     )
 

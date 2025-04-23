@@ -28,7 +28,8 @@ def parse_model_head(name):
 
 
 def parse_model_horizon(name):
-    return int(re.search(r"h(\d+)", name).group(1))  # type: ignore
+    h = int(re.search(r"h(\d+)", name).group(1))  # type: ignore
+    return f"h={h}"
 
 
 def main(args):
@@ -62,8 +63,8 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            # for (r, h) in zip([1], [1])
-            for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
+            # for (r, h) in zip([1, 2], [1, 2])
+            for (r, h) in itertools.product([1, 2, 4, 8, 16, 32], [1, 2, 4])
         ]
         + [
             {
@@ -77,7 +78,7 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
+            for (r, h) in itertools.product([1, 2, 4, 8, 16, 32], [1, 2, 4])
         ]
         + [
             {
@@ -124,7 +125,13 @@ def main(args):
             )
 
             # Append to results
-            results.append({**exp, "latency": res["Latency [s]"]["mean"]})
+            results.append(
+                {
+                    **exp,
+                    "latency": res["Latency [s]"]["mean"],
+                    "memory": res["GPU Memory (allocated)[MB]"]["mean"],
+                }
+            )
 
             # Clean up
             del model
@@ -141,31 +148,48 @@ def main(args):
         lambda d: parse_model_horizon(d["name"]),
     )
 
-    plot_groups(
-        results_grouped,
-        x_key="params",
-        y_key="latency",
-        x_label="Params",
-        y_label="Latency [s]",
-        # First level controls color, second controls marker
-        style_dims=[
-            "color",
-            "marker",
-        ],
-        style_cycles={
-            "color": [
-                "#0173B2",
-                "#DE8F05",
-                "#029E73",
-                "#D55E00",
-                "#CC78BC",
-                "#CA9161",
-                "#FBAFE4",
-                "#949494",
-            ]
+    # Plot results
+    for exp_kwargs in [
+        {
+            "y_key": "latency",
+            "y_label": "Latency [s]",
+            "path": f"results/plots/model_head_latency_benchmark_{args.mode}_ume{args.use_memory_efficient_loss}.png",
         },
-        path=f"results/plots/model_head_latency_benchmark_{args.mode}_ume{args.use_memory_efficient_loss}.png",
-    )
+        {
+            "y_key": "memory",
+            "y_label": "GPU Memory [MB]",
+            "path": f"results/plots/model_head_memory_benchmark_{args.mode}_ume{args.use_memory_efficient_loss}.png",
+        },
+    ]:
+        plot_groups(
+            results_grouped,
+            x_key="params",
+            x_label="Params",
+            # First level controls color, second controls marker
+            style_dims=[
+                "color",
+                "marker",
+            ],
+            style_cycles={
+                "color": [
+                    "#0173B2",
+                    "#DE8F05",
+                    "#029E73",
+                    "#D55E00",
+                    "#CC78BC",
+                    "#CA9161",
+                    "#FBAFE4",
+                    "#949494",
+                ]
+            },
+            **exp_kwargs,
+        )
+
+    # save_fig(
+    #     results,
+    #     path=f"results/plots/cp_gpu_mem_benchmark_{args.mode}_ume{args.use_memory_efficient_loss}.png",
+    #     y_axis="GPU Memory (allocated)[MB]",
+    # )
 
 
 if __name__ == "__main__":
