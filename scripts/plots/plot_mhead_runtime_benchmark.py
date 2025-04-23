@@ -10,6 +10,7 @@ Example:
 
 import gc
 import argparse
+import itertools
 
 
 import torch
@@ -57,52 +58,50 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            # for (r, h) in itertools.product([1, 2], [1, 2])
-            for (r, h) in zip([1], [1])
+            for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
         ]
-        # + [
-        #     {
-        #         "name": f"gpt2::mhucp::hd768::r{r}::h{h}",
-        #         "params": r,
-        #         "model_fn": create_model_gpt_fn(
-        #             r,
-        #             h,
-        #             model_head="ucp",
-        #             use_memory_efficient_loss=args.use_memory_efficient_loss,
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     # for (r, h) in itertools.product([1, 2], [1, 2])
-        #     for (r, h) in zip([1, 2], [1, 2])
-        # ]
-        # + [
-        #     {
-        #         "name": f"gpt2::mhmps::hd768::r{r}::h{h}",
-        #         "params": h * r**2,
-        #         "model_fn": create_model_gpt_fn(
-        #             r,
-        #             h,
-        #             model_head="mps",
-        #             use_memory_efficient_loss=args.use_memory_efficient_loss,
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
-        # ]
-        # + [
-        #     {
-        #         "name": f"gpt2::mhumps::hd768::r{r}::h{h}",
-        #         "params": r**2,
-        #         "model_fn": create_model_gpt_fn(
-        #             r,
-        #             h,
-        #             model_head="umps",
-        #             use_memory_efficient_loss=args.use_memory_efficient_loss,
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
-        # ]
+        + [
+            {
+                "name": f"gpt2::mhucp::hd768::r{r}::h{h}",
+                "params": r,
+                "model_fn": create_model_gpt_fn(
+                    r,
+                    h,
+                    model_head="ucp",
+                    use_memory_efficient_loss=args.use_memory_efficient_loss,
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
+        ]
+        + [
+            {
+                "name": f"gpt2::mhmps::hd768::r{r}::h{h}",
+                "params": h * r**2,
+                "model_fn": create_model_gpt_fn(
+                    r,
+                    h,
+                    model_head="mps",
+                    use_memory_efficient_loss=args.use_memory_efficient_loss,
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
+        ]
+        + [
+            {
+                "name": f"gpt2::mhumps::hd768::r{r}::h{h}",
+                "params": r**2,
+                "model_fn": create_model_gpt_fn(
+                    r,
+                    h,
+                    model_head="umps",
+                    use_memory_efficient_loss=args.use_memory_efficient_loss,
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in itertools.product([1, 2, 4], [1, 2, 4])
+        ]
     )
 
     print(f"Starting benchmarks ({args.device})...")
@@ -120,7 +119,7 @@ def main(args):
             )
 
             # Append to results
-            results.append({**exp, **res})
+            results.append({**exp, "latency": res["Latency [s]"]["mean"]})
 
             # Clean up
             del model
@@ -136,9 +135,26 @@ def main(args):
     plot_groups(
         results_grouped,
         x_key="params",
-        y_key="Latency [s]",
+        y_key="latency",
         x_label="Params",
         y_label="Latency [s]",
+        # First level controls color, second controls marker
+        style_dims=[
+            "color",
+            "marker",
+        ],
+        style_cycles={
+            "color": [
+                "#0173B2",
+                "#DE8F05",
+                "#029E73",
+                "#D55E00",
+                "#CC78BC",
+                "#CA9161",
+                "#FBAFE4",
+                "#949494",
+            ]
+        },
         path=f"results/plots/model_head_latency_benchmark_{args.mode}_ume{args.use_memory_efficient_loss}.png",
     )
 

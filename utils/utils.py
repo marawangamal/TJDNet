@@ -1,9 +1,14 @@
-from typing import Optional, Any, Dict, List, Tuple, Union
+from __future__ import annotations
+
+from typing import Optional, Any, Dict, List, Sequence, Tuple, Union
 from collections.abc import Mapping
 
 import torch
 import matplotlib.pyplot as plt
 from pathlib import Path
+
+from collections import defaultdict
+from itertools import cycle
 
 
 class AverageMeter:
@@ -140,12 +145,10 @@ def group_arr(results: list, *group_fns):
 
 def _walk_groups(
     node: Union[Mapping, List[Dict[str, Any]]],
-    path: Tuple[str, ...] = (),  # just a tuple now
+    path: Tuple[str, ...] = (),
 ) -> List[Tuple[Tuple[str, ...], List[Dict[str, Any]]]]:
-    """Return [(group_path, leaf_items), …] for every leaf in a nested dict."""
-    if isinstance(node, list):  # leaf reached
+    if isinstance(node, list):
         return [(path, node)]
-
     leaves: List[Tuple[Tuple[str, ...], List[Dict[str, Any]]]] = []
     for key, child in node.items():
         leaves.extend(_walk_groups(child, path + (str(key),)))
@@ -156,60 +159,92 @@ def plot_groups(
     grouped: Dict[str, Any],
     x_key: str,
     y_key: str,
-    path: str,
-    title: Optional[str] = None,
-    x_label: Optional[str] = None,
-    y_label: Optional[str] = None,
-    figsize: tuple[int, int] = (10, 6),
+    path: Union[str, Path],  # ← was str | Path
+    *,
+    style_dims: Sequence[str] = ("marker", "color"),
+    style_cycles: Union[Dict[str, Sequence[Any]], None] = None,
+    custom_maps: Union[Dict[str, Dict[str, Any]], None] = None,
+    title: Union[str, None] = None,
+    x_label: Union[str, None] = None,
+    y_label: Union[str, None] = None,
+    figsize: Tuple[int, int] = (10, 6),
     sort_by_x: bool = True,
 ) -> None:
     """
-    Plot data held in a nested group structure produced by `group_arr`.
+    Generic plotter where *N* top-level group dimensions map to *N*
+    matplotlib style properties (marker, colour, …).
 
-    Args:
-        grouped: The nested dictionary returned by `group_arr`.
-        x_key: Key in the result dicts to use as the x-axis.
-        y_key: Key in the result dicts to use as the y-axis.
-        path: File path where the figure will be saved (extension decides format).
-        title: Plot title (optional).
-        x_label: X-axis label (optional, defaults to `x_key`).
-        y_label: Y-axis label (optional, defaults to `y_key`).
-        figsize: Figure size in inches.
-        sort_by_x: If True, data for each series are sorted by x before plotting.
-
-    Returns:
-        None (figure is saved to *path*).
+    Parameters
+    ----------
+    style_dims
+        Ordered sequence of matplotlib line properties that will be
+        controlled by the first, second, … group levels.
+        Example: ("marker", "color", "linestyle").
+    style_cycles
+        Optional dict overriding the default cycle for a given property:
+        {"marker": ["o", "s"], "linestyle": ["-", "--"]}.
+    custom_maps
+        Pre-assign specific style values to some keys:
+        {"color": {"dev": "tab:red", "prod": "tab:green"}}.
     """
-    # Gather every leaf (one series per leaf)
-    series = _walk_groups(grouped)
+    leaves = _walk_groups(grouped)
+    if not leaves:
+        raise ValueError("Nothing to plot – `grouped` is empty")
 
-    if not series:
-        raise ValueError("Nothing to plot – `grouped` appears to be empty")
+    style_cycles = style_cycles or {}
+    custom_maps = custom_maps or {}
+
+    # Build a default cycle for any property not supplied
+    default_prop_cycles: Dict[str, cycle] = {}
+    for prop in style_dims:
+        if prop in style_cycles:
+            default_prop_cycles[prop] = cycle(style_cycles[prop])
+        else:
+            # Good defaults: let marker cycle through a few symbols,
+            # colour cycle uses rcParams, others fallback to sensible lists
+            if prop == "marker":
+                default_prop_cycles[prop] = cycle("o^sDPv<>")
+            elif prop == "linestyle":
+                default_prop_cycles[prop] = cycle(("-", "--", ":", "-."))
+            else:
+                default_prop_cycles[prop] = cycle(
+                    plt.rcParams["axes.prop_cycle"].by_key()["color"]
+                )
+
+    # Remember which key already received which value
+    assigned: Dict[str, Dict[str, Any]] = defaultdict(dict)
+    assigned.update(custom_maps)  # pre-seed with user maps
+
+    def get_style(prop: str, key: str) -> Any:
+        if key not in assigned[prop]:
+            assigned[prop][key] = next(default_prop_cycles[prop])
+        return assigned[prop][key]
 
     plt.figure(figsize=figsize)
 
-    for group_path, items in series:
-        # Extract x and y values
-        xs = [item[x_key] for item in items]
-        ys = [item[y_key] for item in items]
-
+    for path_tuple, items in leaves:
+        xs = [d[x_key] for d in items]
+        ys = [d[y_key] for d in items]
         if sort_by_x:
             xs, ys = zip(*sorted(zip(xs, ys), key=lambda t: t[0]))
 
-        # Build a readable legend label like "dataset / split / run-1"
-        label = " / ".join(map(str, group_path)) if group_path else "all"
+        # Build kwargs incrementally
+        style_kwargs: Dict[str, Any] = {}
+        for lvl, key in enumerate(path_tuple[: len(style_dims)]):
+            prop = style_dims[lvl]
+            style_kwargs[prop] = get_style(prop, key)
 
-        plt.plot(xs, ys, marker="o", label=label)
+        # Anything beyond the styled levels just contributes to the label
+        label = " / ".join(path_tuple)
+
+        plt.plot(xs, ys, label=label, **style_kwargs)
 
     plt.xlabel(x_label or x_key)
     plt.ylabel(y_label or y_key)
     if title:
         plt.title(title)
-
-    # Only show legend if there is more than one line
-    if len(series) > 1:
+    if len(leaves) > 1:
         plt.legend()
-
     plt.tight_layout()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(path)
