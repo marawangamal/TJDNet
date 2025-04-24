@@ -8,7 +8,7 @@ Example:
 import os
 from argparse import Namespace
 import argparse
-from typing import Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 import torch
 from datasets import load_dataset
@@ -130,6 +130,7 @@ def train_tc(
     y_val: Optional[torch.Tensor] = None,
     x_val: Optional[torch.Tensor] = None,
     vocab_size: int = 4,
+    ranks: List = [1, 2, 4, 8, 16],
     # Optimization args
     **kwargs,
 ) -> Tuple[list, list, float]:
@@ -144,7 +145,7 @@ def train_tc(
         - ranks (list): Rank values.
     """
     # coords tensors are already (N, H)
-    errors, ranks = [], []
+    errors = []
     for rank in tqdm.tqdm([1, 2, 4, 8, 16], desc="Training CPRegressor", leave=False):
         reg = CPRegressor(
             vocab_size,
@@ -163,8 +164,7 @@ def train_tc(
         preds = reg.predict(x_test)
         error = torch.linalg.norm(preds - y_test).item()
         errors.append(error)
-        ranks.append(rank)
-        print(f"rank={rank:<2d}  loss ({kwargs['loss_type']}) = {error:.4f}")
+        print(f"rank={rank:<2d}  loss ({kwargs['loss_type']}) = {error:.8f}")
 
     # Compute baseline error (mean of y_train)
     reg_baseline = CPRegressor(
@@ -199,11 +199,8 @@ def test(args, seed: int = 0) -> None:
     num_pts = 2000
 
     # 1. Generate a synthetic CP tensor of known rank
-    # Statistics of py|x in the training set:
-    # Mean: 0.00002437
-    # Std: 0.00014511
-    mean, std = 0.00002437, 0.00014511  # chosen to match real dataset
-
+    # mean, std = 0.00002437, 0.00014511  # statistics of mremila/tjdnet
+    mean, std = 0, 0.1
     cp_cores = [
         # (torch.randn() * std) + mean for _ in range(horizon)
         torch.normal(mean, std, size=(vocab_size, rank_true), out=None)
@@ -245,8 +242,8 @@ def test(args, seed: int = 0) -> None:
     # 4. print a tiny report
     print("-" * 80 + "self-test report" + "-" * 80)
     for r, e in zip(ranks, errors):
-        print(f"Rank = {r:<2d}  Loss ({args.loss_type}) = {e:.4f}")
-    print(f"Baseline loss ({args.loss_type}) = {error_baseline:.4f}")
+        print(f"Rank = {r:<2d}  Loss ({args.loss_type}) = {e:.8f}")
+    print(f"Baseline loss ({args.loss_type}) = {error_baseline:.8f}")
 
     # 5. sanity assertion — best error should occur at or below R_true
     best_rank = ranks[int(torch.argmin(torch.tensor(errors)))]
@@ -273,10 +270,14 @@ def print_dist(y):
 def main(args: Namespace):
 
     subsets = [
-        {"name": "gpt2_gsm8k", "errors": [], "ranks": []},
-        {"name": "gpt2_poem", "errors": [], "ranks": []},
-        {"name": "gpt2_newline", "errors": [], "ranks": []},
-        {"name": "gpt2_space", "errors": [], "ranks": []},
+        # {"name": "gpt2_gsm8k", "errors": [], "ranks": []},
+        # {"name": "gpt2_poem", "errors": [], "ranks": []},
+        # {"name": "gpt2_newline", "errors": [], "ranks": []},
+        # {"name": "gpt2_space", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_poem", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_newline", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_space", "errors": [], "ranks": []},
     ]
 
     for subset in tqdm.tqdm(subsets, desc="Processing subsets"):
@@ -306,7 +307,8 @@ def main(args: Namespace):
         # Print a tiny report
         print("-" * 80 + f"\nSubset: {subset['name']}")
         for r, e in zip(ranks, errors):
-            print(f"rank={r:<2d}  RMSE={e:.4f}")
+            print(f"Rank = {r:<2d}  Loss({args.loss_type}) = {e:.4f}")
+        print(f"Baseline loss ({args.loss_type}) = {error_baseline:.4f}")
 
         # Store errors and ranks
         subset["errors"] = errors

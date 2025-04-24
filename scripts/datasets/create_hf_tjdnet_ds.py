@@ -36,7 +36,7 @@ PROMPTS = [
     },
     {
         "name": "poem",
-        "value": "Write a poem.",
+        "value": "Write a short 10 word poem.",
     },
     {
         "name": "gsm8k",
@@ -89,6 +89,8 @@ def generate_dataset(
             print(f"Resuming from sample {progress}")
         except Exception as e:
             print(f"Could not load checkpoint: {e}. Starting from beginning.")
+    else:
+        print("Starting from scratch.")
     model.to(device)
     model.eval()
 
@@ -125,9 +127,12 @@ def generate_dataset(
             outputs = model.generate(
                 x,
                 max_new_tokens=horizon,
-                do_sample=True,
                 return_dict_in_generate=True,
                 output_logits=True,
+                # Make samples more diverse
+                do_sample=True,
+                top_k=50,
+                top_p=0.95,
             )
             y = outputs.sequences[:, x.size(1) :]
             logits = torch.stack(outputs.logits, dim=1)
@@ -214,6 +219,7 @@ def main(args: Namespace):
                 num_samples=num_samples,
                 start_str=prompt["value"],
                 checkpoint_path=f"datasets/tjdnet/{fmt(args.model)}/{prompt['name']}/{split}.pt",
+                resume=not args.overwrite,
             )
 
 
@@ -238,6 +244,11 @@ if __name__ == "__main__":
         "--num_samples",
         type=int,
         default=1000,
+    )
+    parser.add_argument(
+        "-o",
+        "--overwrite",
+        action="store_true",
     )
     args = parser.parse_args()
     main(args)
