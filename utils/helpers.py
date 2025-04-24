@@ -16,7 +16,7 @@ from dataloaders.syn_numbers import ChatTemplateSynNum
 from dataloaders.syn_temp import ChatTemplateSynTemp
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models._tjd import TJDConfig
+from tjdnet.models._tjd import DIST_MAP, TJDConfig
 from tjdnet.models.gpt2 import GPT2
 from tjdnet.models.llama import LLAMA
 from tjdnet.models.tjdgpt2 import TJDGPT2
@@ -100,15 +100,7 @@ def parse_args():
         type=str,
         default="mps",
         help="Type of factorization to use for the model.",
-        choices=[
-            "cp",
-            "ccp",
-            "ucp",
-            "mps",
-            "umps",
-            "full",
-            "base",
-        ],
+        choices=DIST_MAP.keys(),
     )
     parser.add_argument(
         "--hidden_dim",
