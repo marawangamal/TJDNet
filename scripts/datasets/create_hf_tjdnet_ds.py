@@ -6,6 +6,7 @@ Example:
 """
 
 from argparse import Namespace
+import re
 from tqdm import tqdm
 import argparse
 import datetime
@@ -88,7 +89,6 @@ def generate_dataset(
             print(f"Resuming from sample {progress}")
         except Exception as e:
             print(f"Could not load checkpoint: {e}. Starting from beginning.")
-
     model.to(device)
     model.eval()
 
@@ -102,9 +102,9 @@ def generate_dataset(
     data = []
 
     with torch.no_grad(), open(output_file, mode) as f:
-        for i in range(progress, num_samples, batch_size):
+        for i_prog in range(progress, num_samples, batch_size):
             # Adjust batch size for the last iteration
-            batch_size_curr = min(batch_size, num_samples - i)
+            batch_size_curr = min(batch_size, num_samples - i_prog)
 
             x = (
                 torch.tensor(tokenizer.encode(start_str), device=device)
@@ -148,7 +148,7 @@ def generate_dataset(
 
             for j in range(batch_size_curr):
                 sample_data = {
-                    "id": i + j,
+                    "id": i_prog + j,
                     "x": x[j].cpu().tolist(),
                     "x_decoded": start_str,
                     "y": y[j].cpu().tolist(),
@@ -157,14 +157,14 @@ def generate_dataset(
                 }
                 data.append(sample_data)
 
-            if i % checkpoint_steps == 0:
+            if (i_prog * batch_size) % checkpoint_steps == 0:
                 for d in data:
                     f.write(json.dumps(d) + "\n")
                 f.flush()  # Ensure data is written immediately
 
                 # Save checkpoint
                 checkpoint_data = {
-                    "progress": progress,
+                    "progress": i_prog + batch_size_curr,
                     "timestamp": datetime.datetime.now().isoformat(),
                     "total_samples": num_samples,
                 }
@@ -177,12 +177,22 @@ def generate_dataset(
             pbar.update(batch_size_curr)
 
             # Optional: clear CUDA cache periodically
-            if device == "cuda" and (i + batch_size_curr) % (10 * batch_size) == 0:
+            if device == "cuda" and (i_prog + batch_size_curr) % (10 * batch_size) == 0:
                 torch.cuda.empty_cache()
 
     pbar.close()
     print(f"Dataset generation complete. {progress} samples saved to {output_file}")
     return output_file
+
+
+def fmt(model_name: str) -> str:
+    """Format the model name for use in file paths. Remove special characters and lowercase."""
+    name = model_name.lower()
+    name = re.sub(r"[^a-z0-9]+", "_", name)  # replace non-alphanumerics with underscore
+    name = re.sub(r"_+", "_", name).strip(
+        "_"
+    )  # collapse multiple underscores & strip edges
+    return name
 
 
 def main(args: Namespace):
@@ -203,7 +213,7 @@ def main(args: Namespace):
                 horizon=args.horizon,
                 num_samples=num_samples,
                 start_str=prompt["value"],
-                checkpoint_path=f"datasets/tjdnet/{args.model}_{prompt['name']}/{split}.pt",
+                checkpoint_path=f"datasets/tjdnet/{fmt(args.model)}/{prompt['name']}/{split}.pt",
             )
 
 
