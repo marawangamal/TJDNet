@@ -13,7 +13,6 @@ Example:
 
 import gc
 import argparse
-import itertools
 import traceback
 
 import torch
@@ -54,6 +53,12 @@ def log_results(results, output_format="markdown", cols=None):
                 row_data[f"{metric_name}"] = (
                     f"{metric_values['mean']:.3f} ± {metric_values['std']:.3f}"
                 )
+            elif isinstance(metric_values, int):
+                # For integer values, just add the value
+                row_data[f"{metric_name}"] = f"{metric_values}"
+            elif isinstance(metric_values, float):
+                # For float values, format to 3 decimal places
+                row_data[f"{metric_name}"] = f"{metric_values:.3f}"
 
         # Filter columns if specified
         if cols is not None:
@@ -82,6 +87,14 @@ def log_results(results, output_format="markdown", cols=None):
 
     print(result)
     return result
+
+
+def get_model_head_param_count(model):
+    # Get the number of parameters in the model head
+    param_count = sum(
+        p.numel() for p in model.model_head.parameters() if p.requires_grad
+    )
+    return param_count / 1e6  # Convert to millions
 
 
 def main(args):
@@ -117,26 +130,37 @@ def main(args):
                     rank=r,
                     horizon=h,
                     model_head="cp",
-                    param_net_config={"hidden_dim": 768, "use_decoder": True},
                 ),
                 **common_kwargs,
             }
-            # for (h, r) in itertools.product([2, 4], [4, 8, 16])
-            for (r, h) in zip([8], [2])
+            for (r, h) in zip([8, 8], [2, 3])
         ]
-        # + [
-        #     {
-        #         "name": f"gpt2::ucp::horizon{h}::rank{r}",
-        #         "model_fn": create_model_gpt_fn(
-        #             rank=r,
-        #             horizon=h,
-        #             model_head="ucp",
-        #             param_net_config={"hidden_dim": 768, "use_decoder": True},
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     for (h, r) in itertools.product([2, 4], [4, 8, 16])
-        # ]
+        # TMTP
+        + [
+            {
+                "name": f"gpt2::cpo::horizon{h}::rank{r}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cpo",
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([8, 8], [2, 3])
+        ]
+        # MTP
+        + [
+            {
+                "name": f"gpt2::cpo::horizon{h}::rank{r}",
+                "model_fn": create_model_gpt_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cpo",
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([1], [2])
+        ]
         + [
             {
                 "name": f"gpt2::mps::horizon{h}::rank{r}",
@@ -148,26 +172,15 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([2, 4, 8], [2, 4])
-        ]
-        + [
-            {
-                "name": f"gpt2::umps::horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="umps",
-                    param_net_config={"hidden_dim": 768, "use_decoder": True},
-                ),
-                **common_kwargs,
-            }
-            for (r, h) in zip([2, 4, 8], [2, 4])
+            for (r, h) in zip([2, 4], [2, 2])
         ]
     )
 
     # LLaMA
     llama_experiments = (
-        [
+        []
+        # Baseline
+        + [
             {
                 "name": "llama::base",
                 "model_fn": create_model_llama_fn(
@@ -176,11 +189,13 @@ def main(args):
                     model_head="base",
                     param_net_config={
                         "hidden_dim": 5120,
+                        "use_decoder": True,
                     },
                 ),
                 **common_kwargs,
             }
         ]
+        # CP
         + [
             {
                 "name": f"llama::cp::rank{r}::horizon{h}",
@@ -188,46 +203,61 @@ def main(args):
                     rank=r,
                     horizon=h,
                     model_head="cp",
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([8, 8], [2, 3])
+        ]
+        # TMTP
+        + [
+            {
+                "name": f"llama::cpo::rank{r}::horizon{h}",
+                "model_fn": create_model_llama_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cpo",
                     param_net_config={
-                        "hidden_dim": 5120,
+                        "hidden_dim": 2048,
                         "use_decoder": True,
                     },
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([1, 8], [2, 2])
+            for (r, h) in zip([8, 8], [2, 3])
         ]
-        # + [
-        #     {
-        #         "name": f"llama::ucp::rank{r}::horizon{h}",
-        #         "model_fn": create_model_llama_fn(
-        #             rank=r,
-        #             horizon=h,
-        #             model_head="ucp",
-        #             param_net_config={
-        #                 "hidden_dim": 5120,
-        #                 "use_decoder": True,
-        #             },
-        #         ),
-        #         **common_kwargs,
-        #     }
-        #     for (r, h) in zip([8, 16], [2, 2])
-        # ]
+        # MTP
+        + [
+            {
+                "name": f"llama::cpo::rank{r}::horizon{h}",
+                "model_fn": create_model_llama_fn(
+                    rank=r,
+                    horizon=h,
+                    model_head="cpo",
+                    param_net_config={
+                        "hidden_dim": 2048,
+                        "use_decoder": True,
+                    },
+                ),
+                **common_kwargs,
+            }
+            for (r, h) in zip([1, 1], [2, 3])
+        ]
+        # MPS
         + [
             {
                 "name": f"llama::mps::rank{r}::horizon{h}",
                 "model_fn": create_model_llama_fn(
                     rank=r,
                     horizon=h,
-                    model_head="ucp",
+                    model_head="mps",
                     param_net_config={
-                        "hidden_dim": 5120,
+                        "hidden_dim": 2048,
                         "use_decoder": True,
                     },
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([2, 4, 8], [2, 4])
+            for (r, h) in zip([2, 2], [2, 3])
         ]
     )
 
@@ -251,17 +281,25 @@ def main(args):
             for input_name, input_ids in input_ids_dict.items():
                 exp_name = f"{exp['name']}::{input_name}"
                 print(f"\nBenchmarking {exp_name}...")
+
+                # Build model
                 model = exp["model_fn"]().to(args.device)
                 if args.data_parallel and torch.cuda.device_count() > 1:
                     print("Using DataParallel")
                     model = DataParallelWithGenerate(model)
+
+                # Run benchmark
                 benchmark_fn = exp["benchmark_fn"]
-                results[exp_name] = benchmark_model_v2(
+                benchmark_results = benchmark_model_v2(
                     model, benchmark_fn, benchmark_fn_kwargs={"input_ids": input_ids}
                 )
-                # Add empty Accuracy column
+
+                # Save results
+                results[exp_name] = benchmark_results
                 results[exp_name]["Accuracy"] = {"mean": 0, "std": 0}
-                # Clean up to avoid memory accumulation between experiments
+                results[exp_name]["Params [M]"] = get_model_head_param_count(model)
+
+                # Clean up
                 del model
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -271,9 +309,16 @@ def main(args):
             print(f"Error benchmarking {exp['name']}: {str(e)}")
             traceback.print_exc()  # This will print the full stack trace
 
+    log_results(
+        results,
+        cols=["Model", "Latency [s]", "Params [M]", "Accuracy"],
+        output_format="latex",
+    )
+    print("\n\n")
     # Print results
-    log_results(results, cols=["Model", "Latency [s]", "Accuracy"])
+    log_results(results, cols=["Model", "Latency [s]", "Params [M]", "Accuracy"])
     # Print results (detailed)
+    print("\n\n")
     log_results(results)
 
 
@@ -283,7 +328,7 @@ if __name__ == "__main__":
         "--device",
         type=str,
         choices=["cuda", "cpu"],
-        default="cuda",
+        default="cuda" if torch.cuda.is_available() else "cpu",
     )
     parser.add_argument(
         "-m",
