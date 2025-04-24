@@ -10,7 +10,6 @@ import torch
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.distributions.base import BaseDist
 from tjdnet.distributions.cp import CPDist
-from tjdnet.distributions.full import FullDist
 from tjdnet.distributions.mps import MPSDist
 from tjdnet.distributions.ucp import UCPDist
 from tjdnet.distributions.umps import UMPSDist
@@ -18,12 +17,12 @@ from tjdnet.tensorops.common import get_windowed_input_ids
 from tjdnet.utils import diagnose
 
 DIST_MAP: Dict[str, Type[BaseDistribution]] = {
-    "full": FullDist,
+    "base": BaseDist,
     "cp": CPDist,
+    "cpo": CPDist,
+    "ucp": UCPDist,
     "mps": MPSDist,
     "umps": UMPSDist,
-    "base": BaseDist,
-    "ucp": UCPDist,
 }
 
 

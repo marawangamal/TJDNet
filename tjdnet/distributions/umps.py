@@ -7,10 +7,6 @@ class UMPSDist(MPSDist):
     def __init__(self, config: BaseDistConfig, **kwargs):
         config.param_net.out_dim_encoder = config.rank * config.rank
         config.param_net.out_dim_decoder = config.vocab_size
-        # config.param_net.out_dim_encoder = (
-        #     config.horizon * config.rank * config.rank
-        # )
-        # config.param_net.out_dim_decoder = config.vocab_size
         super().__init__(config, bypass_config=True, **kwargs)
 
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):

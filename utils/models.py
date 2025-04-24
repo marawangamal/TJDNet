@@ -14,7 +14,7 @@ def create_model_llama_fn(
     vocab_size=32000,
     param_net_config={
         "hidden_dim": 32000,
-        "use_decoder": False,
+        "use_decoder": True,
     },
     **kwargs,
 ):

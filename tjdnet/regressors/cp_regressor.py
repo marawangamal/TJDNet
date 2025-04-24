@@ -7,7 +7,10 @@ from tqdm.auto import tqdm
 
 
 def mean_squared_relative_error(
-    y_pred: torch.Tensor, y_true: torch.Tensor, eps: float = 1e-12
+    y_pred: torch.Tensor,
+    y_true: torch.Tensor,
+    expect_y: Optional[float] = None,
+    eps: float = 1e-12,
 ) -> torch.Tensor:
     """Element-wise relative error |y_pred - y_true| / |y_true|.
 
@@ -19,16 +22,20 @@ def mean_squared_relative_error(
     Returns:
         torch.Tensor: Relative error tensor.
     """
-    # diff = torch.abs(y_pred - y_true)
-    # denom = torch.abs(y_true).clamp_min(eps)  # ensures ≥ eps
-    # return (diff / denom).mean()
-    return torch.norm(y_pred - y_true) / torch.clamp_min(torch.norm(y_true), eps)
+    num = torch.norm(y_pred - y_true)
+    denom = torch.norm(y_true).clamp_min(eps) if expect_y is None else expect_y
+    return num / denom
 
 
 def mean_absolute_relative_error(
-    y_pred: torch.Tensor, y_true: torch.Tensor, eps: float = 1e-12
+    y_pred: torch.Tensor,
+    y_true: torch.Tensor,
+    expect_y: Optional[float] = None,
+    eps: float = 1e-12,
 ):
-    return (torch.abs(y_pred - y_true) / y_true.abs().clamp_min(eps)).mean()
+    num = torch.abs(y_pred - y_true)
+    denom = y_true.abs().clamp_min(eps) if expect_y is None else expect_y
+    return (num / denom).mean()
 
 
 class CPRegressor(nn.Module):
@@ -130,10 +137,11 @@ class CPRegressor(nn.Module):
         """
         ds = TensorDataset(X, y)
         dl = DataLoader(ds, batch_size=batch_size, shuffle=True)
+        expect_y = y.mean().item()
         opt = torch.optim.Adam(self.parameters(), lr=lr)
         loss_fn = {
-            "msre": mean_squared_relative_error,
-            "mare": mean_absolute_relative_error,
+            "msre": lambda yp, yt: mean_squared_relative_error(yp, yt, expect_y),
+            "mare": lambda yp, yt: mean_absolute_relative_error(yp, yt, expect_y),
             "mse": nn.MSELoss(),
         }[loss_type]
 

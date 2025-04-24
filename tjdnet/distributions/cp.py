@@ -1,7 +1,5 @@
-from typing import List, Tuple
 from git import Optional
 import torch
-import torch.autograd.profiler as profiler
 
 from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched

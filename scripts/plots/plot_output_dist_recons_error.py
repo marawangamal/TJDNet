@@ -8,7 +8,7 @@ Example:
 import os
 from argparse import Namespace
 import argparse
-from typing import List, Literal, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 from datasets import load_dataset
@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 
-from tjdnet.models.cp_regressor import CPRegressor
+from tjdnet.regressors.cp_regressor import CPRegressor
 
 # set tl backend to pytorch
 tl.set_backend("pytorch")
