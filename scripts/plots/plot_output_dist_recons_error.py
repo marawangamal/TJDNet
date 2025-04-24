@@ -8,18 +8,18 @@ Example:
 import os
 from argparse import Namespace
 import argparse
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 import torch
 from datasets import load_dataset
 import tensorly as tl
 import tqdm
+import tntorch as tn
 
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from scipy.sparse import coo_matrix
 
 from tjdnet.models.cp_regressor import CPRegressor
 
@@ -86,6 +86,42 @@ def plot_errors(subsets, output_path: str = "tensor_completion_errors.png"):
     print(f"Plot saved to {output_path}")
 
 
+def train_tnt(
+    y_train: torch.Tensor,
+    x_train: torch.Tensor,
+    x_test: torch.Tensor,
+    y_test: torch.Tensor,
+    y_val: Optional[torch.Tensor] = None,
+    x_val: Optional[torch.Tensor] = None,
+    vocab_size: int = 4,
+):
+    """Train a tensor completion model on the dataset and compute reconstruction error.
+
+    Args:
+        x: torch.Tensor: Input tensor (e.g., model output). Shape: (B, H)
+        y: torch.Tensor: Target tensor (e.g., ground truth). Shape: (B,)
+
+    Returns:
+        - errors (list): Errors achieved at different tensor ranks.
+        - ranks (list): Rank values.
+    """
+    errors, ranks = [], []
+    _, horizon = x_train.shape
+
+    def loss(t_hat):
+        return tn.relative_error(y_train, t_hat[x_train])
+
+    for rank in tqdm.tqdm([1, 2, 4, 8, 16], desc="Training CPRegressor", leave=False):
+        t_hat = tn.rand((vocab_size,) * horizon, ranks_tt=rank, requires_grad=True)
+        tn.optimize(t_hat, loss)
+
+        error = tn.relative_error(y_test, t_hat[x_test])
+        errors.append(error.item())
+        ranks.append(rank)
+
+    return errors, ranks
+
+
 def train_tc(
     y_train: torch.Tensor,
     x_train: torch.Tensor,
@@ -94,7 +130,9 @@ def train_tc(
     y_val: Optional[torch.Tensor] = None,
     x_val: Optional[torch.Tensor] = None,
     vocab_size: int = 4,
-) -> Tuple[list, list]:
+    # Optimization args
+    **kwargs,
+) -> Tuple[list, list, float]:
     """Train a tensor completion model on the dataset and compute reconstruction error.
 
     Args:
@@ -114,26 +152,35 @@ def train_tc(
             rank=rank,
             device=x_train.device,
         )
-        reg.fit(
+        reg = reg.fit(  # return self with best state
             x_train,
             y_train,
             x_val=x_val,
             y_val=y_val,
-            lr=1e-3,
-            epochs=1000,
-            batch_size=512,
-            rtol=1e-3,  # ≥ 0.1% relative improvement
-            atol=1e-5,  # ≥ absolute improvement
-            patience=10,
+            **kwargs,
         )
+
         preds = reg.predict(x_test)
         error = torch.linalg.norm(preds - y_test).item()
         errors.append(error)
         ranks.append(rank)
-    return errors, ranks
+        print(f"rank={rank:<2d}  loss ({kwargs['loss_type']}) = {error:.4f}")
+
+    # Compute baseline error (mean of y_train)
+    reg_baseline = CPRegressor(
+        vocab_size,
+        horizon=x_train.shape[1],
+        rank=1,
+        device=x_train.device,
+        init_method="zeros",
+    )
+    preds_baseline = reg_baseline.predict(x_test)
+    error_baseline = torch.linalg.norm(preds_baseline - y_test).item()
+
+    return errors, ranks, error_baseline
 
 
-def test(seed: int = 0) -> None:
+def test(args, seed: int = 0) -> None:
     """Quick self-test for :pyfunc:`train_tc`.
 
     Creates a synthetic CP tensor of known rank, samples (x, y) pairs,
@@ -152,7 +199,18 @@ def test(seed: int = 0) -> None:
     num_pts = 2000
 
     # 1. Generate a synthetic CP tensor of known rank
-    cp_cores = [torch.randn(vocab_size, rank_true) for _ in range(horizon)]
+    # Statistics of py|x in the training set:
+    # Mean: 0.00002437
+    # Std: 0.00014511
+    mean, std = 0.00002437, 0.00014511  # chosen to match real dataset
+
+    cp_cores = [
+        # (torch.randn() * std) + mean for _ in range(horizon)
+        torch.normal(mean, std, size=(vocab_size, rank_true), out=None)
+        for _ in range(horizon)
+    ]
+
+    # Sanity check
     # full tensor T(i,j,k) = sum_r A[i,r] * B[j,r] * C[k,r]
     tensor_gt = tl.cp_to_tensor((None, cp_cores))  # shape (I, J, K)
 
@@ -162,22 +220,33 @@ def test(seed: int = 0) -> None:
     idx_tuple = tuple(x[:, d] for d in range(x.shape[1]))  # H tensors, each (num_pts,)
     y = tensor_gt[idx_tuple]
 
-    # 80/20 split
-    n_train = int(0.8 * num_pts)
+    # 80% train, 10% val, 10% test
+    train_frac, val_frac = 0.8, 0.1
+    n_train = int(train_frac * num_pts)
+    n_val = int(val_frac * num_pts)
+
+    # slices
     x_train, y_train = x[:n_train], y[:n_train]
-    x_test, y_test = x[n_train:], y[n_train:]
+    x_val, y_val = x[n_train : n_train + n_val], y[n_train : n_train + n_val]
+    x_test, y_test = x[n_train + n_val :], y[n_train + n_val :]
 
     # 3. run the training routine for several candidate ranks
-    errors, ranks = train_tc(
+    errors, ranks, error_baseline = train_tc(
         y_train=y_train,
         x_train=x_train,
         x_test=x_test,
         y_test=y_test,
+        x_val=x_test,
+        y_val=y_test,
+        vocab_size=vocab_size,
+        **vars(args),
     )
 
     # 4. print a tiny report
+    print("-" * 80 + "self-test report" + "-" * 80)
     for r, e in zip(ranks, errors):
-        print(f"rank={r:<2d}  RMSE={e:.4f}")
+        print(f"Rank = {r:<2d}  Loss ({args.loss_type}) = {e:.4f}")
+    print(f"Baseline loss ({args.loss_type}) = {error_baseline:.4f}")
 
     # 5. sanity assertion — best error should occur at or below R_true
     best_rank = ranks[int(torch.argmin(torch.tensor(errors)))]
@@ -187,6 +256,18 @@ def test(seed: int = 0) -> None:
     print(
         f"[✓] self-test passed — pipeline recovers the true rank (true_rank={rank_true})"
     )
+
+
+def print_dist(y):
+    """Prints the distribution of the tensor completion model output.
+
+    Args:
+        y: torch.Tensor: Model output tensor. Shape: (B, H)
+
+    """
+    print("Distribution of py|x:")
+    print(f"Mean: {y.mean():.8f}")
+    print(f"Std: {y.std():.8f}")
 
 
 def main(args: Namespace):
@@ -204,10 +285,13 @@ def main(args: Namespace):
 
         # Split train to train and validation sets
         dataset["train"], dataset["val"] = (
-            dataset["train"].train_test_split(test_size=0.2, seed=42).values()
+            dataset["train"].train_test_split(test_size=0.05, seed=42).values()
         )
 
-        errors, ranks = train_tc(
+        # Print distribution of py|x
+        print_dist(torch.tensor(dataset["train"]["py|x"]))
+
+        errors, ranks, error_baseline = train_tc(
             x_train=torch.tensor(dataset["train"]["y"]),
             y_train=torch.tensor(dataset["train"]["py|x"]),
             x_test=torch.tensor(dataset["test"]["y"]),
@@ -215,6 +299,8 @@ def main(args: Namespace):
             x_val=torch.tensor(dataset["val"]["y"]),
             y_val=torch.tensor(dataset["val"]["py|x"]),
             vocab_size=torch.max(torch.tensor(dataset["train"]["y"])) + 1,
+            # Pass args from command line (make a dict then unpack)
+            **vars(args),
         )
 
         # Print a tiny report
@@ -235,23 +321,61 @@ if __name__ == "__main__":
         description="Analyze the output distribution of a language model.",
     )
     parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=1,
-    )
-    parser.add_argument(
-        "-n",
-        "--num_samples",
-        type=int,
-        default=1000,
-    )
-    parser.add_argument(
         "--test",
         action="store_true",
         help="Run the test function.",
     )
+    # === Optimization args ==========
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=512,
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate for the optimizer.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=10000,
+        help="Number of epochs to train.",
+    )
+    parser.add_argument(
+        "--min_epochs",
+        type=int,
+        default=10,
+        help="Minimum number of epochs to train.",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=10,
+        help="Number of epochs to wait for improvement before stopping.",
+    )
+    parser.add_argument(
+        "--atol",
+        type=float,
+        default=1e-9,
+        help="Absolute tolerance for early stopping.",
+    )
+    parser.add_argument(
+        "--rtol",
+        type=float,
+        default=1e-5,  # 0.001% relative tolerance
+        help="Relative tolerance for early stopping.",
+    )
+    parser.add_argument(
+        "--loss_type",
+        type=str,
+        default="mse",
+        choices=["msre", "mare", "mse"],
+        help="Loss function to use.",
+    )
     args = parser.parse_args()
     if args.test:
-        test()
+        test(args)
     else:
         main(args)
