@@ -130,9 +130,12 @@ def generate_dataset(
                 return_dict_in_generate=True,
                 output_logits=True,
                 # Make samples more diverse
-                do_sample=True,
-                top_k=50,
-                top_p=0.95,
+                # do_sample=True,
+                # top_k=50,
+                # top_p=0.95,
+                temperature=1.8,  # flatter distribution
+                top_k=0,  # don’t prune by rank
+                top_p=0.97,  # keep 97 % cumulative prob.
             )
             y = outputs.sequences[:, x.size(1) :]
             logits = torch.stack(outputs.logits, dim=1)
@@ -218,7 +221,7 @@ def main(args: Namespace):
                 horizon=args.horizon,
                 num_samples=num_samples,
                 start_str=prompt["value"],
-                checkpoint_path=f"datasets/tjdnet/{fmt(args.model)}/{prompt['name']}/{split}.pt",
+                checkpoint_path=f"datasets/tjdnet/{fmt(args.model)}/h{args.horizon}/{prompt['name']}/{split}.pt",
                 resume=not args.overwrite,
             )
 
