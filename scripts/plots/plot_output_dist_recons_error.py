@@ -239,8 +239,8 @@ def main_test(args, seed: int = 0) -> None:
         x_train=x_train,
         x_test=x_test,
         y_test=y_test,
-        x_val=x_test,
-        y_val=y_test,
+        x_val=x_val,
+        y_val=y_val,
         vocab_size=vocab_size,
         **vars(args),
     )
