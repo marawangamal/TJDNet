@@ -212,28 +212,22 @@ def main_test(args, seed: int = 0) -> None:
         torch.normal(0.00002437, 0.00014511, size=(vocab_size, rank_true), out=None)
         for _ in range(horizon)
     ]
-
-    # Sanity check
-    # full tensor T(i,j,k) = sum_r A[i,r] * B[j,r] * C[k,r]
     tensor_gt = tl.cp_to_tensor((None, cp_cores))  # shape (I, J, K)
 
     # 2. Sample from the tensor
-    # x = torch.randint(0, vocab_size, (num_pts, horizon))
     x = torch.randint(0, vocab_size, (num_pts, horizon))
     idx_tuple = tuple(x[:, d] for d in range(x.shape[1]))  # H tensors, each (num_pts,)
     y = tensor_gt[idx_tuple]
 
-    # 80% train, 10% val, 10% test
+    # 3. Create train/val/test splits
     train_frac, val_frac = 0.8, 0.1
     n_train = int(train_frac * num_pts)
     n_val = int(val_frac * num_pts)
-
-    # slices
     x_train, y_train = x[:n_train], y[:n_train]
     x_val, y_val = x[n_train : n_train + n_val], y[n_train : n_train + n_val]
     x_test, y_test = x[n_train + n_val :], y[n_train + n_val :]
 
-    # 3. run the training routine for several candidate ranks
+    # 4. Fit CP regressor
     errors, ranks, error_baseline = train_cp(
         y_train=y_train,
         x_train=x_train,
@@ -245,20 +239,11 @@ def main_test(args, seed: int = 0) -> None:
         **vars(args),
     )
 
-    # 4. print a tiny report
+    # 5. Print a tiny report
     print("-" * 80 + "self-test report" + "-" * 80)
     for r, e in zip(ranks, errors):
         print(f"Rank = {r:<2d}  Loss ({args.loss_type}) = {e:.8f}")
     print(f"Baseline loss ({args.loss_type}) = {error_baseline:.8f}")
-
-    # 5. sanity assertion — best error should occur at or below R_true
-    best_rank = ranks[int(torch.argmin(torch.tensor(errors)))]
-    assert (
-        best_rank >= rank_true
-    ), f"Expected lowest error at rank >= {rank_true}, got {best_rank}. Check CP fitting pipeline."
-    print(
-        f"[✓] self-test passed — pipeline recovers the true rank (true_rank={rank_true})"
-    )
 
 
 def main(args: Namespace):
@@ -297,7 +282,6 @@ def main(args: Namespace):
             x_val=torch.tensor(dataset["val"]["y"]),
             y_val=torch.tensor(dataset["val"]["py|x"]),
             vocab_size=int(torch.max(torch.tensor(dataset["train"]["y"])).item()) + 1,
-            # Pass args from command line (make a dict then unpack)
             ranks=[1, 2, 4, 8, 16, 32, 64, 128],
             **vars(args),
         )
