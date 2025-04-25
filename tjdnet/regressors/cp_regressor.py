@@ -6,36 +6,36 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm.auto import tqdm
 
 
-def mean_squared_relative_error(
-    y_pred: torch.Tensor,
-    y_true: torch.Tensor,
-    expect_y: Optional[float] = None,
-    eps: float = 1e-12,
-) -> torch.Tensor:
-    """Element-wise relative error |y_pred - y_true| / |y_true|.
-
-    Args:
-        y_pred: Predicted values.
-        y_true: True (reference) values.
-        eps: Small constant added to the denominator to prevent division by zero.
-
-    Returns:
-        torch.Tensor: Relative error tensor.
-    """
-    num = torch.norm(y_pred - y_true)
-    denom = torch.norm(y_true).clamp_min(eps) if expect_y is None else expect_y
-    return num / denom
-
-
 def mean_absolute_relative_error(
     y_pred: torch.Tensor,
     y_true: torch.Tensor,
     expect_y: Optional[float] = None,
     eps: float = 1e-12,
+    **kwargs,
 ):
     num = torch.abs(y_pred - y_true)
-    denom = y_true.abs().clamp_min(eps) if expect_y is None else expect_y
+    denom = (
+        y_true.abs().clamp_min(eps)
+        if expect_y is None
+        else torch.abs(torch.tensor(expect_y)).clamp_min(eps)
+    )
     return (num / denom).mean()
+
+
+def mean_squared_error(
+    y_pred: torch.Tensor,
+    y_true: torch.Tensor,
+    **kwargs,
+):
+    return ((y_pred - y_true) ** 2).mean()
+
+
+def mean_absolute_error(
+    y_pred: torch.Tensor,
+    y_true: torch.Tensor,
+    **kwargs,
+):
+    return torch.abs(y_pred - y_true).mean()
 
 
 class CPRegressor(nn.Module):
@@ -56,6 +56,8 @@ class CPRegressor(nn.Module):
         device: str = "cpu",
         init_method: str = "normal",
         verbose: bool = False,
+        loss_type: Literal["mse", "mae", "mare"] = "mse",
+        **kwargs,
     ):
         super().__init__()
         self.V, self.H, self.R = vocab_size, horizon, rank
@@ -82,6 +84,12 @@ class CPRegressor(nn.Module):
             ]
         )
         self.weights = nn.Parameter(torch.ones(self.R, device=device))
+
+        self.loss_fn = {
+            "mare": mean_absolute_relative_error,
+            "mse": mean_squared_error,
+            "mae": mean_absolute_error,
+        }[loss_type]
 
     # ------------------------------------------------------------------ #
     # forward / predict
@@ -110,6 +118,8 @@ class CPRegressor(nn.Module):
         y: torch.Tensor,
         x_val: Optional[torch.Tensor] = None,
         y_val: Optional[torch.Tensor] = None,
+        x_test: Optional[torch.Tensor] = None,
+        y_test: Optional[torch.Tensor] = None,
         *,
         lr: float = 1e-3,
         epochs: int = 5000,
@@ -118,7 +128,6 @@ class CPRegressor(nn.Module):
         rtol: float = 1e-3,  # >= 0.1% relative tolerance
         atol: float = 1e-5,  # absolute tolerance
         patience: int = 10,
-        loss_type: Literal["msre", "mare", "mse"] = "msre",
         **kwargs,
     ):
         """Train CPRegressor with Adam.
@@ -138,12 +147,7 @@ class CPRegressor(nn.Module):
         ds = TensorDataset(X, y)
         dl = DataLoader(ds, batch_size=batch_size, shuffle=True)
         expect_y = y.mean().item()
-        opt = torch.optim.Adam(self.parameters(), lr=lr)
-        loss_fn = {
-            "msre": lambda yp, yt: mean_squared_relative_error(yp, yt, expect_y),
-            "mare": lambda yp, yt: mean_absolute_relative_error(yp, yt, expect_y),
-            "mse": nn.MSELoss(),
-        }[loss_type]
+        opt = torch.optim.AdamW(self.parameters(), lr=lr)
 
         best_loss, wait = float("inf"), 0
         best_state = None
@@ -151,9 +155,9 @@ class CPRegressor(nn.Module):
 
         improvement_checks = [
             # relative
-            lambda best, curr: (best - curr) / best > rtol,
+            lambda best, curr: ((best - curr) / best) > rtol,
             # absolute
-            lambda best, curr: best - curr > atol,
+            lambda best, curr: (best - curr) > atol,
         ]
 
         for epoch in bar:
@@ -161,7 +165,7 @@ class CPRegressor(nn.Module):
             self.train()
             for xb, yb in dl:
                 opt.zero_grad()
-                loss = loss_fn(self(xb), yb) * 1
+                loss = self.loss_fn(self(xb), yb, expect_y=expect_y)
                 loss.backward()
                 opt.step()
                 running += loss.item() * xb.size(0)
@@ -173,7 +177,7 @@ class CPRegressor(nn.Module):
             if x_val is not None and y_val is not None:
                 with torch.no_grad():
                     pred = self.predict(x_val)
-                    eval_loss = loss_fn(pred, y_val).item()
+                    eval_loss = self.loss_fn(pred, y_val).item()
 
             bar.set_postfix(
                 train_loss=f"{train_loss:.6f}",
@@ -191,6 +195,13 @@ class CPRegressor(nn.Module):
                 best_loss, wait = epoch_loss, 0  # significant improvement
                 best_state = deepcopy(self.state_dict())
             else:
+
+                # Debug:
+                # print abs tol
+                # print(
+                #     f"[DEBUG] Epoch {epoch}: Loss {epoch_loss:.6f} | Best Loss {best_loss:.6f}"
+                # )
+
                 # Check if minimum epochs reached
                 if epoch < min_epochs:
                     continue
@@ -204,5 +215,12 @@ class CPRegressor(nn.Module):
                 f"Early stopping at epoch {epoch} with best loss {best_loss:.6f}"
             )
             self.load_state_dict(best_state)
+
+        # Evaluate on test set if provided
+        if x_test is not None and y_test is not None:
+            with torch.no_grad():
+                pred_test = self(x_test)
+                loss_test = self.loss_fn(pred_test, y_test)
+                return loss_test.item()
 
         return self

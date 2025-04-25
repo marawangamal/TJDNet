@@ -217,13 +217,13 @@ def main(args):
                     horizon=h,
                     model_head="cpo",
                     param_net_config={
-                        "hidden_dim": 2048,
+                        "hidden_dim": 5120,
                         "use_decoder": True,
                     },
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([8, 8], [2, 3])
+            for (r, h) in zip([32, 32], [2, 3])
         ]
         # MTP
         + [
@@ -234,7 +234,7 @@ def main(args):
                     horizon=h,
                     model_head="cpo",
                     param_net_config={
-                        "hidden_dim": 2048,
+                        "hidden_dim": 5120,
                         "use_decoder": True,
                     },
                 ),

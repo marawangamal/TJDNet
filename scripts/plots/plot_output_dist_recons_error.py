@@ -1,7 +1,7 @@
 """Plots reconstruction error of language model output distributions using tensor completion.
 
 Example:
-    python plot_output_dist_recons_error.py --model meta-llama/Llama-2-7b-chat-hf
+    python scripts/plots/plot_output_dist_recons_error.py --test
 
 """
 
@@ -122,7 +122,7 @@ def train_tnt(
     return errors, ranks
 
 
-def train_tc(
+def train_cp(
     y_train: torch.Tensor,
     x_train: torch.Tensor,
     x_test: torch.Tensor,
@@ -152,19 +152,20 @@ def train_tc(
             horizon=x_train.shape[1],
             rank=rank,
             device=x_train.device,
+            **kwargs,
         )
-        reg = reg.fit(  # return self with best state
+        test_error = reg.fit(  # return self with best state
             x_train,
             y_train,
             x_val=x_val,
             y_val=y_val,
+            y_test=y_test,
+            x_test=x_test,
             **kwargs,
         )
 
-        preds = reg.predict(x_test)
-        error = torch.linalg.norm(preds - y_test).item()
-        errors.append(error)
-        print(f"rank={rank:<2d}  loss ({kwargs['loss_type']}) = {error:.8f}")
+        errors.append(test_error)
+        print(f"rank={rank:<2d}  loss ({kwargs['loss_type']}) = {test_error:.8f}")
 
     # Compute baseline error (mean of y_train)
     reg_baseline = CPRegressor(
@@ -173,10 +174,9 @@ def train_tc(
         rank=1,
         device=x_train.device,
         init_method="zeros",
+        **kwargs,
     )
-    preds_baseline = reg_baseline.predict(x_test)
-    error_baseline = torch.linalg.norm(preds_baseline - y_test).item()
-
+    error_baseline = reg_baseline.loss_fn(reg_baseline.predict(x_test), y_test).item()
     return errors, ranks, error_baseline
 
 
@@ -199,11 +199,11 @@ def test(args, seed: int = 0) -> None:
     num_pts = 2000
 
     # 1. Generate a synthetic CP tensor of known rank
-    # mean, std = 0.00002437, 0.00014511  # statistics of mremila/tjdnet
-    mean, std = 0, 0.1
     cp_cores = [
-        # (torch.randn() * std) + mean for _ in range(horizon)
-        torch.normal(mean, std, size=(vocab_size, rank_true), out=None)
+        # === Random dist ====================
+        # torch.randn((vocab_size, rank_true))
+        # === Match dist of mremila/tjdnet ===
+        torch.normal(0.00002437, 0.00014511, size=(vocab_size, rank_true), out=None)
         for _ in range(horizon)
     ]
 
@@ -228,7 +228,7 @@ def test(args, seed: int = 0) -> None:
     x_test, y_test = x[n_train + n_val :], y[n_train + n_val :]
 
     # 3. run the training routine for several candidate ranks
-    errors, ranks, error_baseline = train_tc(
+    errors, ranks, error_baseline = train_cp(
         y_train=y_train,
         x_train=x_train,
         x_test=x_test,
@@ -274,15 +274,18 @@ def main(args: Namespace):
         # {"name": "gpt2_poem", "errors": [], "ranks": []},
         # {"name": "gpt2_newline", "errors": [], "ranks": []},
         # {"name": "gpt2_space", "errors": [], "ranks": []},
-        # {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k", "errors": [], "ranks": []},
         # {"name": "meta_llama_llama_2_7b_chat_hf_poem", "errors": [], "ranks": []},
         # {"name": "meta_llama_llama_2_7b_chat_hf_newline", "errors": [], "ranks": []},
-        {"name": "meta_llama_llama_2_7b_chat_hf_space", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_space", "errors": [], "ranks": []},
     ]
 
     for subset in tqdm.tqdm(subsets, desc="Processing subsets"):
         dataset = load_dataset("mremila/tjdnet", name=subset["name"])
         dataset = dataset.select_columns(["x", "y", "py|x"])
+
+        if not isinstance(dataset, dict):
+            raise ValueError("Expected a dictionary of datasets.")
 
         # Split train to train and validation sets
         dataset["train"], dataset["val"] = (
@@ -292,14 +295,14 @@ def main(args: Namespace):
         # Print distribution of py|x
         print_dist(torch.tensor(dataset["train"]["py|x"]))
 
-        errors, ranks, error_baseline = train_tc(
+        errors, ranks, error_baseline = train_cp(
             x_train=torch.tensor(dataset["train"]["y"]),
             y_train=torch.tensor(dataset["train"]["py|x"]),
             x_test=torch.tensor(dataset["test"]["y"]),
             y_test=torch.tensor(dataset["test"]["py|x"]),
             x_val=torch.tensor(dataset["val"]["y"]),
             y_val=torch.tensor(dataset["val"]["py|x"]),
-            vocab_size=torch.max(torch.tensor(dataset["train"]["y"])) + 1,
+            vocab_size=int(torch.max(torch.tensor(dataset["train"]["y"])).item()) + 1,
             # Pass args from command line (make a dict then unpack)
             **vars(args),
         )
@@ -336,7 +339,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lr",
         type=float,
-        default=1e-4,
+        default=1e-2,
         help="Learning rate for the optimizer.",
     )
     parser.add_argument(
@@ -354,13 +357,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--patience",
         type=int,
-        default=10,
+        default=100,
         help="Number of epochs to wait for improvement before stopping.",
     )
     parser.add_argument(
         "--atol",
         type=float,
-        default=1e-9,
+        default=1e-12,
         help="Absolute tolerance for early stopping.",
     )
     parser.add_argument(
@@ -372,9 +375,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--loss_type",
         type=str,
-        default="mse",
-        choices=["msre", "mare", "mse"],
-        help="Loss function to use.",
+        default="mare",
+        choices=["mse", "mae", "mare"],
+        help="Loss function to use. Options: mse (mean squared error), mae (mean absolute error), mare (mean absolute relative error).",
     )
     args = parser.parse_args()
     if args.test:

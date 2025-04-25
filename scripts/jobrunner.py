@@ -48,7 +48,7 @@ import sys
 import os.path as osp
 import pickle
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import yaml
 import pandas as pd
@@ -101,12 +101,21 @@ def load_object(filename):
     return out
 
 
+def fmt_job_id(job_id: Union[str, int, float]):
+    """Get the job ID as a string."""
+    # Could be a NaN
+    if isinstance(job_id, float) and job_id != job_id:
+        return "NaN"
+    else:
+        return int(job_id)
+
+
 def get_job_statuses(
     job_ids: list, on_add_status: Optional[Callable[[str], str]] = None
 ):
     """Get the status of a list of job IDs."""
     statuses = []
-    for job_id in [str(int(job_id)) for job_id in job_ids]:
+    for job_id in [fmt_job_id(job_id) for job_id in job_ids]:
         try:
             out = os.popen("sacct -j {} --format state".format(job_id)).read()
             status = out.split("\n")[2].strip()
