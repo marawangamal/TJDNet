@@ -86,6 +86,12 @@ def plot_errors(subsets, output_path: str = "tensor_completion_errors.png"):
     print(f"Plot saved to {output_path}")
 
 
+def print_dist(y):
+    print("Distribution of py|x:")
+    print(f"Mean: {y.mean():.8f}")
+    print(f"Std: {y.std():.8f}")
+
+
 def train_tnt(
     y_train: torch.Tensor,
     x_train: torch.Tensor,
@@ -146,7 +152,7 @@ def train_cp(
     """
     # coords tensors are already (N, H)
     errors = []
-    for rank in tqdm.tqdm([1, 2, 4, 8, 16], desc="Training CPRegressor", leave=False):
+    for rank in tqdm.tqdm(ranks, desc="Training CPRegressor", leave=False):
         reg = CPRegressor(
             vocab_size,
             horizon=x_train.shape[1],
@@ -180,7 +186,7 @@ def train_cp(
     return errors, ranks, error_baseline
 
 
-def test(args, seed: int = 0) -> None:
+def main_test(args, seed: int = 0) -> None:
     """Quick self-test for :pyfunc:`train_tc`.
 
     Creates a synthetic CP tensor of known rank, samples (x, y) pairs,
@@ -255,18 +261,6 @@ def test(args, seed: int = 0) -> None:
     )
 
 
-def print_dist(y):
-    """Prints the distribution of the tensor completion model output.
-
-    Args:
-        y: torch.Tensor: Model output tensor. Shape: (B, H)
-
-    """
-    print("Distribution of py|x:")
-    print(f"Mean: {y.mean():.8f}")
-    print(f"Std: {y.std():.8f}")
-
-
 def main(args: Namespace):
 
     subsets = [
@@ -304,6 +298,7 @@ def main(args: Namespace):
             y_val=torch.tensor(dataset["val"]["py|x"]),
             vocab_size=int(torch.max(torch.tensor(dataset["train"]["y"])).item()) + 1,
             # Pass args from command line (make a dict then unpack)
+            ranks=[1, 2, 4, 8, 16, 32, 64, 128],
             **vars(args),
         )
 
@@ -381,6 +376,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     if args.test:
-        test(args)
+        main_test(args)
     else:
         main(args)
