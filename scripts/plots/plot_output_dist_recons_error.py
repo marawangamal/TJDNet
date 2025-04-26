@@ -296,7 +296,7 @@ def main(args: Namespace):
         subset["ranks"] = ranks
 
     # Plot errors for all subsets
-    plot_errors(subsets, output_path="results/plots/tensor_completion_errors.png")
+    plot_errors(subsets, output_path="results/plots/output_dist_recons_error.png")
 
 
 if __name__ == "__main__":
@@ -356,6 +356,12 @@ if __name__ == "__main__":
         default="mare",
         choices=["mse", "mae", "mare"],
         help="Loss function to use. Options: mse (mean squared error), mae (mean absolute error), mare (mean absolute relative error).",
+    )
+    parser.add_argument(
+        "--init_method",
+        type=str,
+        default="normal",
+        choices=["zeros", "normal"],
     )
     args = parser.parse_args()
     if args.test:
