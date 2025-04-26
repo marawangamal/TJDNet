@@ -8,6 +8,7 @@ Example:
 import os
 from argparse import Namespace
 import argparse
+import re
 from typing import List, Optional, Tuple
 
 import torch
@@ -22,6 +23,7 @@ import seaborn as sns
 import numpy as np
 
 from tjdnet.regressors.cp_regressor import CPRegressor
+from utils.utils import group_arr, plot_groups
 
 # set tl backend to pytorch
 tl.set_backend("pytorch")
@@ -136,7 +138,7 @@ def train_cp(
     y_val: Optional[torch.Tensor] = None,
     x_val: Optional[torch.Tensor] = None,
     vocab_size: int = 4,
-    ranks: List = [1, 2, 4, 8, 16],
+    ranks: List = [2, 4, 8, 16],
     # Optimization args
     **kwargs,
 ) -> Tuple[list, list, float]:
@@ -183,6 +185,11 @@ def train_cp(
     )
     error_baseline = reg_baseline.loss_fn(reg_baseline.predict(x_test), y_test).item()
     return errors, ranks, error_baseline
+
+
+def parse_model_horizon(name):
+    h = int(re.search(r"_h(\d+)", name).group(1))  # type: ignore
+    return f"h={h}"
 
 
 def main_test(args, seed: int = 0) -> None:
@@ -252,10 +259,16 @@ def main(args: Namespace):
         # {"name": "gpt2_poem", "errors": [], "ranks": []},
         # {"name": "gpt2_newline", "errors": [], "ranks": []},
         # {"name": "gpt2_space", "errors": [], "ranks": []},
+        # Horizon=2
         {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h2", "errors": [], "ranks": []},
         {"name": "meta_llama_llama_2_7b_chat_hf_poem_h2", "errors": [], "ranks": []},
         {"name": "meta_llama_llama_2_7b_chat_hf_newline_h2", "errors": [], "ranks": []},
         {"name": "meta_llama_llama_2_7b_chat_hf_space_h2", "errors": [], "ranks": []},
+        # Horizon=4
+        # {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h4", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_poem_h4", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_newline_h4", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_space_h4", "errors": [], "ranks": []},
     ]
 
     for subset in tqdm.tqdm(subsets, desc="Processing subsets"):
@@ -281,9 +294,15 @@ def main(args: Namespace):
             x_val=torch.tensor(dataset["val"]["y"]),
             y_val=torch.tensor(dataset["val"]["py|x"]),
             vocab_size=int(torch.max(torch.tensor(dataset["train"]["y"])).item()) + 1,
-            ranks=[1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+            ranks=[2, 4, 8, 16, 32, 64, 128, 256, 512],
             **vars(args),
         )
+        # # === Debug plot >>>
+        # # rand error
+        # errors = [1 / i + 0.1 * abs(torch.randn((1, 1)).item()) for i in range(1, 10)]
+        # ranks = list(range(1, 10))
+        # error_baseline = 0.1
+        # # <<< === Debug plot
 
         # Print a tiny report
         print("-" * 80 + f"\nSubset: {subset['name']}")
@@ -296,7 +315,46 @@ def main(args: Namespace):
         subset["ranks"] = ranks
 
     # Plot errors for all subsets
-    plot_errors(subsets, output_path="results/plots/output_dist_recons_error.png")
+    # ===========================
+    # group_arr   :  creates a multi-level dict grouping from an array
+    # plot_groups :  plots a line for every leaf in results_grouped (dict)
+
+    results_ungrouped = []
+    for res_group in subsets:
+        for err, rank in zip(res_group["errors"], res_group["ranks"]):
+            results_ungrouped.append({**res_group, "error": err, "rank": rank})
+
+    results_grouped = group_arr(
+        results_ungrouped,
+        lambda x: x["name"],
+        lambda x: parse_model_horizon(x["name"]),
+    )
+
+    plot_groups(
+        results_grouped,
+        x_key="rank",
+        x_label="Rank",
+        y_key="error",
+        y_label="Error",
+        path="results/plots/output_dist_recons_error_test.png",
+        # First level controls color, second controls marker
+        style_dims=[
+            "color",
+            "marker",
+        ],
+        style_cycles={
+            "color": [
+                "#0173B2",
+                "#DE8F05",
+                "#029E73",
+                "#D55E00",
+                "#CC78BC",
+                "#CA9161",
+                "#FBAFE4",
+                "#949494",
+            ]
+        },
+    )
 
 
 if __name__ == "__main__":
