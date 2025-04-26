@@ -133,6 +133,7 @@ def generate_dataset(
                 # do_sample=True,
                 # top_k=50,
                 # top_p=0.95,
+                # More random sampling
                 temperature=1.8,  # flatter distribution
                 top_k=0,  # don’t prune by rank
                 top_p=0.97,  # keep 97 % cumulative prob.
@@ -148,6 +149,29 @@ def generate_dataset(
                 dim=-1,
             ).squeeze(-1)
             py = torch.prod(prob_seq, dim=-1)  # Shape: (B, H) -> (B)
+
+            # === Add EOS token and compute probabilities ==========
+            eos = (
+                torch.tensor(tokenizer.eos_token_id, device=device)
+                .reshape(1, 1)
+                .repeat(batch_size_curr, 1)
+            )
+            y_prime = torch.cat([y, eos], dim=1)  # Shape: (B, H+1)
+            outputs_prime = model(torch.cat([x, y_prime], dim=1))
+            logits_prime = outputs_prime.logits  # Shape: (B, Lx + H + 1, V)
+            probs_prime = torch.nn.functional.softmax(logits_prime, dim=-1)
+            prob_seq_prime = torch.gather(
+                probs_prime,  # Shape: (B, H, V)
+                index=y.unsqueeze(-1),  # Shape: (B, H, 1)
+                dim=-1,
+            ).squeeze(-1)
+            py_prime = torch.prod(prob_seq_prime, dim=-1)  # Shape: (B, H) -> (B)
+
+            # Check which is more likely
+            if torch.all(py <= py_prime):
+                y = y_prime
+                py = py_prime
+                print("=== EOS token added ===========")
 
             # Decode tokens for debugging/verification
             decoded = [

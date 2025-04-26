@@ -179,7 +179,6 @@ def train_cp(
         horizon=x_train.shape[1],
         rank=1,
         device=x_train.device,
-        init_method="zeros",
         **kwargs,
     )
     error_baseline = reg_baseline.loss_fn(reg_baseline.predict(x_test), y_test).item()
@@ -254,9 +253,9 @@ def main(args: Namespace):
         # {"name": "gpt2_newline", "errors": [], "ranks": []},
         # {"name": "gpt2_space", "errors": [], "ranks": []},
         {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h2", "errors": [], "ranks": []},
-        # {"name": "meta_llama_llama_2_7b_chat_hf_poem", "errors": [], "ranks": []},
-        # {"name": "meta_llama_llama_2_7b_chat_hf_newline", "errors": [], "ranks": []},
-        # {"name": "meta_llama_llama_2_7b_chat_hf_space", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_poem_h2", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_newline_h2", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_space_h2", "errors": [], "ranks": []},
     ]
 
     for subset in tqdm.tqdm(subsets, desc="Processing subsets"):
@@ -282,7 +281,7 @@ def main(args: Namespace):
             x_val=torch.tensor(dataset["val"]["y"]),
             y_val=torch.tensor(dataset["val"]["py|x"]),
             vocab_size=int(torch.max(torch.tensor(dataset["train"]["y"])).item()) + 1,
-            ranks=[1, 2, 4, 8, 16, 32, 64, 128],
+            ranks=[1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
             **vars(args),
         )
 
