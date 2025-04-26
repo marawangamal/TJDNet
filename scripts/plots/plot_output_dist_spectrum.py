@@ -319,7 +319,7 @@ def main(args: Namespace):
 
     plot_spectrum(
         spectrums,
-        save_path=f"results/plots/spectrum_plot_{args.model.split('/')[-1]}.png",
+        save_path=f"results/plots/output_dist_2d_spectrum_{args.model.split('/')[-1]}.png",
     )
 
 

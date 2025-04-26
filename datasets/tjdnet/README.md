@@ -4,7 +4,7 @@ language:
 pretty_name: TJDNet
 
 configs:
-# GPT2
+# GPT2 (h2)
 - config_name: gpt2_gsm8k_h2
   data_files:
   - split: train
@@ -29,7 +29,7 @@ configs:
     path: "gpt2/h2/space/train.jsonl"
   - split: test
     path: "gpt2/h2/space/test.jsonl"
-# Llama
+# Llama (h2)
 - config_name: meta_llama_llama_2_7b_chat_hf_gsm8k_h2
   data_files:
   - split: train
