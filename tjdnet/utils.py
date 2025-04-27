@@ -72,6 +72,9 @@ def spec_sample_v2(
         model_q (Callable[[torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]): Model to get draft probabilities.
             The first element is the draft samples and the second element is the draft probabilities.
         sample_fn (Callable[[torch.Tensor], torch.Tensor]): Function to sample from batch of probabilities.
+
+    Returns:
+        torch.Tensor: Sampled tokens of shape (B, H').
     """
     y_hat, qy = model_q()  # (B, H), (B, H, V)
     py = model_p(y_hat)  # (B, H, V)

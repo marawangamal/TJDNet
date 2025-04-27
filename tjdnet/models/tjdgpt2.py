@@ -17,7 +17,7 @@ class TJDGPT2(TJD):
         self.pretrained_weights = None
 
     def get_last_hidden_state(self, input_ids, attention_mask=None):
-        transformer_outputs = self.model(
+        transformer_outputs = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
@@ -26,15 +26,6 @@ class TJDGPT2(TJD):
         torch.cuda.empty_cache()
         return last_hidden_state
 
-    def get_pretrained_lm_head_weights(self):
-        if self.pretrained_weights is None:
-            raise ValueError("Pretrained weights not loaded.")
-        return self.pretrained_weights
-
     def get_model(self, **model_kwargs):
         model = GPT2LMHeadModel.from_pretrained("gpt2")
-        transformer_model = model.transformer
-        self.pretrained_weights = model.lm_head.weight
-        del model
-        torch.cuda.empty_cache()
-        return transformer_model
+        return model.transformer, model.lm_head

@@ -78,6 +78,26 @@ class BaseDistribution(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
+    def sample_with_logits(
+        self,
+        hidden_state: torch.Tensor,
+        horizon: Optional[int],
+        do_sample: bool,
+        top_k: int,
+        **kwargs,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Sample from the distribution with logits.
+
+        Args:
+            last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
+            horizon (int): Number of future tokens to predict.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: Sampled tokens and logits.
+        """
+        pass
+
+    @abstractmethod
     def sample(
         self,
         hidden_state: torch.Tensor,

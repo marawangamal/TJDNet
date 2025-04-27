@@ -14,7 +14,7 @@ from tjdnet.distributions.mps import MPSDist
 from tjdnet.distributions.ucp import UCPDist
 from tjdnet.distributions.umps import UMPSDist
 from tjdnet.tensorops.common import get_windowed_input_ids
-from tjdnet.utils import diagnose
+from tjdnet.utils import diagnose, spec_sample_v2
 
 DIST_MAP: Dict[str, Type[BaseDistribution]] = {
     "base": BaseDist,
@@ -118,9 +118,9 @@ class TJD(ABC, torch.nn.Module):
 
         # DEBUG: LoraConfig
         if config.train_mode == "full":
-            self.model = self.get_model(**config.model_kwargs)
+            self.backbone, self.tgt_model_head = self.get_model(**config.model_kwargs)
         elif config.train_mode == "last":
-            self.model = self.get_model(**config.model_kwargs)
+            self.backbone, self.tgt_model_head = self.get_model(**config.model_kwargs)
             self.freeze_base_model()
         elif config.train_mode == "lora":
             peft_config = LoraConfig(
@@ -130,9 +130,8 @@ class TJD(ABC, torch.nn.Module):
                 lora_alpha=32,
                 lora_dropout=0.1,
             )
-            self.model = get_peft_model(
-                self.get_model(**config.model_kwargs), peft_config  # type: ignore
-            )
+            backbone, self.tgt_model_head = self.get_model(**config.model_kwargs)
+            self.backbone = get_peft_model(backbone, peft_config)  # type: ignore
         else:
             raise ValueError(f"Invalid train_mode: {config.train_mode}")
 
@@ -149,11 +148,12 @@ class TJD(ABC, torch.nn.Module):
 
         # Handle model initialization
         if config.init_method == "pretrained":
-            pt_weight, pt_bias = self.get_pretrained_lm_head_weights()
-            self.model_head.init_params(pt_weight, pt_bias)
+            # pt_weight, pt_bias = self.get_pretrained_lm_head_weights()
+            # self.model_head.init_params(pt_weight, pt_bias)
+            raise NotImplementedError("Pretrained initialization not implemented.")
 
         # Trainer compatibility
-        self.gradient_checkpointing_enable = self.model.gradient_checkpointing_enable
+        self.gradient_checkpointing_enable = self.backbone.gradient_checkpointing_enable
 
     @property
     def param_dict(self):
@@ -194,11 +194,13 @@ class TJD(ABC, torch.nn.Module):
         return horizon
 
     @abstractmethod
-    def get_model(self, **kwargs) -> torch.nn.Module:
+    def get_model(self, **kwargs) -> Tuple[torch.nn.Module, torch.nn.Module]:
         """Get the torch model to be modified.
 
         Returns:
-            torch.nn.Module: Model to be modified.
+            tuple[torch.nn.Module, torch.nn.Module]:
+                - Backbone model.
+                - Target model head.
         """
         pass
 
@@ -268,7 +270,7 @@ class TJD(ABC, torch.nn.Module):
 
     def freeze_base_model(self):
         """Freeze the base model."""
-        for param in self.model.parameters():
+        for param in self.backbone.parameters():
             param.requires_grad = False
 
     # def generate_spec_sample(
@@ -391,7 +393,7 @@ class TJD(ABC, torch.nn.Module):
         horizon: Optional[int] = None,
         top_k: int = 50,
         return_new_tokens: bool = True,
-        use_speculative_sampling: bool = False,
+        use_speculative_sampling: bool = True,
         **kwargs,
     ):
         """Generate sequences given an input tensor.
@@ -463,6 +465,13 @@ class TJD(ABC, torch.nn.Module):
                 horizon_target = min(
                     horizon, max_new_tokens - time_step
                 )  # speculative heads may not reach target horizon
+
+                if use_speculative_sampling:
+                    y_hat = spec_sample_v2(
+                        model_p=self.tgt_model_head,
+                        model_q=lambda: self.model_head.get_dist(),
+                        sample_fn=lambda p: torch.multinomial(p, num_samples=1),
+                    )
 
                 y_hat = self.model_head.sample(
                     hidden_state,
