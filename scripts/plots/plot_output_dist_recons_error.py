@@ -160,7 +160,8 @@ def train_cp(
             horizon=x_train.shape[1],
             rank=rank,
             device=x_train.device,
-            **kwargs,
+            init_method=kwargs["init_method"],
+            loss_type=kwargs["loss_type"],
         )
         test_error = reg.fit(  # return self with best state
             x_train,
@@ -181,7 +182,8 @@ def train_cp(
         horizon=x_train.shape[1],
         rank=1,
         device=x_train.device,
-        **kwargs,
+        init_method="zeros",
+        loss_type=kwargs["loss_type"],
     )
     error_baseline = reg_baseline.loss_fn(reg_baseline.predict(x_test), y_test).item()
     return errors, ranks, error_baseline
@@ -260,15 +262,15 @@ def main(args: Namespace):
         # {"name": "gpt2_newline", "errors": [], "ranks": []},
         # {"name": "gpt2_space", "errors": [], "ranks": []},
         # Horizon=2
-        {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h2", "errors": [], "ranks": []},
-        {"name": "meta_llama_llama_2_7b_chat_hf_poem_h2", "errors": [], "ranks": []},
-        {"name": "meta_llama_llama_2_7b_chat_hf_newline_h2", "errors": [], "ranks": []},
-        {"name": "meta_llama_llama_2_7b_chat_hf_space_h2", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h2", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_poem_h2", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_newline_h2", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_space_h2", "errors": [], "ranks": []},
         # Horizon=4
-        # {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h4", "errors": [], "ranks": []},
-        # {"name": "meta_llama_llama_2_7b_chat_hf_poem_h4", "errors": [], "ranks": []},
-        # {"name": "meta_llama_llama_2_7b_chat_hf_newline_h4", "errors": [], "ranks": []},
-        # {"name": "meta_llama_llama_2_7b_chat_hf_space_h4", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h4", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_poem_h4", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_newline_h4", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_space_h4", "errors": [], "ranks": []},
     ]
 
     for subset in tqdm.tqdm(subsets, desc="Processing subsets"):
@@ -313,6 +315,9 @@ def main(args: Namespace):
         # Store errors and ranks
         subset["errors"] = errors
         subset["log-errors"] = torch.log(torch.tensor(errors)).tolist()
+        subset["error-baselines"] = (
+            torch.tensor(error_baseline).repeat(len(errors)).tolist()
+        )
         subset["ranks"] = ranks
 
     # Plot errors for all subsets
@@ -322,11 +327,20 @@ def main(args: Namespace):
 
     results_ungrouped = []
     for res_group in subsets:
-        for log_err, err, rank in zip(
-            res_group["log-errors"], res_group["errors"], res_group["ranks"]
+        for log_err, err, err_bl, rank in zip(
+            res_group["log-errors"],
+            res_group["errors"],
+            res_group["error-baselines"],
+            res_group["ranks"],
         ):
             results_ungrouped.append(
-                {**res_group, "log-error": log_err, "error": err, "rank": rank}
+                {
+                    **res_group,
+                    "log-error": log_err,
+                    "error": err,
+                    "error-baseline": err_bl,
+                    "rank": rank,
+                }
             )
 
     results_grouped = group_arr(
@@ -341,9 +355,7 @@ def main(args: Namespace):
     plot_groups(
         results_grouped,
         x_key="rank",
-        x_label="Rank",
-        y_key="log-error",
-        y_label="Log Reconstruction Error",
+        y_key="log-error" if args.use_log else "error",
         path=save_path,
         # First level controls color, second controls marker
         style_dims=[
@@ -361,6 +373,20 @@ def main(args: Namespace):
                 "#FBAFE4",
                 "#949494",
             ]
+        },
+        axes_kwargs={
+            "title": f"CP Tensor Approximation Error for p(y|x)",
+            "xlabel": "RANK",
+            "ylabel": (
+                f"LOG {args.loss_type.upper()}"
+                if args.use_log
+                else f"{args.loss_type.upper()}"
+            ),
+            "ylim": (0, 2),
+        },
+        fig_kwargs={
+            "figsize": (10, 6),
+            "dpi": 300,
         },
     )
     print(f"Plot saved to {save_path}")
@@ -411,6 +437,11 @@ if __name__ == "__main__":
         type=float,
         default=1e-5,  # 0.001% relative tolerance
         help="Relative tolerance for early stopping.",
+    )
+    parser.add_argument(
+        "--use_log",
+        action="store_true",
+        help="Use log scale for the loss function.",
     )
     parser.add_argument(
         "--loss_type",

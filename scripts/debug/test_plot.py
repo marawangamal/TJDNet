@@ -36,7 +36,7 @@ def main():
         x_key="rank",
         y_key="latency",
         path="demo_latency_plot.png",
-        title="Latency vs. sequence length",
+        # title="Latency vs. sequence length",
         style_dims=[
             "color",
             "marker",

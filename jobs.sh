@@ -8,3 +8,6 @@
 
 python scripts/plots/plot_output_dist_recons_error.py --init_method normal
 python scripts/plots/plot_output_dist_recons_error.py --init_method zeros
+
+python scripts/plots/plot_output_dist_recons_error.py --init_method normal --use_log
+python scripts/plots/plot_output_dist_recons_error.py --init_method zeros  --use_log

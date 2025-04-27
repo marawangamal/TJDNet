@@ -11,6 +11,9 @@ from collections import defaultdict
 from itertools import cycle
 
 
+PlotKw = Mapping[str, Any]
+
+
 class AverageMeter:
     """Computes and stores the average and current value
 
@@ -155,6 +158,34 @@ def _walk_groups(
     return leaves
 
 
+def _build_default_cycles(
+    style_dims: Sequence[str],
+    style_cycles: Dict[str, Sequence[Any]],
+) -> Dict[str, cycle]:
+    """
+    Create an endless cycle of style values for every property in *style_dims*,
+    falling back to sensible defaults when the user hasn not supplied one.
+
+    - "marker"   → simple marker list
+    - "linestyle"→ common dash patterns
+    - anything else (typically "color") → Matplotlib's default colour cycle
+    """
+    default_prop_cycles: Dict[str, cycle] = {}
+    for prop in style_dims:
+        if prop in style_cycles and style_cycles[prop]:
+            default_prop_cycles[prop] = cycle(style_cycles[prop])
+        else:
+            if prop == "marker":
+                default_prop_cycles[prop] = cycle("o ^ s D P v < >".split())
+            elif prop == "linestyle":
+                default_prop_cycles[prop] = cycle(("-", "--", ":", "-."))
+            else:  # colour or any other prop
+                default_prop_cycles[prop] = cycle(
+                    plt.rcParams["axes.prop_cycle"].by_key()["color"]
+                )
+    return default_prop_cycles
+
+
 def plot_groups(
     grouped: Dict[str, Any],
     x_key: str,
@@ -162,122 +193,64 @@ def plot_groups(
     path: Union[str, Path],
     *,
     style_dims: Sequence[str] = ("marker", "color"),
-    style_cycles: Union[Dict[str, Sequence[Any]], None] = None,
-    custom_maps: Union[Dict[str, Dict[str, Any]], None] = None,
-    title: Union[str, None] = None,
-    x_label: Union[str, None] = None,
-    y_label: Union[str, None] = None,
-    figsize: Tuple[int, int] = (10, 6),
-    sort_by_x: bool = True,
+    style_cycles: Optional[Dict[str, Sequence[Any]]] = None,
+    custom_maps: Optional[Dict[str, Dict[str, Any]]] = None,
+    fig_kwargs: PlotKw | None = None,  # NEW ➊
+    axes_kwargs: PlotKw | None = None,  # NEW ➋
+    line_kwargs: (
+        PlotKw | None
+    ) = None,  # NEW ➌  (applied to every line *in addition* to auto styles)
 ) -> None:
     """
-    Plot a line for every leaf in a ``group_arr`` result, mapping successive
-    group levels to Matplotlib style properties.
+    Plot a line for every leaf of ``grouped``.  All Matplotlib customisation
+    lives in three dicts:
 
-    Parameters
-    ----------
-    grouped : dict
-        Nested dictionary produced by :func:`group_arr`.
-    x_key, y_key : str
-        Keys in each result dictionary to read the *x* and *y* values from.
-    path : str or pathlib.Path
-        Output file (extension decides image format).  Missing parent
-        directories are created automatically.
-    style_dims
-        Ordered sequence of matplotlib line properties that will be
-        controlled by the first, second, … group levels.
-        Example: ("marker", "color", "linestyle").
-    style_cycles
-        Optional dict overriding the default cycle for a given property:
-        {"marker": ["o", "s"], "linestyle": ["-", "--"]}.
-    custom_maps
-        Pre-assign specific style values to some keys:
-        {"color": {"dev": "tab:red", "prod": "tab:green"}}.
-    title, x_label, y_label : str, optional
-        Plot title and axis labels.  The axis labels default to *x_key* /
-        *y_key* when omitted.
-    figsize : tuple[int, int], default ``(10, 6)``
-        Figure size in inches.
-    sort_by_x : bool, default ``True``
-        If *True*, each (x, y) series is sorted by *x* before plotting.
+    fig_kwargs  → forwarded to ``plt.figure``
+    axes_kwargs → forwarded to ``ax.set(**axes_kwargs)``
+    line_kwargs → merged into per-line style before ``ax.plot``
 
-    Raises
-    ------
-    ValueError
-        If *grouped* is empty.
-
-    Notes
-    -----
-    * Group levels beyond ``len(style_dims)`` are **not** visually encoded
-      but are concatenated into the legend label.
-    * Matplotlib default colour cycle is used for ``"color"`` whenever no
-      custom cycle or map is supplied.
-
-    Returns
-    -------
-    None
-        The plot is written to *path* and the figure is closed.
+    This keeps the signature stable while still letting users tweak anything
+    Matplotlib supports.
     """
-
-    leaves = _walk_groups(grouped)
-    if not leaves:
+    if not grouped:
         raise ValueError("Nothing to plot – `grouped` is empty")
 
     style_cycles = style_cycles or {}
     custom_maps = custom_maps or {}
+    fig_kwargs = fig_kwargs or {}
+    axes_kwargs = axes_kwargs or {}
+    line_kwargs = line_kwargs or {}
 
-    # Build a default cycle for any property not supplied
-    default_prop_cycles: Dict[str, cycle] = {}
-    for prop in style_dims:
-        if prop in style_cycles:
-            default_prop_cycles[prop] = cycle(style_cycles[prop])
-        else:
-            # Good defaults: let marker cycle through a few symbols,
-            # colour cycle uses rcParams, others fallback to sensible lists
-            if prop == "marker":
-                default_prop_cycles[prop] = cycle("o^sDPv<>")
-            elif prop == "linestyle":
-                default_prop_cycles[prop] = cycle(("-", "--", ":", "-."))
-            else:
-                default_prop_cycles[prop] = cycle(
-                    plt.rcParams["axes.prop_cycle"].by_key()["color"]
-                )
-
-    # Remember which key already received which value
-    assigned: Dict[str, Dict[str, Any]] = defaultdict(dict)
-    assigned.update(custom_maps)  # pre-seed with user maps
+    # ------------------------------------------------------------------ setup
+    leaves = _walk_groups(grouped)
+    default_prop_cycles = _build_default_cycles(style_dims, style_cycles)
+    assigned: Dict[str, Dict[str, Any]] = defaultdict(dict, custom_maps)
 
     def get_style(prop: str, key: str) -> Any:
         if key not in assigned[prop]:
             assigned[prop][key] = next(default_prop_cycles[prop])
         return assigned[prop][key]
 
-    plt.figure(figsize=figsize)
+    plt.figure(**({"figsize": (10, 6)} | fig_kwargs))  # ➊
+    ax = plt.gca()
 
+    # ----------------------------------------------------------- draw lines
     for path_tuple, items in leaves:
         xs = [d[x_key] for d in items]
         ys = [d[y_key] for d in items]
-        if sort_by_x:
-            xs, ys = zip(*sorted(zip(xs, ys), key=lambda t: t[0]))
+        xs, ys = zip(*sorted(zip(xs, ys)))  # always sort on x
 
-        # Build kwargs incrementally
-        style_kwargs: Dict[str, Any] = {}
-        for lvl, key in enumerate(path_tuple[: len(style_dims)]):
-            prop = style_dims[lvl]
-            style_kwargs[prop] = get_style(prop, key)
+        # auto-assigned styles from group keys
+        auto = {prop: get_style(prop, key) for prop, key in zip(style_dims, path_tuple)}
+        ax.plot(xs, ys, label=" / ".join(path_tuple), **auto, **line_kwargs)  # ➌
 
-        # Anything beyond the styled levels just contributes to the label
-        label = " / ".join(path_tuple)
-
-        plt.plot(xs, ys, label=label, **style_kwargs)
-
-    plt.xlabel(x_label or x_key)
-    plt.ylabel(y_label or y_key)
-    if title:
-        plt.title(title)
+    # ---------------------------------------------------------- axes stuff
     if len(leaves) > 1:
-        plt.legend()
-    plt.tight_layout()
+        ax.legend()
+    ax.set(**axes_kwargs)  # ➋
+    ax.set_xlabel(x_key)
+    ax.set_ylabel(y_key)
+    ax.figure.tight_layout()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(path)
-    plt.close()
+    ax.figure.savefig(path)
+    plt.close(ax.figure)
