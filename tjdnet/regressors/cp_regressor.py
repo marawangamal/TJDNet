@@ -54,7 +54,7 @@ class CPRegressor(nn.Module):
         horizon: int,
         rank: int,
         device: str = "cpu",
-        init_method: str = "normal",
+        init_method: Literal["normal", "zeros"] = "zeros",
         verbose: bool = False,
         loss_type: Literal["mse", "mae", "mare"] = "mse",
         **kwargs,
@@ -66,21 +66,18 @@ class CPRegressor(nn.Module):
 
         init_fn = {
             # NOTE: scale by rank
-            "normal": lambda: torch.randn(self.V, self.R, device=device) / self.R,
-            "uniform": lambda: torch.rand(self.V, self.R, device=device),
-            "xavier": lambda: nn.init.xavier_normal_(
-                torch.empty(self.V, self.R, device=device)
+            "normal": lambda idx: torch.randn(self.V, self.R, device=device) / self.R,
+            "zeros": lambda idx: (
+                torch.zeros(self.V, self.R, device=device)
+                if idx != 0
+                else torch.ones(self.V, self.R, device=device)
             ),
-            "kaiming": lambda: nn.init.kaiming_normal_(
-                torch.empty(self.V, self.R, device=device)
-            ),
-            "zeros": lambda: torch.zeros(self.V, self.R, device=device),
         }
 
         self.factors = nn.ParameterList(
             [
-                nn.Parameter(init_fn[init_method](), requires_grad=True)
-                for _ in range(self.H)
+                nn.Parameter(init_fn[init_method](h), requires_grad=True)
+                for h in range(self.H)
             ]
         )
         self.weights = nn.Parameter(torch.ones(self.R, device=device))
@@ -177,7 +174,7 @@ class CPRegressor(nn.Module):
             if x_val is not None and y_val is not None:
                 with torch.no_grad():
                     pred = self.predict(x_val)
-                    eval_loss = self.loss_fn(pred, y_val).item()
+                    eval_loss = self.loss_fn(pred, y_val, expect_y=expect_y).item()
 
             bar.set_postfix(
                 train_loss=f"{train_loss:.6f}",
@@ -220,7 +217,7 @@ class CPRegressor(nn.Module):
         if x_test is not None and y_test is not None:
             with torch.no_grad():
                 pred_test = self(x_test)
-                loss_test = self.loss_fn(pred_test, y_test)
+                loss_test = self.loss_fn(pred_test, y_test, expect_y=expect_y)
                 return loss_test.item()
 
         return self
