@@ -1,5 +1,7 @@
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 import torch
+
+from tjdnet.distributions._base import BaseDistribution
 
 
 def sample_topk(p: torch.Tensor, top_k: int, num_samples: int = 1) -> torch.Tensor:
@@ -56,6 +58,57 @@ def spec_sample(
 
     y_hat[should_reject] = sample_fn(p_adj[should_reject])
     return y_hat, should_reject
+
+
+def spec_sample_v2(
+    model_p: Callable[[torch.Tensor], torch.Tensor],
+    model_q: Callable[[], Tuple[torch.Tensor, torch.Tensor]],
+    sample_fn: Callable[[torch.Tensor], torch.Tensor],
+):
+    """Batched specualtive sampling.
+
+    Args:
+        model_p (Callable[[torch.Tensor], torch.Tensor]): Model to get target probabilities.
+        model_q (Callable[[torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]): Model to get draft probabilities.
+            The first element is the draft samples and the second element is the draft probabilities.
+        sample_fn (Callable[[torch.Tensor], torch.Tensor]): Function to sample from batch of probabilities.
+    """
+    y_hat, qy = model_q()  # (B, H), (B, H, V)
+    py = model_p(y_hat)  # (B, H, V)
+
+    qy_select = torch.gather(qy, dim=-1, index=y_hat.unsqueeze(-1)).prod(-1)  # (B,)
+    py_select = torch.gather(py, dim=-1, index=y_hat.unsqueeze(-1)).prod(-1)
+
+    batch_size, horizon, _ = py.size()
+    # Assert expected shapes
+    assert y_hat.size() == (
+        batch_size,
+        horizon,
+    ), f"y_hat shape mismatch expected {(batch_size, horizon)}, got {y_hat.size()}"
+    assert py.size() == (
+        batch_size,
+        horizon,
+    ), f"py shape mismatch expected {(batch_size, horizon)}, got {py.size()}"
+
+    y_out = []
+
+    h = 0
+    while h < horizon:
+        r = torch.rand((batch_size,), device=y_hat.device)
+        accept_mask = r < torch.minimum(
+            torch.ones_like(py_select, device=py_select.device), (py_select / qy_select)
+        )  # (B,)
+        if accept_mask.all():
+            # all samples accepted
+            y_out.append(y_hat[:, h : h + 1])  # (B, 1)
+            h += 1
+        else:
+            # some samples rejected
+            y_adj = sample_fn(py[:, h] - qy[:, h])  # (B, V) => (B,)
+            y_out.append(y_adj.unsqueeze(1))  # (B, 1)
+            break
+
+    return torch.cat(y_out, dim=1)  # (B, H)
 
 
 def pad_seqs(
