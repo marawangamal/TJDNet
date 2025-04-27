@@ -60,6 +60,18 @@ def spec_sample(
     return y_hat, should_reject
 
 
+# ----------------------------- runner ------------------------------------
+def run_checks(spec: list[dict]):
+    failures = [
+        (i, item["msg"]() if callable(item["msg"]) else item["msg"])
+        for i, item in enumerate(spec, 1)  # start index at 1
+        if not item["test"]()
+    ]
+    if failures:
+        msgs = "\n".join(f"  {idx}. {m}" for idx, m in failures)
+        raise ValueError(f"{len(failures)} check(s) failed:\n{msgs}")
+
+
 def spec_sample_v2(
     model_p: Callable[[torch.Tensor], torch.Tensor],
     model_q: Callable[[], Tuple[torch.Tensor, torch.Tensor]],
@@ -72,8 +84,7 @@ def spec_sample_v2(
     Args:
         model_p (Callable): Target model. Signature: y -> p(y|x)
         model_q (Callable): Draft model. Signature: {} -> y_hat, q(y|x).
-        sample_fn (Callable): Sampling function. Takes probabilities (shape B, V),
-            returns chosen token index (shape B,).
+        sample_fn (Callable): Sampling function. Mapping: (B, V) -> (B,).
 
     Note:
         Key variables and typical shapes:
@@ -93,23 +104,38 @@ def spec_sample_v2(
 
     batch_size, horizon, vocab_size = py.size()
 
-    # Assert: valid shapes
-    assert q_hat.size() == (
-        batch_size,
-        horizon,
-    ), f"y_hat shape mismatch expected {(batch_size, horizon)}, got {q_hat.size()}"
-    assert py.size() == (
-        batch_size,
-        horizon,
-        vocab_size,
-    ), f"py shape mismatch expected {(batch_size, horizon)}, got {py.size()}"
-    # Assert: positive probs
-    assert (py >= 0).all(), f"Negative probs in py: {py.min()}"
-    assert (qy >= 0).all(), f"Negative probs in qy: {qy.min()}"
-    # Assert: valid conditional probs
-    assert torch.isclose(
-        py.sum(dim=-1), torch.ones((batch_size, horizon), device=py.device)
-    ).all(), f"Invalid probs in py: {py.sum(-1)}"
+    # ============= Input validation ========================================
+    checks = [
+        # ---- shape checks ----
+        {
+            "test": lambda: q_hat.shape == (batch_size, horizon),
+            "msg": f"y_hat shape mismatch expected {(batch_size, horizon)}, got {q_hat.size()}",
+        },
+        {
+            "test": lambda: py.shape == (batch_size, horizon, vocab_size),
+            "msg": f"py shape mismatch expected {(batch_size, horizon)}, got {py.size()}",
+        },
+        {
+            "test": lambda: sample_fn(
+                torch.zeros((batch_size, vocab_size), device=py.device)
+            ).shape
+            == (batch_size,),
+            "msg": f"sample_fn output shape mismatch expected {(batch_size,)}",
+        },
+        # ---- probability checks ----
+        {"test": lambda: (py >= 0).all(), "msg": f"Negative probs in py: {py.min()}"},
+        {"test": lambda: (qy >= 0).all(), "msg": f"Negative probs in qy: {qy.min()}"},
+        {
+            "test": lambda: torch.isclose(
+                py.sum(dim=-1), torch.ones((batch_size, horizon), device=py.device)
+            ).all(),
+            "msg": f"invalid probs in py: {py.sum(-1)}",
+        },
+    ]
+    for check in checks:
+        if not check["test"]():
+            raise ValueError(check["msg"])
+    # =====================================================================
 
     # Reduce prob tensors. Shape: (B, H, V) -> (B,)
     qy_select = torch.gather(qy, dim=-1, index=q_hat.unsqueeze(-1)).squeeze(-1).prod(-1)
