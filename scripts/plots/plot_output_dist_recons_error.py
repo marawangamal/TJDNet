@@ -315,9 +315,6 @@ def main(args: Namespace):
         # Store errors and ranks
         subset["errors"] = errors
         subset["log-errors"] = torch.log(torch.tensor(errors)).tolist()
-        subset["error-baselines"] = (
-            torch.tensor(error_baseline).repeat(len(errors)).tolist()
-        )
         subset["ranks"] = ranks
 
     # Plot errors for all subsets
@@ -327,18 +324,16 @@ def main(args: Namespace):
 
     results_ungrouped = []
     for res_group in subsets:
-        for log_err, err, err_bl, rank in zip(
-            res_group["log-errors"],
+        for err, log_err, rank in zip(
             res_group["errors"],
-            res_group["error-baselines"],
+            res_group["log-errors"],
             res_group["ranks"],
         ):
             results_ungrouped.append(
                 {
                     **res_group,
-                    "log-error": log_err,
                     "error": err,
-                    "error-baseline": err_bl,
+                    "log-error": log_err,
                     "rank": rank,
                 }
             )

@@ -78,26 +78,6 @@ class BaseDistribution(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
-    def sample_with_logits(
-        self,
-        hidden_state: torch.Tensor,
-        horizon: Optional[int],
-        do_sample: bool,
-        top_k: int,
-        **kwargs,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Sample from the distribution with logits.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
-            horizon (int): Number of future tokens to predict.
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: Sampled tokens and logits.
-        """
-        pass
-
-    @abstractmethod
     def sample(
         self,
         hidden_state: torch.Tensor,
@@ -105,7 +85,7 @@ class BaseDistribution(ABC, torch.nn.Module):
         do_sample: bool,
         top_k: int,
         **kwargs,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Sample from the distribution.
 
         Args:
@@ -113,7 +93,9 @@ class BaseDistribution(ABC, torch.nn.Module):
             horizon (int): Number of future tokens to predict.
 
         Returns:
-            torch.Tensor: Sampled tokens of shape (B, H).
+            tuple:
+                - torch.Tensor: Sampled tokens of shape (B, H).
+                - torch.Tensor: Probs of shape (B, H, V).
         """
         pass
 
@@ -125,6 +107,8 @@ class BaseDistribution(ABC, torch.nn.Module):
         **kwargs,
     ) -> Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points and get normalization constants.
+
+        Computes p'(y) and z(y) for the given points y.
 
         Args:
             last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).

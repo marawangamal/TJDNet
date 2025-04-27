@@ -178,3 +178,24 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama::mps::rank4::hd5192::horizon2::bs::1          |               | train*   |  
 
 
+
+## Sanity Check ✅
+To verify that your installation and setup are correct, run a quick sanity check:
+
+Train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
+```bash
+python train.py --epochs 10 \
+        --dataset stemp \
+        --model_type gpt2 \
+        --batch_size 32  \
+        --seq_len 128 \
+        --lr 1e-4 \
+        --model_head cp \
+        --hidden_dim 768 \
+        --horizon 2 \
+        --horizon_eval 2 \
+        --rank 2 \
+        --compute_acc
+```
+
+After training for 10 epochs, you should observe nearly **100% accuracy** on the stemp dataset.

@@ -14,7 +14,7 @@ from tjdnet.distributions.mps import MPSDist
 from tjdnet.distributions.ucp import UCPDist
 from tjdnet.distributions.umps import UMPSDist
 from tjdnet.tensorops.common import get_windowed_input_ids
-from tjdnet.utils import diagnose, spec_sample_v2
+from tjdnet.utils import diagnose, sample_topk, spec_sample_v2
 
 DIST_MAP: Dict[str, Type[BaseDistribution]] = {
     "base": BaseDist,
@@ -382,7 +382,7 @@ class TJD(ABC, torch.nn.Module):
     #     if return_new_tokens:  # Remove input tokens
     #         output = output[:, input_ids.size(1) :]
     #     return output
-
+    # TODO: use x instead of active_seqs
     def generate(
         self,
         input_ids: torch.Tensor,
@@ -438,6 +438,7 @@ class TJD(ABC, torch.nn.Module):
             time_step = 0
             # for time_step in range(0, max_new_tokens, horizon):
             while time_step < max_new_tokens:
+                time_step_prime = input_ids.size(1) + time_step
                 # Exit if all sequences are done
                 active_mask = (
                     ~torch.any(output_seqs[:, input_ids.size(1) :] == stop_token, dim=1)
@@ -449,7 +450,7 @@ class TJD(ABC, torch.nn.Module):
 
                 # Get currently active sequences
                 active_seqs = output_seqs[
-                    active_mask, : input_ids.size(1) + time_step
+                    active_mask, :time_step_prime
                 ]  # (B_active, T_in + time_step)
                 current_attention = (
                     extend_attn(attention_mask[active_mask], time_step)
@@ -466,19 +467,38 @@ class TJD(ABC, torch.nn.Module):
                     horizon, max_new_tokens - time_step
                 )  # speculative heads may not reach target horizon
 
+                def model_p(y: torch.Tensor):
+                    # Signature: model_p: y -> p(y|x)
+                    # Shape of y: (B_active, H')
+                    x = active_seqs  # (B_active, T_in + time_step)
+                    h = self.get_attn_last_hidden_state(
+                        input_ids=torch.cat((x, y), dim=1),
+                        attention_mask=current_attention,
+                    )  # (B_active, T_in + time_step + H', D)
+                    py_x = self.tgt_model_head(h)  # (B_active, t' + H', V)
+                    # TODO: maybe should abasorb this into the tgt_model_head
+                    return torch.softmax(py_x[:, time_step_prime:], dim=-1)
+
                 if use_speculative_sampling:
                     y_hat = spec_sample_v2(
-                        model_p=self.tgt_model_head,
-                        model_q=lambda: self.model_head.get_dist(),
-                        sample_fn=lambda p: torch.multinomial(p, num_samples=1),
+                        # model_p: y -> p(y|x)
+                        model_p=model_p,
+                        # {} -> y_hat, q(y|x)
+                        model_q=lambda: self.model_head.sample(
+                            hidden_state,
+                            horizon_target,
+                            do_sample=do_sample,
+                            top_k=top_k,
+                        ),
+                        sample_fn=lambda p: sample_topk(p, top_k=top_k).squeeze(-1),
                     )
-
-                y_hat = self.model_head.sample(
-                    hidden_state,
-                    horizon_target,
-                    do_sample=do_sample,
-                    top_k=top_k,
-                )  # (B_active, horizon_actual)
+                else:
+                    y_hat, _ = self.model_head.sample(
+                        hidden_state,
+                        horizon_target,
+                        do_sample=do_sample,
+                        top_k=top_k,
+                    )  # (B_active, horizon_actual)
                 horizon_actual = y_hat.size(1)
 
                 # Append new tokens

@@ -40,7 +40,7 @@ class CPDist(BaseDistribution):
         do_sample: bool = False,
         top_k: int = 200,
         **kwargs,
-    ) -> torch.Tensor:
+    ):
         horizon = self._get_horizon(horizon)
         batch_size = hidden_state.size(0)
         dvc = hidden_state.device
@@ -48,6 +48,7 @@ class CPDist(BaseDistribution):
         model_head_params = self._get_params(hidden_state[:, -1:, :]).squeeze(
             1
         )  # (B, 1, R, H*, V) => (B, R, H*, V)
+        py_list = []
         for h in range(horizon):
             ops_tensor = torch.cat(
                 (
@@ -65,12 +66,14 @@ class CPDist(BaseDistribution):
                 cp_params=model_head_params,
                 ops=ops_tensor,
             )  # (B, V), (B, T)
+            py_list.append(p_ops_tilde)
             if do_sample:
                 next_token = sample_topk(p_ops_tilde, top_k, num_samples=1)
             else:  # greedy sampling
                 next_token = sample_topk(p_ops_tilde, 1, num_samples=1)
             y_hat = torch.cat([y_hat, next_token], dim=1)
-        return y_hat  # (B, H)
+        py = torch.stack(py_list, dim=1)  # (B, H, V)
+        return y_hat, py  # (B, H)
 
     def evaluate_at_points_and_get_norm_consts(
         self,
