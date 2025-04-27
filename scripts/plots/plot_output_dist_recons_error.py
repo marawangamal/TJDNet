@@ -23,7 +23,7 @@ import seaborn as sns
 import numpy as np
 
 from tjdnet.regressors.cp_regressor import CPRegressor
-from utils.utils import group_arr, plot_groups
+from utils.utils import get_experiment_name, group_arr, plot_groups
 
 # set tl backend to pytorch
 tl.set_backend("pytorch")
@@ -298,7 +298,7 @@ def main(args: Namespace):
             **vars(args),
         )
         # # === Debug plot >>>
-        # # rand error
+        # rand error
         # errors = [1 / i + 0.1 * abs(torch.randn((1, 1)).item()) for i in range(1, 10)]
         # ranks = list(range(1, 10))
         # error_baseline = 0.1
@@ -312,6 +312,7 @@ def main(args: Namespace):
 
         # Store errors and ranks
         subset["errors"] = errors
+        subset["log-errors"] = torch.log(torch.tensor(errors)).tolist()
         subset["ranks"] = ranks
 
     # Plot errors for all subsets
@@ -321,8 +322,12 @@ def main(args: Namespace):
 
     results_ungrouped = []
     for res_group in subsets:
-        for err, rank in zip(res_group["errors"], res_group["ranks"]):
-            results_ungrouped.append({**res_group, "error": err, "rank": rank})
+        for log_err, err, rank in zip(
+            res_group["log-errors"], res_group["errors"], res_group["ranks"]
+        ):
+            results_ungrouped.append(
+                {**res_group, "log-error": log_err, "error": err, "rank": rank}
+            )
 
     results_grouped = group_arr(
         results_ungrouped,
@@ -330,13 +335,16 @@ def main(args: Namespace):
         lambda x: parse_model_horizon(x["name"]),
     )
 
+    exp_name = get_experiment_name(vars(args))
+    save_path = f"results/plots/odre_{exp_name}.png"
+
     plot_groups(
         results_grouped,
         x_key="rank",
         x_label="Rank",
-        y_key="error",
-        y_label="Error",
-        path="results/plots/output_dist_recons_error_test.png",
+        y_key="log-error",
+        y_label="Log Reconstruction Error",
+        path=save_path,
         # First level controls color, second controls marker
         style_dims=[
             "color",
@@ -355,29 +363,14 @@ def main(args: Namespace):
             ]
         },
     )
+    print(f"Plot saved to {save_path}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Analyze the output distribution of a language model.",
     )
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="Run the test function.",
-    )
     # === Optimization args ==========
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=512,
-    )
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=1e-2,
-        help="Learning rate for the optimizer.",
-    )
     parser.add_argument(
         "--epochs",
         type=int,
@@ -385,10 +378,21 @@ if __name__ == "__main__":
         help="Number of epochs to train.",
     )
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=512,
+    )
+    parser.add_argument(
         "--min_epochs",
         type=int,
         default=10,
         help="Minimum number of epochs to train.",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=1e-2,
+        help="Learning rate for the optimizer.",
     )
     parser.add_argument(
         "--patience",
@@ -421,6 +425,14 @@ if __name__ == "__main__":
         default="normal",
         choices=["zeros", "normal"],
     )
+
+    # === Run test ==========
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Run the test function.",
+    )
+
     args = parser.parse_args()
     if args.test:
         main_test(args)
