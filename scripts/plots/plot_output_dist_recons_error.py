@@ -315,6 +315,8 @@ def main(args: Namespace):
         # Store errors and ranks
         subset["errors"] = errors
         subset["log-errors"] = torch.log(torch.tensor(errors)).tolist()
+        subset["error-baseline"] = error_baseline
+        subset["log-error-baseline"] = torch.log(torch.tensor(error_baseline)).item()
         subset["ranks"] = ranks
 
     # Plot errors for all subsets
@@ -338,14 +340,34 @@ def main(args: Namespace):
                 }
             )
 
+        # Add baseline error
+        # Adds datapoint for each (subset, rank) with the baseline error
+        results_ungrouped.extend(
+            [
+                {
+                    **res_group,
+                    "error": res_group["error-baseline"],
+                    "log-error": res_group["log-error-baseline"],
+                    "rank": r,
+                    "is_baseline": True,
+                }
+                for r in res_group["ranks"]
+            ]
+        )
+
     results_grouped = group_arr(
         results_ungrouped,
         lambda x: x["name"],
         lambda x: parse_model_horizon(x["name"]),
+        # group baseline error points
+        lambda x: "baseline" if "is_baseline" in x else "",
     )
 
     exp_name = get_experiment_name(vars(args))
     save_path = f"results/plots/odre_{exp_name}.png"
+
+    # Plot the results
+    # ===========================
 
     plot_groups(
         results_grouped,
@@ -356,6 +378,7 @@ def main(args: Namespace):
         style_dims=[
             "color",
             "marker",
+            "linestyle",
         ],
         style_cycles={
             "color": [
@@ -367,7 +390,9 @@ def main(args: Namespace):
                 "#CA9161",
                 "#FBAFE4",
                 "#949494",
-            ]
+            ],
+            "marker": ["o", "s", "D", "X", "^", "v"],
+            "linestyle": ["-", "--", "-.", ":"],
         },
         axes_kwargs={
             "title": f"CP Tensor Approximation Error for p(y|x)",
@@ -377,7 +402,7 @@ def main(args: Namespace):
                 if args.use_log
                 else f"{args.loss_type.upper()}"
             ),
-            "ylim": (0, 2),
+            "ylim": (0, 2) if not args.use_log else None,
         },
         fig_kwargs={
             "figsize": (10, 6),
