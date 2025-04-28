@@ -551,7 +551,7 @@ class SlurmJobManager:
         print(totals_tbl.to_string(index=False))
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-f",
@@ -638,3 +638,7 @@ if __name__ == "__main__":
             job=args.job,
             preamble_path=args.preamble_path,
         ).submit_jobs()
+
+
+if __name__ == "__main__":
+    main()
