@@ -333,7 +333,7 @@ def validate_args(args):
         {
             "message": "Model does not support batch_size > 1",
             "condition": lambda: not (
-                args.model_type in ["gpt2"] and args.acc_batch_size > 1
+                args.model in ["gpt2"] and args.acc_batch_size > 1
             ),
         }
     ]
@@ -414,7 +414,7 @@ def load_args(ckpt_dir):
 def get_model_and_tokenizer(args):
 
     if args.tokenizer_type == "word":
-        tokenizer = AutoTokenizer.from_pretrained(args.model_type)
+        tokenizer = AutoTokenizer.from_pretrained(args.model)
         # Note: cant simply add pad token -- unless we retrain a model embedding layer
         tokenizer.pad_token = "$"
         tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
@@ -437,7 +437,7 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         auto_model_kwargs=dict(
-            pretrained_model_name_or_path=args.model_type,
+            pretrained_model_name_or_path=args.model,
             low_cpu_mem_usage=True,
         ),
         use_memory_efficient_loss=args.use_memory_efficient_loss,
@@ -469,7 +469,7 @@ def get_chat_template(args):
 
 
 # # Tokenizer
-# if args.model_type.startswith("gpt2"):
+# if args.model.startswith("gpt2"):
 #     tokenizer = (
 #         AutoTokenizer.from_pretrained("gpt2")
 #         if args.tokenizer_type == "word"
