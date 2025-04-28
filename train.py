@@ -4,18 +4,17 @@ This script trains and evaluates TJDNet models using the Hugging Face Transforme
 
 Example:
     accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py \
-        --epochs 20 \
-        --batch_size 32 \
-        --seq_len 128 \
-        --dataset gsm8k \
         --model llama7b \
+        --dataset gsm8k \
+        --epochs 50 \
+        --batch_size 8 \
+        --seq_len 128 \
         --lr 1e-5 \
         --model_head cp \
-        --num_layers 2 \
-        --hidden_dim 768 \
+        --hidden_dim 5120 \
         --horizon 2 \
         --horizon_eval 2 \
-        --rank 2
+        --rank 16
 
 Hardware requirements:
     - LLAMA 7B model: 4x GPUs w/ 80GB VRAM (FSDP)

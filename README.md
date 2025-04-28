@@ -184,18 +184,19 @@ To verify that your installation and setup are correct, run a quick sanity check
 
 Train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
 ```bash
-python train.py --epochs 10 \
-        --dataset stemp \
-        --model gpt2 \
-        --batch_size 32  \
-        --seq_len 128 \
-        --lr 1e-4 \
-        --model_head cp \
-        --hidden_dim 768 \
-        --horizon 2 \
-        --horizon_eval 2 \
-        --rank 2 \
-        --compute_acc
+python train.py --compute_acc
 ```
 
-After training for 10 epochs, you should observe nearly **100% accuracy** on the stemp dataset.
+After training for 10 epochs, you should observe **100% accuracy** on the stemp dataset and an output like this
+```txt
+What is -8°C in Fahrenheit?
+ 
+Let's solve this step by step:
+1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32
+2) Plugging in -8°C:
+   °F = (-8 x 9/5) + 32
+   °F = 17.6
+
+####
+17.6<|endoftext|>
+```
