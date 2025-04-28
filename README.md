@@ -190,7 +190,7 @@ python train.py --compute_acc
 After training for 10 epochs, you should observe **100% accuracy** on the stemp dataset and an output like this
 ```txt
 What is -8°C in Fahrenheit?
- 
+
 Let's solve this step by step:
 1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32
 2) Plugging in -8°C:
@@ -199,4 +199,5 @@ Let's solve this step by step:
 
 ####
 17.6<|endoftext|>
+Eval accuracy: 1.0
 ```

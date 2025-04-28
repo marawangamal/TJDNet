@@ -82,7 +82,12 @@ class Spinner(threading.Thread):
 # ---------------------- main ----------------------
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", required=True)
+    ap.add_argument(
+        "--model",
+        type=str,
+        default="meta-llama/Llama-3.2-3B-Instruct",
+        help="model name or path",
+    )
     ap.add_argument(
         "--multi-gpu",
         action="store_true",

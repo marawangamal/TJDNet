@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Optional, Any, Dict, List, Sequence, Tuple, Union
 from collections.abc import Mapping
 
@@ -53,6 +54,11 @@ class AverageMeter:
         return {"sum": self.sum, "count": self.count, "avg": self.avg}
 
 
+def replace_spec_chars(value: str, replacement: str = "_") -> str:
+    # Remove special characters and replace with underscores
+    return re.sub(r"[^a-zA-Z0-9]", replacement, str(value))
+
+
 def get_experiment_name(
     configs: Dict,
     abbrevs: Optional[Dict] = None,
@@ -89,13 +95,7 @@ def get_experiment_name(
                 abbrev = key[: i + 1]
                 i += 1
 
-            abbrevs[abbrev] = (
-                str(value)
-                .replace(" ", "")
-                .replace(",", "_")
-                .replace("[", "")
-                .replace("]", "")
-            )
+            abbrevs[abbrev] = replace_spec_chars(value)
 
     return "_".join(f"{k}{v}" for k, v in abbrevs.items())
 

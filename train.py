@@ -3,8 +3,8 @@
 This script trains and evaluates TJDNet models using the Hugging Face Transformers library.
 
 Example:
-    accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py \
-        --model llama7b \
+    accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_2gpus.yaml train.py \
+        --model meta-llama/Llama-3.2-3B-Instruct \
         --dataset gsm8k \
         --epochs 50 \
         --batch_size 8 \
