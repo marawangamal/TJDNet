@@ -214,7 +214,7 @@ def main():
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     args = parse_args()
     args, exp_name, ckpt_dir, has_checkpoint = setup(args, local_rank)
-    set_seed(args.seed)
+    set_seed(42)
 
     # Model and tokenizer
     model, tokenizer = get_model_and_tokenizer(args)

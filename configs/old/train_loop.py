@@ -147,7 +147,7 @@ def main():
     has_checkpoint = osp.exists(ckpt_dir)
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    set_seed(args.seed)
+    set_seed(42)
     save_args(args, ckpt_dir)
 
     # Model and tokenizer

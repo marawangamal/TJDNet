@@ -48,7 +48,7 @@ from utils.utils import get_experiment_name
 def main():
 
     args = parse_args()
-    set_seed(args.seed)
+    set_seed(42)
 
     exp_name = get_experiment_name(vars(args))
     ckpt_dir = osp.join("checkpoints", exp_name)

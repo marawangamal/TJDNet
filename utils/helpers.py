@@ -86,26 +86,26 @@ def parse_args():
     parser.add_argument(
         "--model_head",
         type=str,
-        default="mps",
+        default="cp",
         help="Type of factorization to use for the model.",
         choices=DIST_MAP.keys(),
     )
     parser.add_argument(
         "--hidden_dim",
         type=int,
-        default=256,
+        default=128,
         help="Hidden size of model head.",
     )
     parser.add_argument(
         "--rank",
         type=int,
-        default=1,
+        default=2,
         help="Rank of the tensor train decomposition.",
     )
     parser.add_argument(
         "--horizon",
         type=int,
-        default=1,
+        default=2,
         help="Horizon for TJD models. (E.g. if horizon=2 the model will make 2x less forward passes)",
     )
     parser.add_argument(
@@ -154,7 +154,7 @@ def parse_args():
     parser.add_argument(
         "--horizon_eval",
         type=int,
-        default=1,
+        default=2,
         help="Horizon for TJD models during evaluation. (Note: horizon_eval cannot be greater than horizon for some TJD dists)",
     )
     parser.add_argument(
@@ -180,7 +180,7 @@ def parse_args():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="gsm8k",
+        default="stemp",
         help="Type of dataset to use for training.",
         choices=[
             "shakespeare",
@@ -191,18 +191,6 @@ def parse_args():
             "snum",
             "sbase",
         ],
-    )
-    # Tokenizer arguments
-    parser.add_argument(
-        "--tokenizer_type",
-        type=str,
-        default="word",
-        help="Type of tokenizer to use for processing text.",
-        choices=["char", "word"],
-    )
-    # Misc arguments
-    parser.add_argument(
-        "--seed", type=int, default=42, help="Random seed for reproducibility"
     )
 
     # ------------------
@@ -413,14 +401,11 @@ def load_args(ckpt_dir):
 
 def get_model_and_tokenizer(args):
 
-    if args.tokenizer_type == "word":
-        tokenizer = AutoTokenizer.from_pretrained(args.model)
-        # Note: cant simply add pad token -- unless we retrain a model embedding layer
-        tokenizer.pad_token = "$"
-        tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
-        tokenizer.padding_side = "left"
-    else:
-        raise NotImplementedError("CharTokenizer removed for now.")
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    # Note: cant simply add pad token -- unless we retrain a model embedding layer
+    tokenizer.pad_token = "$"
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+    tokenizer.padding_side = "left"
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
