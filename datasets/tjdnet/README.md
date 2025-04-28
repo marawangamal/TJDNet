@@ -79,4 +79,29 @@ configs:
     path: "meta_llama_llama_2_7b_chat_hf/h4/space/train.jsonl"
   - split: test
     path: "meta_llama_llama_2_7b_chat_hf/h4/space/test.jsonl"
+# Llama (h32)
+- config_name: meta_llama_llama_2_7b_chat_hf_gsm8k_h32
+  data_files:
+  - split: train
+    path: "meta_llama_llama_2_7b_chat_hf/h32/gsm8k/train.jsonl"
+  - split: test
+    path: "meta_llama_llama_2_7b_chat_hf/h32/gsm8k/test.jsonl"
+- config_name: meta_llama_llama_2_7b_chat_hf_poem_h32
+  data_files:
+  - split: train
+    path: "meta_llama_llama_2_7b_chat_hf/h32/poem/train.jsonl"
+  - split: test
+    path: "meta_llama_llama_2_7b_chat_hf/h32/poem/test.jsonl"
+- config_name: meta_llama_llama_2_7b_chat_hf_newline_h32
+  data_files:
+  - split: train
+    path: "meta_llama_llama_2_7b_chat_hf/h32/newline/train.jsonl"
+  - split: test
+    path: "meta_llama_llama_2_7b_chat_hf/h32/newline/test.jsonl"
+- config_name: meta_llama_llama_2_7b_chat_hf_space_h32
+  data_files:
+  - split: train
+    path: "meta_llama_llama_2_7b_chat_hf/h32/space/train.jsonl"
+  - split: test
+    path: "meta_llama_llama_2_7b_chat_hf/h32/space/test.jsonl"
 ---

@@ -129,14 +129,18 @@ def generate_dataset(
                 max_new_tokens=horizon,
                 return_dict_in_generate=True,
                 output_logits=True,
-                # Make samples more diverse
+                # ==== Low randomness ======================
                 # do_sample=True,
                 # top_k=50,
                 # top_p=0.95,
-                # More random sampling
-                temperature=1.8,  # flatter distribution
-                top_k=0,  # don’t prune by rank
-                top_p=0.97,  # keep 97 % cumulative prob.
+                # ==== Medium randomness ======================
+                do_sample=True,
+                top_k=200,  # prune by rank
+                top_p=0.95,  # keep 95 % cumulative prob.
+                # ==== High randomness ======================
+                # temperature=1.8,  # flatter distribution
+                # top_k=0,  # don’t prune by rank
+                # top_p=0.97,  # keep 97 % cumulative prob.
             )
             y = outputs.sequences[:, x.size(1) :]
             logits = torch.stack(outputs.logits, dim=1)
@@ -270,7 +274,7 @@ if __name__ == "__main__":
         "-n",
         "--num_samples",
         type=int,
-        default=1000,
+        default=50000,
     )
     parser.add_argument(
         "-o",

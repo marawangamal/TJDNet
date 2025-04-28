@@ -10,7 +10,9 @@ def create_model_llama_fn(
     horizon,
     hidden_dim,
     model_head="cp",
-    auto_model_kwargs={"hf_model_name": "meta-llama/Llama-2-7b-chat-hf"},
+    auto_model_kwargs={
+        "pretrained_model_name_or_path": "meta-llama/Llama-2-7b-chat-hf"
+    },
     **kwargs,
 ):
     return lambda: TJDHuggingFace(
@@ -33,7 +35,7 @@ def create_model_gpt_fn(
     horizon,
     hidden_dim,
     model_head="cp",
-    auto_model_kwargs={"hf_model_name": "gpt2"},
+    auto_model_kwargs={"pretrained_model_name_or_path": "gpt2"},
     **kwargs,
 ):
     return lambda: TJDHuggingFace(

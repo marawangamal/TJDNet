@@ -267,10 +267,19 @@ def main(args: Namespace):
         # {"name": "meta_llama_llama_2_7b_chat_hf_newline_h2", "errors": [], "ranks": []},
         # {"name": "meta_llama_llama_2_7b_chat_hf_space_h2", "errors": [], "ranks": []},
         # Horizon=4
-        {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h4", "errors": [], "ranks": []},
-        {"name": "meta_llama_llama_2_7b_chat_hf_poem_h4", "errors": [], "ranks": []},
-        {"name": "meta_llama_llama_2_7b_chat_hf_newline_h4", "errors": [], "ranks": []},
-        {"name": "meta_llama_llama_2_7b_chat_hf_space_h4", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h4", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_poem_h4", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_newline_h4", "errors": [], "ranks": []},
+        # {"name": "meta_llama_llama_2_7b_chat_hf_space_h4", "errors": [], "ranks": []},
+        # Horizon=4
+        {"name": "meta_llama_llama_2_7b_chat_hf_gsm8k_h32", "errors": [], "ranks": []},
+        {"name": "meta_llama_llama_2_7b_chat_hf_poem_h32", "errors": [], "ranks": []},
+        {
+            "name": "meta_llama_llama_2_7b_chat_hf_newline_h32",
+            "errors": [],
+            "ranks": [],
+        },
+        {"name": "meta_llama_llama_2_7b_chat_hf_space_h32", "errors": [], "ranks": []},
     ]
 
     for subset in tqdm.tqdm(subsets, desc="Processing subsets"):
@@ -300,7 +309,6 @@ def main(args: Namespace):
             **vars(args),
         )
         # # === Debug plot >>>
-        # rand error
         # errors = [1 / i + 0.1 * abs(torch.randn((1, 1)).item()) for i in range(1, 10)]
         # ranks = list(range(1, 10))
         # error_baseline = 0.1
@@ -363,53 +371,53 @@ def main(args: Namespace):
         lambda x: "baseline" if "is_baseline" in x else "",
     )
 
-    exp_name = get_experiment_name(vars(args))
-    save_path = f"results/plots/odre_{exp_name}.png"
-
     # Plot the results
     # ===========================
 
-    plot_groups(
-        results_grouped,
-        x_key="rank",
-        y_key="log-error" if args.use_log else "error",
-        path=save_path,
-        # First level controls color, second controls marker
-        style_dims=[
-            "color",
-            "marker",
-            "linestyle",
-        ],
-        style_cycles={
-            "color": [
-                "#0173B2",
-                "#DE8F05",
-                "#029E73",
-                "#D55E00",
-                "#CC78BC",
-                "#CA9161",
-                "#FBAFE4",
-                "#949494",
+    for use_log in [False, True]:
+        exp_name = get_experiment_name({**vars(args), "use_log": use_log})
+        save_path = f"results/plots/odre_{exp_name}.png"
+        plot_groups(
+            results_grouped,
+            x_key="rank",
+            y_key="log-error" if use_log else "error",
+            path=save_path,
+            # First level controls color, second controls marker
+            style_dims=[
+                "color",
+                "marker",
+                "linestyle",
             ],
-            "marker": ["o", "s", "D", "X", "^", "v"],
-            "linestyle": ["-", "--", "-.", ":"],
-        },
-        axes_kwargs={
-            "title": f"CP Tensor Approximation Error for p(y|x)",
-            "xlabel": "RANK",
-            "ylabel": (
-                f"LOG {args.loss_type.upper()}"
-                if args.use_log
-                else f"{args.loss_type.upper()}"
-            ),
-            "ylim": (0, 2) if not args.use_log else None,
-        },
-        fig_kwargs={
-            "figsize": (10, 6),
-            "dpi": 300,
-        },
-    )
-    print(f"Plot saved to {save_path}")
+            style_cycles={
+                "color": [
+                    "#0173B2",
+                    "#DE8F05",
+                    "#029E73",
+                    "#D55E00",
+                    "#CC78BC",
+                    "#CA9161",
+                    "#FBAFE4",
+                    "#949494",
+                ],
+                "marker": ["o", "s", "D", "X", "^", "v"],
+                "linestyle": ["-", "--", "-.", ":"],
+            },
+            axes_kwargs={
+                "title": f"CP Tensor Approximation Error for p(y|x)",
+                "xlabel": "RANK",
+                "ylabel": (
+                    f"LOG {args.loss_type.upper()}"
+                    if use_log
+                    else f"{args.loss_type.upper()}"
+                ),
+                "ylim": (0, 2) if not use_log else None,
+            },
+            fig_kwargs={
+                "figsize": (10, 6),
+                "dpi": 300,
+            },
+        )
+        print(f"Plot saved to {save_path}")
 
 
 if __name__ == "__main__":
@@ -457,11 +465,6 @@ if __name__ == "__main__":
         type=float,
         default=1e-5,  # 0.001% relative tolerance
         help="Relative tolerance for early stopping.",
-    )
-    parser.add_argument(
-        "--use_log",
-        action="store_true",
-        help="Use log scale for the loss function.",
     )
     parser.add_argument(
         "--loss_type",
