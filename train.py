@@ -27,6 +27,7 @@ import json
 import os
 import os.path as osp
 from re import L
+import shutil
 import time
 from typing import Union
 import uuid
@@ -195,8 +196,8 @@ def setup(args, local_rank: int):
         # Fix files - delete if checkpoint is empty
         for f in checkpoint_files:
             if not "trainer_state.json" in os.listdir(osp.join(ckpt_dir, f)):
-                print(f"Deleting empty checkpoint: {f}")
-                os.rmdir(osp.join(ckpt_dir, f))
+                print(f"Deleting corrupt checkpoint: {f}")
+                shutil.rmtree(osp.join(ckpt_dir, f))
                 checkpoint_files.remove(f)
 
         # Check if there are any checkpoint files
