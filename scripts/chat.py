@@ -17,7 +17,7 @@ ANSI = {"user": "\033[1;32m", "bot": "\033[1;36m", "dim": "\033[2m", "rst": "\03
 MAX_HISTORY = 20  # trim old turns so the prompt stays small
 
 
-# ╭───────────────────────── I/O helper ─────────────────────────╮
+# ---------------------- I/O helper ----------------------
 def read_line(prompt: str = "") -> str:
     sys.stdout.write(prompt)
     sys.stdout.flush()
@@ -27,7 +27,7 @@ def read_line(prompt: str = "") -> str:
     return "".join(buf)
 
 
-# ╭───────────────────────── model utils ────────────────────────╮
+# ---------------------- model utils ----------------------
 def load(model_id: str, single_gpu: bool):
     tok = AutoTokenizer.from_pretrained(model_id, use_fast=True)
     tok.pad_token = tok.pad_token or tok.eos_token or tok.unk_token or "<|pad|>"
@@ -79,7 +79,7 @@ class Spinner(threading.Thread):
         self.run_ = False
 
 
-# ╭─────────────────────────── main ─────────────────────────────╮
+# ---------------------- main ----------------------
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
