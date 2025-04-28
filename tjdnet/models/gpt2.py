@@ -11,7 +11,7 @@ from transformers import (
 class GPT2(torch.nn.Module):
     def __init__(self, config: TJDConfig, **kwargs):
         super().__init__()
-        self.model = GPT2LMHeadModel(GPT2Config(**config.model_kwargs))
+        self.model = GPT2LMHeadModel(GPT2Config(**config.auto_model_kwargs))
 
     def forward(
         self,

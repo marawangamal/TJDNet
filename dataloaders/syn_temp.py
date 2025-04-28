@@ -23,6 +23,25 @@ class ChatTemplateSynTemp(BaseChatTemplate):
         )
 
     @classmethod
+    def get_sample_prompt_few_shot(cls):
+        return """
+            You are a temperature conversion assistant. Solve the temperature conversion problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an example, follow the same output format. Just give the answer directly
+
+            [QUESTION]
+            What is 20°C in Fahrenheit?
+
+            [ANSWER]
+            Let's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n2). Plugging in 20°C:\n   °F = (20 x 9/5) + 32\n   °F = 68\n\n#### 68
+
+            [QUESTION]
+            What is 30°C in Fahrenheit?
+
+            [ANSWER]
+            """
+
+        # You are a temperature conversion assistant. Solve the temperature conversion problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an example, follow the same output format. Just give the answer directly \n [QUESTION] \n What is 20°C in Fahrenheit? \n [ANSWER] \n Let's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n2). Plugging in 20°C:\n   °F = (20 x 9/5) + 32\n   °F = 68\n\n#### 68 \n [QUESTION] \n What is 30°C in Fahrenheit? \n [ANSWER]
+
+    @classmethod
     def safe_parse(cls, generation: str, eos_token: str):
         try:
             return (
@@ -40,7 +59,7 @@ def generate_sample():
     temp_f = (temp_c * 9 / 5) + 32
 
     question = f"What is {temp_c}°C in Fahrenheit?"
-    response = f"\nLet's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C × 9/5) + 32\n2) Plugging in {temp_c}°C:\n   °F = ({temp_c} × 9/5) + 32\n   °F = {temp_f}\n\n####\n{temp_f}"
+    response = f"\nLet's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n2) Plugging in {temp_c}°C:\n   °F = ({temp_c} x 9/5) + 32\n   °F = {temp_f}\n\n####\n{temp_f}"
 
     return {"question": question, "response": response}
 

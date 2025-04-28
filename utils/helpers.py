@@ -20,6 +20,7 @@ from tjdnet.models._tjd import DIST_MAP, TJDConfig
 from tjdnet.models.gpt2 import GPT2
 from tjdnet.models.llama import LLAMA
 from tjdnet.models.tjdgpt2 import TJDGPT2
+from tjdnet.models.tjdhf import TJDHuggingFace
 from tjdnet.models.tjdllama import TJDLLAMA
 
 
@@ -83,17 +84,7 @@ def parse_args():
         "--model_type",
         type=str,
         default="gpt2",
-        help="Type of base model to use",
-        choices=[
-            "gpt2",
-            "llama7b",
-            "llama13b",
-            "llama70b",
-            "gpt2r",
-            "llamar",
-            "llama3-8b-i",
-            "llama3-8b",
-        ],
+        help="Huggingface model id.",
     )
     parser.add_argument(
         "--model_head",
@@ -431,17 +422,9 @@ def load_args(ckpt_dir):
 
 
 def get_model_and_tokenizer(args):
-    hf_model_name = {
-        "llama7b": "meta-llama/Llama-2-7b-chat-hf",
-        "llama13b": "meta-llama/Llama-2-13b-chat-hf",
-        "llama70b": "meta-llama/Llama-2-70b-chat-hf",
-        "gpt2": "gpt2",
-        "llama3-8b-i": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "llama3-8b": "meta-llama/Meta-Llama-3.1-8B",
-    }[args.model_type]
 
     if args.tokenizer_type == "word":
-        tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_type)
         # Note: cant simply add pad token -- unless we retrain a model embedding layer
         tokenizer.pad_token = "$"
         tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
@@ -464,26 +447,18 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
-        use_attn_layer=(
-            args.use_attn_layer if hasattr(args, "use_attn_layer") else False
-        ),  # Backward compatibility
-        model_kwargs={"hf_model_name": hf_model_name},
-        # TODO: remove gen_version
-        gen_version=(
-            args.gen_version if hasattr(args, "gen_version") else 2
-        ),  # Backward compatibility
+        auto_model_kwargs=dict(
+            pretrained_model_name_or_path=args.model_type,
+            low_cpu_mem_usage=True,
+        ),
+        # use_attn_layer=(
+        #     args.use_attn_layer if hasattr(args, "use_attn_layer") else False
+        # ),  # Backward compatibility
+        # gen_version=(
+        #     args.gen_version if hasattr(args, "gen_version") else 2
+        # ),  # Backward compatibility
     )
-
-    model = {
-        "llama7b": TJDLLAMA,
-        "llama13b": TJDLLAMA,
-        "llama70b": TJDLLAMA,
-        "llama3-8b-i": TJDLLAMA,
-        "llama3-8b": TJDLLAMA,
-        "gpt2": TJDGPT2,
-        "gpt2r": GPT2,
-        "llamar": LLAMA,
-    }[args.model_type](model_config)
+    model = TJDHuggingFace(model_config)
 
     return model, tokenizer
 

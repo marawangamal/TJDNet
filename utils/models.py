@@ -27,7 +27,7 @@ def create_model_llama_fn(
                 param_net=TensorParamNetConfig(**param_net_config),
             ),
             model_head=model_head,
-            model_kwargs=model_kwargs,
+            auto_model_kwargs=model_kwargs,
             **kwargs,
         ),
     )

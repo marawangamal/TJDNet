@@ -53,7 +53,7 @@ class TJDConfig:
             - "base": No joint distribution (default)
             - "cp": CP tensor decomposition
             - "mps": MPS tensor decomposition
-        model_kwargs (Dict): Additional arguments passed to the base model.
+        auto_model_kwargs (Dict): Additional arguments passed to the base model.
 
         # Training Configuration
         init_method (Literal["random", "pretrained"]): Model initialization method.
@@ -71,7 +71,7 @@ class TJDConfig:
 
     # Model architecture
     model_head: str = "base"
-    model_kwargs: Dict = field(default_factory=dict)
+    auto_model_kwargs: Dict = field(default_factory=dict)
 
     # Training configuration
     init_method: Literal["random", "pretrained"] = "random"
@@ -118,9 +118,13 @@ class TJD(ABC, torch.nn.Module):
 
         # DEBUG: LoraConfig
         if config.train_mode == "full":
-            self.backbone, self.tgt_model_head = self.get_model(**config.model_kwargs)
+            self.backbone, self.tgt_model_head = self.get_model(
+                **config.auto_model_kwargs
+            )
         elif config.train_mode == "last":
-            self.backbone, self.tgt_model_head = self.get_model(**config.model_kwargs)
+            self.backbone, self.tgt_model_head = self.get_model(
+                **config.auto_model_kwargs
+            )
             self.freeze_base_model()
         elif config.train_mode == "lora":
             peft_config = LoraConfig(
@@ -130,7 +134,7 @@ class TJD(ABC, torch.nn.Module):
                 lora_alpha=32,
                 lora_dropout=0.1,
             )
-            backbone, self.tgt_model_head = self.get_model(**config.model_kwargs)
+            backbone, self.tgt_model_head = self.get_model(**config.auto_model_kwargs)
             self.backbone = get_peft_model(backbone, peft_config)  # type: ignore
         else:
             raise ValueError(f"Invalid train_mode: {config.train_mode}")
