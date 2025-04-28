@@ -44,6 +44,8 @@ class ChatTemplateGSM8k(BaseChatTemplate):
             [ANSWER]
             """
 
+        # You are a helpful math assistant. Solve the math problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an exmaple, follow the same output format. Just give the answer directly \n [QUESTION] \n Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? \n [ANSWER] \n Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 \n [QUESTION] \n Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn? \n [ANSWER]
+
     @classmethod
     def safe_parse(cls, generation: str, eos_token: str):
         try:
