@@ -42,6 +42,7 @@ from transformers import (
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
+from dataloaders import CHAT_TEMPLATES
 from dataloaders.common import BaseChatTemplate
 from utils.accuracy import compute_accuracy
 from utils.generation import GenerationCallback
@@ -54,10 +55,8 @@ from dataloaders.syn_temp import load_syn_temp_data
 from dataloaders.wikitext import load_wikitext_data
 from utils.utils import get_experiment_name
 from utils.helpers import (
-    get_chat_template,
     get_git_info,
     get_model_and_tokenizer,
-    get_test_samples,
     parse_args,
     save_args,
     set_seed,
@@ -72,9 +71,10 @@ class TJDTrainer(Trainer):
         test_dataset: torch.utils.data.Dataset,
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
         chat_template: BaseChatTemplate,
-        horizon: int,
-        top_k: int,
-        eos_token: str,
+        generate_kwargs: dict,
+        # horizon: int,
+        # top_k: int,
+        # eos_token: str,
         acc_batch_size: int = 1,
         **kwargs,
     ):
@@ -82,11 +82,12 @@ class TJDTrainer(Trainer):
         self.test_dataset = test_dataset
         self.chat_template = chat_template
 
-        self.horizon = horizon
-        self.top_k = top_k
-        self.eos_token = eos_token
+        # self.horizon = horizon
+        # self.top_k = top_k
+        # self.eos_token = eos_token
         self.tokenizer = tokenizer
         self.acc_batch_size = acc_batch_size
+        self.generate_kwargs = generate_kwargs
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
@@ -101,12 +102,13 @@ class TJDTrainer(Trainer):
             acc, _ = compute_accuracy(
                 self.model,
                 tokenizer=self.tokenizer,  # type: ignore
-                test_dataset=self.test_dataset,
+                test_dataset=self.test_dataset,  # type: ignore
                 chat_template=self.chat_template,
-                horizon=self.horizon,
-                top_k=self.top_k,
-                batch_size=self.acc_batch_size,
+                # horizon=self.horizon,
+                # top_k=self.top_k,
                 # eos_token=self.eos_token,
+                batch_size=self.acc_batch_size,
+                generate_kwargs=self.generate_kwargs,
             )
             print("Eval accuracy:", acc)
             if output and output.metrics:
@@ -217,7 +219,7 @@ def main():
 
     # Model and tokenizer
     model, tokenizer = get_model_and_tokenizer(args)
-    chat_template = get_chat_template(args)
+    chat_template = CHAT_TEMPLATES[args.dataset]
 
     params_dict = model.param_dict
     # Print dict key value pairs
@@ -317,9 +319,14 @@ def main():
         tokenizer=tokenizer,
         test_dataset=lm_dataset["test"] if args.compute_acc else None,  # type: ignore
         chat_template=chat_template,
-        horizon=args.horizon_eval,
-        top_k=args.top_k,
-        eos_token=(tokenizer.eos_token),  # type: ignore
+        generate_kwargs=dict(
+            horizon=args.horizon_eval,
+            top_k=args.top_k,
+            top_p=0.95,
+            do_sample=True,
+            max_new_tokens=args.max_new_tokens,
+            stop_token=tokenizer.eos_token_id,
+        ),
         acc_batch_size=args.acc_batch_size,
     )
 

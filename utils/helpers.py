@@ -8,8 +8,9 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer
 
+from dataloaders import CHAT_TEMPLATES
 from dataloaders._base import HF_CACHE_DIR
-from dataloaders.gsm8k import ChatTemplateGSM8k, ChatTemplateGSM8kFewShot
+from dataloaders.gsm8k import ChatTemplateGSM8k
 from dataloaders.shakespeare import ChatTemplateShakespeare
 from dataloaders.sharegpt import ChatTemplateShareGPT
 from dataloaders.syn_number_bases import ChatTemplateSynNumBase
@@ -440,17 +441,3 @@ def get_model_and_tokenizer(args):
     model = TJDHuggingFace(model_config)
 
     return model, tokenizer
-
-
-# TODO: just take in args.dataset
-def get_chat_template(args):
-    chat_templates = {
-        "gsm8k": ChatTemplateGSM8k,
-        "gsm8k::few": ChatTemplateGSM8kFewShot,
-        "shakespeare": ChatTemplateShakespeare,
-        "sharegpt": ChatTemplateShareGPT,
-        "snum": ChatTemplateSynNum,
-        "sbase": ChatTemplateSynNumBase,
-        "stemp": ChatTemplateSynTemp,
-    }
-    return chat_templates[args.dataset]

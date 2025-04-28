@@ -5,41 +5,30 @@ from dataloaders.common import BaseChatTemplate, group_texts
 
 
 class ChatTemplateSynTemp(BaseChatTemplate):
-    TEMPLATE = """[QUESTION]\n{question}\n[RESPONSE]{response}"""
+    TEMPLATE = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
+    TEMPLATE_FEW_SHOT = """
+        You are a temperature conversion assistant. Solve the temperature conversion problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an example, follow the same output format. Just give the answer directly
+
+        [QUESTION]
+        What is 20°C in Fahrenheit?
+
+        [ANSWER]
+        Let's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n2). Plugging in 20°C:\n   °F = (20 x 9/5) + 32\n   °F = 68\n\n#### 68
+        
+        [QUESTION]
+        {question}
+
+        [ANSWER]
+        {answer}
+    """
 
     @classmethod
-    def format_qa(cls, question: str, response: Optional[str] = None) -> str:
-        return cls.TEMPLATE.format(question=question, response=response or "")
-
-    @classmethod
-    def format_prompt(cls, prompt: str):
-        return cls.TEMPLATE.format(question=prompt, response="")
-
-    @classmethod
-    def get_sample_prompt(cls):
-        return cls.TEMPLATE.format(
+    def get_sample_prompt(cls, is_few_shot: bool = False):
+        tmp = cls.TEMPLATE if not is_few_shot else cls.TEMPLATE_FEW_SHOT
+        return tmp.format(
             question="What is 20°C in Fahrenheit?",
-            response="",
+            answer="",
         )
-
-    @classmethod
-    def get_sample_prompt_few_shot(cls):
-        return """
-            You are a temperature conversion assistant. Solve the temperature conversion problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an example, follow the same output format. Just give the answer directly
-
-            [QUESTION]
-            What is 20°C in Fahrenheit?
-
-            [ANSWER]
-            Let's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n2). Plugging in 20°C:\n   °F = (20 x 9/5) + 32\n   °F = 68\n\n#### 68
-
-            [QUESTION]
-            What is 30°C in Fahrenheit?
-
-            [ANSWER]
-            """
-
-        # You are a temperature conversion assistant. Solve the temperature conversion problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an example, follow the same output format. Just give the answer directly \n [QUESTION] \n What is 20°C in Fahrenheit? \n [ANSWER] \n Let's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n2). Plugging in 20°C:\n   °F = (20 x 9/5) + 32\n   °F = 68\n\n#### 68 \n [QUESTION] \n What is 30°C in Fahrenheit? \n [ANSWER]
 
     @classmethod
     def safe_parse(cls, generation: str, eos_token: str):
@@ -49,7 +38,7 @@ class ChatTemplateSynTemp(BaseChatTemplate):
                 if "####" in generation
                 else None
             )
-        except Exception:
+        except Exception as e:
             return None
 
 

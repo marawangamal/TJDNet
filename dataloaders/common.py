@@ -1,3 +1,4 @@
+from abc import ABC, abstractclassmethod, abstractmethod
 from typing import Union
 from git import Optional
 import torch
@@ -5,21 +6,14 @@ import torch
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
-class BaseChatTemplate:
-    @classmethod
-    def format_prompt(cls, prompt: str) -> str:
-        raise NotImplementedError
-
-    @classmethod
-    def get_sample_prompt(cls):
-        raise NotImplementedError
-
+class BaseChatTemplate(ABC):
     @classmethod
     def format_batch(
         cls,
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor],
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
+        use_few_shot: bool = False,
     ) -> tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """Prepares the input for the model. (Eg. add few shot examples, etc.)
 
@@ -32,11 +26,15 @@ class BaseChatTemplate:
             torch.Tensor: Input ids of the batch after formatting. (B, T)
             torch.Tensor: Attention mask of the batch after formatting. (B, T)
         """
-        return input_ids, attention_mask
+        # If use_few_shot is True, then decode -> format -> encode
+        if use_few_shot:
+            input_strs = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+            input_strs = [
+                cls.get_sample_prompt(is_few_shot=True).format(question=question)
+                for question in input_strs
+            ]
 
-    @classmethod
-    def safe_parse(cls, generation: str, eos_token: str) -> Optional[str]:
-        raise NotImplementedError
+        return input_ids, attention_mask
 
     @classmethod
     def check_answer(cls, answer_pred_unp: str, answer_true_unp: str, eos_token: str):
@@ -48,6 +46,17 @@ class BaseChatTemplate:
             return answer_pred == answer_true
         except Exception:
             return False
+
+    @classmethod
+    @abstractmethod
+    def get_sample_prompt(cls, is_few_shot: bool = False) -> str:
+        """Returns a sample prompt."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def safe_parse(cls, generation: str, eos_token: str) -> Optional[float]:
+        pass
 
 
 def group_texts(examples, input_seq_len):

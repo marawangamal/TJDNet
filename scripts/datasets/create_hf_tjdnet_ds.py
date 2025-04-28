@@ -142,7 +142,7 @@ def generate_dataset(
                 # top_k=0,  # don’t prune by rank
                 # top_p=0.97,  # keep 97 % cumulative prob.
             )
-            y = outputs.sequences[:, x.size(1) :]
+            y = outputs.sequences[:, x.size(1) :]  # Shape: (B, H)
             logits = torch.stack(outputs.logits, dim=1)
 
             probs = torch.nn.functional.softmax(logits, dim=-1)
