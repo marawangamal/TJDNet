@@ -17,11 +17,7 @@ from dataloaders.syn_temp import ChatTemplateSynTemp
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models._tjd import DIST_MAP, TJDConfig
-from tjdnet.models.gpt2 import GPT2
-from tjdnet.models.llama import LLAMA
-from tjdnet.models.tjdgpt2 import TJDGPT2
 from tjdnet.models.tjdhf import TJDHuggingFace
-from tjdnet.models.tjdllama import TJDLLAMA
 
 
 import uuid
@@ -77,9 +73,10 @@ def parse_args():
     )
 
     # ---------------
-    # Model arguments
+    # Model init args
     # ---------------
 
+    # TODO: rename to `model`
     parser.add_argument(
         "--model_type",
         type=str,
@@ -98,10 +95,6 @@ def parse_args():
         type=int,
         default=256,
         help="Hidden size of model head.",
-    )
-
-    parser.add_argument(
-        "--num_layers", type=int, default=1, help="Number of layers in the model head."
     )
     parser.add_argument(
         "--rank",
@@ -150,6 +143,7 @@ def parse_args():
         default=32,
         help="Rank of the tensor train decomposition for LORA training.",
     )
+
     parser.add_argument(
         "--use_memory_efficient_loss",
         default=False,
@@ -176,14 +170,12 @@ def parse_args():
         help="Retain only the top_k most likely tokens, clamp others to have 0 probability",
     )
     parser.add_argument(
-        "--num_beams",
-        type=int,
-        default=1,
-        help="Number of beams to use during evaluation.",
+        "--use_speculative_sampling",
+        action="store_true",
+        default=False,
+        help="Whether to use speculative sampling.",
     )
-    parser.add_argument(
-        "--gen_version", type=int, default=3, help="Generation method version"
-    )
+
     # Data Arguments
     parser.add_argument(
         "--dataset",
@@ -358,7 +350,6 @@ def get_test_samples(
     max_new_tokens=128,
     top_k=50,
     do_sample=True,
-    num_beams=1,
     num_samples=1,
     print_output=False,
     horizon=1,
@@ -376,7 +367,6 @@ def get_test_samples(
             do_sample=do_sample,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
-            num_beams=num_beams,
             horizon=horizon,
             early_stopping=True,  # For hf models this causes stopping when end token is reached (gpt2r)
             stop_token=tokenizer.eos_token_id,  # For tjd models this causes stopping when end token is reached
@@ -446,11 +436,12 @@ def get_model_and_tokenizer(args):
         init_method=args.init_method,
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
-        use_memory_efficient_loss=args.use_memory_efficient_loss,
         auto_model_kwargs=dict(
             pretrained_model_name_or_path=args.model_type,
             low_cpu_mem_usage=True,
         ),
+        use_memory_efficient_loss=args.use_memory_efficient_loss,
+        use_speculative_sampling=args.use_speculative_sampling,
         # use_attn_layer=(
         #     args.use_attn_layer if hasattr(args, "use_attn_layer") else False
         # ),  # Backward compatibility

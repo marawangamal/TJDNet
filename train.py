@@ -75,7 +75,6 @@ class TJDTrainer(Trainer):
         chat_template: BaseChatTemplate,
         horizon: int,
         top_k: int,
-        num_beams: int,
         eos_token: str,
         acc_batch_size: int = 1,
         **kwargs,
@@ -86,7 +85,6 @@ class TJDTrainer(Trainer):
 
         self.horizon = horizon
         self.top_k = top_k
-        self.num_beams = num_beams
         self.eos_token = eos_token
         self.tokenizer = tokenizer
         self.acc_batch_size = acc_batch_size
@@ -305,7 +303,6 @@ def main():
         horizon=args.horizon_eval,
         chat_template=chat_template,
         top_k=args.top_k,
-        num_beams=args.num_beams,
     )
 
     # Initialize the trainer
@@ -323,7 +320,6 @@ def main():
         chat_template=chat_template,
         horizon=args.horizon_eval,
         top_k=args.top_k,
-        num_beams=args.num_beams,
         eos_token=(
             tokenizer.eos_token  # type: ignore
             if args.tokenizer_type == "word"

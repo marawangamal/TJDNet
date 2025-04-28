@@ -61,6 +61,7 @@ class TJDConfig:
             - "pretrained": Load pretrained weights
         freeze_base_model (bool): If True, freezes the base model parameters.
         use_memory_efficient_loss (bool): If True, uses memory-efficient loss computation.
+        use_speculative_sampling (bool): If True, uses speculative sampling during generation.
 
         # Numerical Parameters
         eps (float): Small value for numerical stability in computations.
@@ -78,6 +79,7 @@ class TJDConfig:
     train_mode: Literal["full", "last", "lora"] = "full"
     lora_rank: int = 512
     use_memory_efficient_loss: bool = False
+    use_speculative_sampling: bool = False
     use_attn_layer: bool = False
 
     # Numerical parameters
@@ -85,9 +87,6 @@ class TJDConfig:
 
     # Generation parameters
     eos_token_id: Optional[int] = None
-
-    # Debugging
-    gen_version: int = 1
 
 
 class TJD(ABC, torch.nn.Module):
@@ -112,9 +111,9 @@ class TJD(ABC, torch.nn.Module):
         self.vocab_size = config.base_dist.vocab_size
         self.n_embd = config.base_dist.param_net.in_dim
         self.eps = config.eps
-        self.gen_version = config.gen_version
         self.use_attn_layer = config.use_attn_layer
         self.use_memory_efficient_loss = config.use_memory_efficient_loss
+        self.use_speculative_sampling = config.use_speculative_sampling
 
         # DEBUG: LoraConfig
         if config.train_mode == "full":
@@ -277,115 +276,6 @@ class TJD(ABC, torch.nn.Module):
         for param in self.backbone.parameters():
             param.requires_grad = False
 
-    # def generate_spec_sample(
-    #     self,
-    #     input_ids: torch.Tensor,
-    #     attention_mask: Optional[torch.Tensor] = None,
-    #     stop_token: Optional[int] = None,
-    #     max_new_tokens: int = 8,
-    #     do_sample: bool = True,
-    #     horizon: Optional[int] = None,
-    #     top_k: int = 50,
-    #     return_new_tokens: bool = True,  # Return only new tokens by default
-    #     **kwargs,
-    # ):
-    #     horizon = self._get_horizon(horizon)
-    #     output_seqs_active = input_ids.clone()  # (B, T)
-    #     output_seqs_completed = []
-
-    #     hidden_state = None
-    #     with torch.no_grad():
-    #         time_step = 0
-    #         while time_step < max_new_tokens:
-    #             # Need to append 1s column after each generation step
-    #             _attention_mask = (
-    #                 torch.cat(
-    #                     (
-    #                         attention_mask,
-    #                         torch.ones(
-    #                             (output_seqs_active.size(0), time_step),
-    #                             device=attention_mask.device,
-    #                         ),
-    #                     ),
-    #                     dim=1,
-    #                 )
-    #                 if attention_mask is not None
-    #                 else None
-    #             )
-    #             hidden_state = self.get_last_hidden_state(
-    #                 input_ids=output_seqs_active, attention_mask=_attention_mask
-    #             )  # (b, t, d)
-    #             py_target = self.model_head_target.get_dist(
-    #                 hidden_state,
-    #                 horizon,
-    #             )  # (batch_size, vocab_size)
-    #             y_hats = []
-    #             for h in range(horizon):
-    #                 # Computes probability p(y_{t+h} | y_{1:t+h-1}) (specified by `ops` tensor)
-    #                 py_draft, _ = self.model_head.get_dist(  # (batch_size, vocab_size)
-    #                     hidden_state=hidden_state,
-    #                     ops=ops,
-    #                     use_cache=False if h == 0 else True,
-    #                     save_cache=True,
-    #                 )  # (V,)
-    #                 y_hat, should_continue = spec_sample(
-    #                     p_target=py_target,
-    #                     p_draft=py_draft,
-    #                     sample_fn=lambda p: sample_topk(p, top_k),
-    #                 )  # (batch_size,)
-    #                 time_step += 1
-    #                 y_hats.append(y_hat)
-    #                 if not should_continue:  # Stop speculating
-    #                     break
-
-    #             output_seqs_active = torch.cat(
-    #                 [
-    #                     output_seqs_active,
-    #                     *[y.unsqueeze(1) for y in y_hats],
-    #                 ],
-    #                 dim=-1,
-    #             )
-    #             if stop_token is not None:
-    #                 inactive_indices = get_inactive_indices(
-    #                     output_seqs_active[:, input_ids.size(1) :], stop_token
-    #                 )
-    #                 output_seqs_active, popped = pop_tensor(
-    #                     output_seqs_active, indices=inactive_indices
-    #                 )
-    #                 output_seqs_completed.extend(popped)
-
-    #             # Check for stop token
-    #             # completed_mask = (output_seqs_active == stop_token).any(dim=1)
-    #             # batch_ids = torch.where(completed_mask)[0]
-    #             # output_seqs_active, popped = pop_tensor(output_seqs_active, batch_ids)
-    #             # output_seqs_completed.extend(popped)
-
-    #             if output_seqs_active.size(0) == 0:
-    #                 break  # Stop if all sequences have completed
-
-    #     output = output_seqs_active
-    #     if len(output_seqs_completed) > 0 and stop_token is not None:
-    #         # output_seqs_completed = torch.nn.utils.rnn.pad_sequence(
-    #         #     (
-    #         #         output_seqs_completed + [output_seqs_active[0]]
-    #         #         if output_seqs_active.size(0) > 0
-    #         #         else output_seqs_completed
-    #         #     ),
-    #         #     batch_first=True,
-    #         #     padding_value=stop_token,
-    #         # )
-    #         # output = torch.stack(
-    #         #     [output_seqs_completed[:-1], output_seqs_active], dim=0
-    #         # )
-    #         output = pad_seqs(
-    #             output_seqs_completed,
-    #             pad_token=stop_token,
-    #             pad_length=time_step,
-    #         )
-
-    #     if return_new_tokens:  # Remove input tokens
-    #         output = output[:, input_ids.size(1) :]
-    #     return output
     # TODO: use x instead of active_seqs
     def generate(
         self,
@@ -397,7 +287,6 @@ class TJD(ABC, torch.nn.Module):
         horizon: Optional[int] = None,
         top_k: int = 50,
         return_new_tokens: bool = True,
-        use_speculative_sampling: bool = True,
         **kwargs,
     ):
         """Generate sequences given an input tensor.
@@ -483,7 +372,7 @@ class TJD(ABC, torch.nn.Module):
                     # TODO: maybe should abasorb this into the tgt_model_head
                     return torch.softmax(py_x[:, time_step_prime:], dim=-1)
 
-                if use_speculative_sampling:
+                if self.use_speculative_sampling:
                     y_hat = spec_sample_v2(
                         # model_p: y -> p(y|x)
                         model_p=model_p,

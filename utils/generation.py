@@ -25,7 +25,6 @@ class GenerationCallback(TrainerCallback):
         horizon: int = 1,
         chat_template: Optional[BaseChatTemplate] = None,
         top_k: int = 50,
-        num_beams: int = 1,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -35,7 +34,6 @@ class GenerationCallback(TrainerCallback):
         self.horizon = horizon
         self.prompts = [chat_template.get_sample_prompt() if chat_template else ""]
         self.top_k = top_k
-        self.num_beams = num_beams
 
     def on_step_end(self, args, state, control, **kwargs):
         if not args.local_rank == 0:
