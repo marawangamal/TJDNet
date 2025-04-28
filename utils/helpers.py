@@ -8,6 +8,7 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer
 
+from dataloaders._base import HF_CACHE_DIR
 from dataloaders.gsm8k import ChatTemplateGSM8k, ChatTemplateGSM8kFewShot
 from dataloaders.shakespeare import ChatTemplateShakespeare
 from dataloaders.sharegpt import ChatTemplateShareGPT
@@ -42,12 +43,12 @@ def parse_args():
     # ------------------
 
     parser.add_argument(
-        "--epochs", type=int, default=15, help="Number of training epochs."
+        "--epochs", type=int, default=4, help="Number of training epochs."
     )
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=32,
+        default=64,
         help="Batch size for training and evaluation.",
     )
     parser.add_argument(
@@ -57,7 +58,7 @@ def parse_args():
         help="Block size for model input sequences.",
     )
     parser.add_argument(
-        "--lr", type=float, default=1e-4, help="Learning rate for training."
+        "--lr", type=float, default=1e-3, help="Learning rate for training."
     )
     parser.add_argument(
         "--warmup_steps",
@@ -239,7 +240,7 @@ def parse_args():
     parser.add_argument(
         "--max_num_samples",
         type=int,
-        default=68000,
+        default=10000,
         help="Maximum number of samples to load from the dataset.",
     )
 
@@ -422,6 +423,8 @@ def get_model_and_tokenizer(args):
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
         auto_model_kwargs=dict(
+            # NOTE: this will save hf models to `HF_CACHE_DIR` instead of `~/.cache/huggingface`
+            cache_dir=HF_CACHE_DIR,
             pretrained_model_name_or_path=args.model,
             low_cpu_mem_usage=True,
         ),

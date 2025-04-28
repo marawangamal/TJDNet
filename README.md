@@ -52,25 +52,14 @@ huggingface-cli login
 ```
 
 ### Sanity Check ✅
+
 To verify that your installation and setup are correct train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
 
 ```bash
-python train.py \
-    --dataset stemp \ 
-    --model_type gpt2 \ 
-    --epochs 15 \ 
-    --batch_size 8  \ 
-    --seq_len 128 \ 
-    --lr 1e-4 \ 
-    --model_head cp \ 
-    --hidden_dim 768  \ 
-    --horizon 2 \ 
-    --horizon_eval 2 \ 
-    --rank 2 \ 
-    --compute_acc
+python train.py --compute_acc
 ```
 
-After training for 10 epochs (~10 minutes on a single 40GB GPU), you should observe **100% accuracy** on the stemp dataset and an output like this
+After training for 4 epochs (~5 minutes on a single 40GB GPU), you should observe **100% accuracy** on the stemp dataset and an output like this
 
 ```txt
 What is -8°C in Fahrenheit?
@@ -163,8 +152,8 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | Model                                               | Latency [s]   | Accuracy |  
 |:----------------------------------------------------|:--------------|:---------|
 | llama::base::bs::1                                  | 2.884 ± 0.003 | 0.1290   |
-| llama::cp::rank8::hd1024::horizon2::bs::1           |               | incomp.  |
-| llama::cp::rank8::hd1280::horizon2::bs::1           |               | incomp.  |
+| llama::cp::rank1::hd5120::horizon2::bs::1           |               | train*   | (to compare with fb paper)
+| llama::cp::rank1::hd5120::horizon3::bs::1           |               | train*   | (to compare with fb paper)
 | llama::cp::rank8::hd2048::horizon2::bs::1           |               | 0.0902   |
 | llama::cp::rank8::hd4096::horizon2::bs::1           |               | 0.0842   |
 | llama::cp::rank8::hd5120::horizon2::bs::1           | 1.520 ± 0.001 | 0.0925   |
@@ -176,28 +165,11 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama::cp::rank8::hd5192::horizon2::bs::1::umel     |               | 0.055    |  
 | llama::mps::rank2::hd5192::horizon2::bs::1          |               | train*   |  
 | llama::mps::rank4::hd5192::horizon2::bs::1          |               | train*   |  
+| llama::cpo::rank8::hd2048::horizon2::bs::1          |               | train*   |  (to compare with oslo paper)
+| llama::cpo::rank8::hd2048::horizon3::bs::1          |               | eval*    |  wi51b58f77 (to compare with oslo paper)
 
 
+<!-- 
+accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cpo --hidden_dim 2048 --horizon 3 --horizon_eval 3 --rank 8  2025-04-27 21:56:47 -->
 
-## Sanity Check ✅
-To verify that your installation and setup are correct, run a quick sanity check:
 
-Train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
-```bash
-python train.py --compute_acc
-```
-
-After training for 10 epochs, you should observe **100% accuracy** on the stemp dataset and an output like this
-```txt
-What is -8°C in Fahrenheit?
-
-Let's solve this step by step:
-1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32
-2) Plugging in -8°C:
-   °F = (-8 x 9/5) + 32
-   °F = 17.6
-
-####
-17.6<|endoftext|>
-Eval accuracy: 1.0
-```

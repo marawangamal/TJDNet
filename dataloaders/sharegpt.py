@@ -5,7 +5,7 @@ import os
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
-from dataloaders._base import ROOT_DIR, setup
+from dataloaders._base import HF_CACHE_DIR, setup
 from dataloaders.common import BaseChatTemplate, group_texts
 
 
@@ -75,7 +75,7 @@ def load_sharegpt(
         load_dataset(
             "Aeala/ShareGPT_Vicuna_unfiltered",
             split="train",
-            cache_dir=os.path.join(ROOT_DIR, "datasets"),
+            cache_dir=os.path.join(HF_CACHE_DIR, "datasets"),
         ),
     )
     dataset = dataset.select(range(max_num_samples))
