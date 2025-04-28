@@ -89,11 +89,9 @@ def log_results(results, output_format="markdown", cols=None):
     return result
 
 
-def get_model_head_param_count(model):
+def get_params(model):
     # Get the number of parameters in the model head
-    param_count = sum(
-        p.numel() for p in model.model_head.parameters() if p.requires_grad
-    )
+    param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return param_count / 1e6  # Convert to millions
 
 
@@ -119,60 +117,65 @@ def main(args):
         [
             {
                 "name": "gpt2::base",
-                "model_fn": create_model_gpt_fn(1, 1, model_head="base"),
+                "model_fn": create_model_gpt_fn(
+                    rank=1, horizon=1, model_head="base", hidden_dim=768
+                ),
                 **common_kwargs,
             }
         ]
         + [
             {
-                "name": f"gpt2::cp::horizon{h}::rank{r}",
+                "name": f"gpt2::cp::horizon{h}::rank{r}::hd{hd}",
                 "model_fn": create_model_gpt_fn(
                     rank=r,
                     horizon=h,
                     model_head="cp",
+                    hidden_dim=768,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([8, 8], [2, 3])
+            for (r, h, hd) in zip([8, 8], [2, 3], [768, 768])
         ]
         # TMTP
         + [
             {
-                "name": f"gpt2::cpo::horizon{h}::rank{r}",
+                "name": f"gpt2::cpo::horizon{h}::rank{r}::hd{hd}",
                 "model_fn": create_model_gpt_fn(
                     rank=r,
                     horizon=h,
                     model_head="cpo",
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([8, 8], [2, 3])
+            for (r, h, hd) in zip([8, 8], [2, 3], [768, 768])
         ]
         # MTP
         + [
             {
-                "name": f"gpt2::cpo::horizon{h}::rank{r}",
+                "name": f"gpt2::cpo::horizon{h}::rank{r}::hd{hd}",
                 "model_fn": create_model_gpt_fn(
                     rank=r,
                     horizon=h,
                     model_head="cpo",
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([1], [2])
+            for (r, h, hd) in zip([1], [2], [768])
         ]
         + [
             {
-                "name": f"gpt2::mps::horizon{h}::rank{r}",
+                "name": f"gpt2::mps::horizon{h}::rank{r}::hd{hd}",
                 "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
+                    rank=1,
+                    horizon=1,
+                    hidden_dim=hd,
                     model_head="mps",
-                    param_net_config={"hidden_dim": 768, "use_decoder": True},
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([2, 4], [2, 2])
+            for (r, h, hd) in zip([2, 4], [2, 2], [768, 768])
         ]
     )
 
@@ -184,13 +187,10 @@ def main(args):
             {
                 "name": "llama::base",
                 "model_fn": create_model_llama_fn(
-                    1,
-                    1,
-                    model_head="base",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                        "use_decoder": True,
-                    },
+                    rank=1,
+                    horizon=1,
+                    model_head="cp",
+                    hidden_dim=5120,
                 ),
                 **common_kwargs,
             }
@@ -198,66 +198,58 @@ def main(args):
         # CP
         + [
             {
-                "name": f"llama::cp::rank{r}::horizon{h}",
+                "name": f"llama::cp::rank{r}::horizon{h}::hd{hd}",
                 "model_fn": create_model_llama_fn(
                     rank=r,
                     horizon=h,
                     model_head="cp",
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([8, 8], [2, 3])
+            for (r, h, hd) in zip([8, 8], [2, 3], [5120, 5120])
         ]
         # TMTP
         + [
             {
-                "name": f"llama::cpo::rank{r}::horizon{h}",
+                "name": f"llama::cpo::rank{r}::horizon{h}::hd{hd}",
                 "model_fn": create_model_llama_fn(
                     rank=r,
                     horizon=h,
                     model_head="cpo",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                        "use_decoder": True,
-                    },
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([32, 32], [2, 3])
+            for (r, h, hd) in zip([32, 32], [2, 3], [5120, 5120])
         ]
         # MTP
         + [
             {
-                "name": f"llama::cpo::rank{r}::horizon{h}",
+                "name": f"llama::cpo::rank{r}::horizon{h}::hd{hd}",
                 "model_fn": create_model_llama_fn(
                     rank=r,
                     horizon=h,
                     model_head="cpo",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                        "use_decoder": True,
-                    },
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([1, 1], [2, 3])
+            for (r, h, hd) in zip([1, 1], [2, 3], [5120, 5120])
         ]
         # MPS
         + [
             {
-                "name": f"llama::mps::rank{r}::horizon{h}",
+                "name": f"llama::mps::rank{r}::horizon{h}::hd{hd}",
                 "model_fn": create_model_llama_fn(
                     rank=r,
                     horizon=h,
                     model_head="mps",
-                    param_net_config={
-                        "hidden_dim": 2048,
-                        "use_decoder": True,
-                    },
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([2, 2], [2, 3])
+            for (r, h, hd) in zip([2, 2], [2, 3], [2048, 2048])
         ]
     )
 
@@ -297,7 +289,7 @@ def main(args):
                 # Save results
                 results[exp_name] = benchmark_results
                 results[exp_name]["Accuracy"] = {"mean": 0, "std": 0}
-                results[exp_name]["Params [M]"] = get_model_head_param_count(model)
+                results[exp_name]["Params [M]"] = get_params(model)
 
                 # Clean up
                 del model
