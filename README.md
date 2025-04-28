@@ -51,15 +51,50 @@ wandb login
 huggingface-cli login
 ```
 
+### Sanity Check ✅
+To verify that your installation and setup are correct train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
+
+```bash
+python train.py \
+    --dataset stemp \ 
+    --model_type gpt2 \ 
+    --epochs 15 \ 
+    --batch_size 8  \ 
+    --seq_len 128 \ 
+    --lr 1e-4 \ 
+    --model_head cp \ 
+    --hidden_dim 768  \ 
+    --horizon 2 \ 
+    --horizon_eval 2 \ 
+    --rank 2 \ 
+    --compute_acc
+```
+
+After training for 10 epochs (~10 minutes on a single 40GB GPU), you should observe **100% accuracy** on the stemp dataset and an output like this
+
+```txt
+What is -8°C in Fahrenheit?
+
+Let's solve this step by step:
+1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32
+2) Plugging in -8°C:
+   °F = (-8 x 9/5) + 32
+   °F = 17.6
+
+####
+17.6<|endoftext|>
+Eval accuracy: 1.0
+```
+
 
 
 ## Training
 
-To fine-tune Lllama7b using the Canonical Polyadic (CP) head, run this command (best checkpoint will be saved under `checkpoints`)
+To fine-tune Llama using the Canonical Polyadic (CP) head, run this command (best checkpoint will be saved under `checkpoints`)
 ```bash 
 accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py \
     --dataset gsm8k \
-    --model_type llama7b \
+    --model meta-llama/Llama-3.2-3B-Instruct \
     --epochs 50 \
     --batch_size 8 \ 
     --seq_len 128 \ 
@@ -76,29 +111,6 @@ To run evaluation (compute accuracy) run the following command
 ```bash 
 python scripts/eval_acc.py -c <checkpoint_path>
 ```
-
-<!-- 
-| Model                              | Latency [s]   | GPU Memory (allocated)[MB]   | GPU Memory (reserved) [MB]   | CPU Memory (rss) [MB]   | Accuracy      |
-| llama::base::bs::1                 | 2.884 ± 0.003 | 25340.167 ± 0.000            | 25356.000 ± 0.000            | 1213.004 ± 0.015        | 0.000 ± 0.000 |
-| llama::cp::rank8::horizon2::bs::1  | 1.520 ± 0.001 | 27165.341 ± 0.000            | 27182.000 ± 0.000            | 1221.140 ± 0.014        | 0.000 ± 0.000 |
-| llama::cp::rank16::horizon2::bs::1 | 1.565 ± 0.008 | 28445.653 ± 0.000            | 28462.000 ± 0.000            | 1223.598 ± 0.000        | 0.000 ± 0.000 | 
--->
-
-
-<!-- OLD Version -->
-<!-- | Model                            | Latency [s]   | Accuracy      |
-|:---------------------------------|:--------------|:--------------|
-| llama::baseline                          | 1.441 ± 0.007 | 0.1290 |
-| llama::cp::lr32::hd768::rank4::horizon2  | 0.745 ± 0.004 | 0.0492 |
-| llama::cp::lr32::hd768::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |  372,572,160
-| llama::cp::lr32::hd768::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |  741,212,160
-| llama::cp::lr32::hd768::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |  147,8492,160
-| llama::cp::lr64::hd768::rank8::horizon2  | - | 0.0417 |
-| llama::cp::lr32::hd1024::rank8::horizon2 | - | 0.0629 |
-| llama::cp::lr32::hd1280::rank8::horizon2 | - | 0.0781 |
-| llama::cp::lr32::hd1536::rank8::horizon2 | - | 0.0713 |
-| llama::cp::lr32::hd5120::rank8::horizon2 | - | 0.0925** | -->
-
 
 ## Scripts
 
@@ -166,64 +178,3 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama::mps::rank4::hd5192::horizon2::bs::1          |               | train*   |  
 
 
-<!-- 
-| Model                                                    | Latency [s]   | Accuracy |  Head Params (M) |
-|:---------------------------------------------------------|:--------------|:---------|-------------------
-| llama::base::bs::1                                       | 2.884 ± 0.003 | 0.1290   |                  |
-| llama::cp::rank8::hd5120::horizon2::bs::1                | 1.520 ± 0.001 | 0.0925   |  573             |
-| llama::mps::rank2::hd5120::horizon2::bs::1               | 1.485 ± 0.011 |          |                  |
-| multi-head  (r=1)                                        |               |          |                  |
-| oslodets    (r=8)                                        |               | 0.0540   |  373             |
-| oslodets    (r=16)                                       |               | 0.0549   |  741             |
-| oslodets    (r=32)                                       |               | 0.0584   |  1478            |
--->
-
-
-<!-- | llama::cp::lr32::hd768::rank8::horizon2  | 0.752 ± 0.002 | 0.0540 |  372,572,160
-| llama::cp::lr32::hd768::rank16::horizon2 | 0.767 ± 0.003 | 0.0549 |  741,212,160
-| llama::cp::lr32::hd768::rank32::horizon2 | 0.833 ± 0.028 | 0.0584 |  1478,492,160 -->
-
-
- <!-- Model                               | Latency [s]   | Accuracy      |                                      
-|:-----------------------------------|:--------------|:--------------|
-| llama::base::bs::1                 | 2.915 ± 0.006 | 0.000 ± 0.000 |
-| llama::cp::rank1::horizon2::bs::1  | 1.478 ± 0.002 | 0.000 ± 0.000 |
-| llama::cp::rank8::horizon2::bs::1  | 1.522 ± 0.004 | 0.000 ± 0.000 |
-| llama::mps::rank2::horizon2::bs::1 | 1.485 ± 0.011 | 0.000 ± 0.000 |
-| llama::mps::rank4::horizon4::bs::1 | 0.773 ± 0.002 | 0.000 ± 0.000 |
-| Model                              | Latency [s]   | GPU Memory (allocated)[MB]   | GPU Memory (reserved) [MB]   | CPU Memory (rss) [MB]   | Accuracy      |
-|:-----------------------------------|:--------------|:-----------------------------|:-----------------------------|:------------------------|:--------------|
-| llama::base::bs::1                 | 2.915 ± 0.006 | 25760.249 ± 0.000            | 25776.000 ± 0.000            | 1216.600 ± 0.013        | 0.000 ± 0.000 |
-| llama::cp::rank1::horizon2::bs::1  | 1.478 ± 0.002 | 26045.067 ± 0.000            | 26062.000 ± 0.000            | 1224.218 ± 0.010        | 0.000 ± 0.000 |
-| llama::cp::rank8::horizon2::bs::1  | 1.522 ± 0.004 | 27165.341 ± 0.000            | 27182.000 ± 0.000            | 1225.691 ± 0.000        | 0.000 ± 0.000 |
-| llama::mps::rank2::horizon2::bs::1 | 1.485 ± 0.011 | 26045.067 ± 0.000            | 26062.000 ± 0.000            | 1226.035 ± 0.000        | 0.000 ± 0.000 |
-| llama::mps::rank4::horizon4::bs::1 | 0.773 ± 0.002 | 26202.665 ± 0.000            | 26222.000 ± 0.000            | 1226.441 ± 0.000        | 0.000 ± 0.000 | -->
-
-
-
-
-
-
-<!-- 
-## Evaluation
-To evaluate on HumanEval, run the following commands
-
-1. Generate completetions (will be saved to samples.jsonl)
-    ```
-    python eval/generate_completions.py --ckpt checkpoints/<checkpoint directory name>
-    ```
-2. Evaluate completetions
-    ```
-    python eval/human-eval/human_eval/evaluate_functional_correctness.py samples.jsonl
-    ```
-
-## Visualization
-1. Generate completetions (will be saved to samples.jsonl)
-    ```
-    python eval/generate_completions.py --dev --ckpt checkpoints/<checkpoint directory name>
-    ```
-
-2. Visualize a code completion sample
-    ```
-    python eval/visualize.py samples.jsonl
-    ``` -->
