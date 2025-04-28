@@ -196,9 +196,12 @@ def setup(args, local_rank: int):
         # Fix files - delete if checkpoint is empty
         for f in checkpoint_files:
             if not "trainer_state.json" in os.listdir(osp.join(ckpt_dir, f)):
-                print(f"Deleting corrupt checkpoint: {f}")
-                shutil.rmtree(osp.join(ckpt_dir, f))
-                checkpoint_files.remove(f)
+                try:
+                    print(f"Deleting corrupt checkpoint: {f}")
+                    shutil.rmtree(osp.join(ckpt_dir, f))
+                    checkpoint_files.remove(f)
+                except Exception as e:
+                    print(f"Error deleting checkpoint {f}: {e}")
 
         # Check if there are any checkpoint files
         has_checkpoint = len(checkpoint_files) > 0
