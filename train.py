@@ -8,7 +8,7 @@ Example:
         --batch_size 32 \
         --seq_len 128 \
         --dataset gsm8k \
-        --model_type llama7b \
+        --model llama7b \
         --lr 1e-5 \
         --model_head cp \
         --num_layers 2 \

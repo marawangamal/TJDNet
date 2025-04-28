@@ -78,7 +78,7 @@ def parse_args():
 
     # TODO: rename to `model`
     parser.add_argument(
-        "--model_type",
+        "--model",
         type=str,
         default="gpt2",
         help="Huggingface model id.",

@@ -27,15 +27,15 @@ Example YAML configuration:
             - "#SBATCH --gres=gpu:a100l:4"
             - "#SBATCH --mem=128G"
         paralleljobs:
-            - "python train.py --model_type llama --lr 1e-5"
-            - "python train.py --model_type llama --lr 3e-5"
+            - "python train.py --model llama --lr 1e-5"
+            - "python train.py --model llama --lr 3e-5"
 
 
 Example status table:
     job_id  job_status  command
-    123456  RUNNING     python train.py --model_type llama --lr 1e-5
-    123457  COMPLETED   python train.py --model_type llama --lr 3e-5
-    123458  FAILED      python train.py --model_type llama --lr 5e-5
+    123456  RUNNING     python train.py --model llama --lr 1e-5
+    123457  COMPLETED   python train.py --model llama --lr 3e-5
+    123458  FAILED      python train.py --model llama --lr 5e-5
 
     UNKNOWN  SUBMIT  PENDING  RUNNING  COMPLETED  FAILED  CANCELLED  TIMEOUT
           0       0        0        1          1       1          0        0

@@ -186,7 +186,7 @@ Train a small model on a toy dataset and confirm it reaches nearly 100% accuracy
 ```bash
 python train.py --epochs 10 \
         --dataset stemp \
-        --model_type gpt2 \
+        --model gpt2 \
         --batch_size 32  \
         --seq_len 128 \
         --lr 1e-4 \
