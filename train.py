@@ -316,15 +316,11 @@ def main():
         callbacks=[generation_callback] if args.compute_acc else None,
         # Evaluation
         tokenizer=tokenizer,
-        test_dataset=lm_dataset["test"] if args.compute_acc else None,
+        test_dataset=lm_dataset["test"] if args.compute_acc else None,  # type: ignore
         chat_template=chat_template,
         horizon=args.horizon_eval,
         top_k=args.top_k,
-        eos_token=(
-            tokenizer.eos_token  # type: ignore
-            if args.tokenizer_type == "word"
-            else tokenizer.sep_token
-        ),
+        eos_token=(tokenizer.eos_token),  # type: ignore
         acc_batch_size=args.acc_batch_size,
     )
 

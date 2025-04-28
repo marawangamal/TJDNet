@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=8,
+        default=32,
         help="Batch size for training and evaluation.",
     )
     parser.add_argument(
@@ -451,15 +451,3 @@ def get_chat_template(args):
         "stemp": ChatTemplateSynTemp,
     }
     return chat_templates[args.dataset]
-
-
-# # Tokenizer
-# if args.model.startswith("gpt2"):
-#     tokenizer = (
-#         AutoTokenizer.from_pretrained("gpt2")
-#         if args.tokenizer_type == "word"
-#         else CharTokenizer(args.seq_len)
-#     )
-
-#     if args.tokenizer_type == "word":
-#         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
