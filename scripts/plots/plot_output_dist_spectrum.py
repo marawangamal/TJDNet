@@ -39,7 +39,35 @@ PROMPTS = [
     {
         "name": "poem",
         "question": "Write a poem.",
-        "answer": "",  # answer recieved from the model
+        "answer": """Moonlit Serenade
+                    The night sky is painted with hues of blue,
+                    A gentle breeze whispers secrets anew.
+                    The stars shine bright, like diamonds in the air,
+                    As I sit on the porch, with my guitar there.
+
+                    The moon, a glowing orb of white,
+                    Casts a silver light, on this peaceful night.
+                    The world is hushed, in a quiet sleep,
+                    As I strum the chords, my heart doth keep.
+
+                    The music flows, like a river's stream,
+                    As I sing of love, of dreams, of hope, of scheme.
+                    The notes dance, like fireflies in flight,
+                    As I weave a tale, of love's sweet delight.
+
+                    The world may be busy, with its noise and fray,
+                    But in this moment, all is calm, all is gray.
+                    The music washes over me, like a soothing balm,
+                    And I am free, my heart, my soul, my all.
+
+                    The night air whispers secrets in my ear,
+                    Of the beauty of the world, of love, of fear.
+                    The stars shine bright, like diamonds in the sky,
+                    As I play on, my heart, my soul, on high.
+
+                    So let the music flow, let the notes be free,
+                    For in this moment, that's all that matters to me.
+                """,  # answer recieved from the model
     },
     {
         "name": "gsm8k",

@@ -7,7 +7,11 @@ from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 
 import torch
 
-from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
+from tjdnet.distributions._base import (
+    BaseDistConfig,
+    BaseDistFromLinearConfig,
+    BaseDistribution,
+)
 from tjdnet.distributions.base import BaseDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.mps import MPSDist
@@ -138,7 +142,6 @@ class TJD(ABC, torch.nn.Module):
         else:
             raise ValueError(f"Invalid train_mode: {config.train_mode}")
 
-        self.model_head = DIST_MAP[config.model_head](config.base_dist)
         self.tjd_attn = (
             torch.nn.MultiheadAttention(
                 embed_dim=self.n_embd,
@@ -151,9 +154,16 @@ class TJD(ABC, torch.nn.Module):
 
         # Handle model initialization
         if config.init_method == "pretrained":
-            # pt_weight, pt_bias = self.get_pretrained_lm_head_weights()
-            # self.model_head.init_params(pt_weight, pt_bias)
-            raise NotImplementedError("Pretrained initialization not implemented.")
+            self.model_head = DIST_MAP[config.model_head].from_linear(
+                self.tgt_model_head,
+                BaseDistFromLinearConfig(
+                    horizon=config.base_dist.horizon,
+                    rank=config.base_dist.rank,
+                    param_net=config.base_dist.param_net,
+                ),
+            )
+        else:
+            self.model_head = DIST_MAP[config.model_head](config.base_dist)
 
         # Trainer compatibility
         self.gradient_checkpointing_enable = self.backbone.gradient_checkpointing_enable
@@ -197,13 +207,13 @@ class TJD(ABC, torch.nn.Module):
         return horizon
 
     @abstractmethod
-    def get_model(self, **kwargs) -> Tuple[torch.nn.Module, torch.nn.Module]:
+    def get_model(self, **kwargs) -> Tuple[torch.nn.Module, torch.nn.Linear]:
         """Get the torch model to be modified.
 
         Returns:
-            tuple[torch.nn.Module, torch.nn.Module]:
-                - Backbone model.
-                - Target model head.
+            tuple[torch.nn.Module, torch.nn.Linear]:
+                - Pretrained model backbone.
+                - Pretrained model head. (i.e., linear layer for unembedding)
         """
         pass
 
@@ -263,13 +273,13 @@ class TJD(ABC, torch.nn.Module):
             return attn_output  # (B, T, n_embd)
         return hidden_states
 
-    def get_pretrained_lm_head_weights(
-        self,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """Get the language model head weights + bias. Used for initializing the model head."""
-        raise NotImplementedError(
-            "get_pretrained_lm_head_weights must be implemented for pretrained init"
-        )
+    # def get_pretrained_lm_head_weights(
+    #     self,
+    # ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    #     """Get the language model head weights + bias. Used for initializing the model head."""
+    #     raise NotImplementedError(
+    #         "get_pretrained_lm_head_weights must be implemented for pretrained init"
+    #     )
 
     def freeze_base_model(self):
         """Freeze the base model."""

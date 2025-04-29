@@ -16,47 +16,6 @@ class ChatTemplateShareGPT(BaseChatTemplate):
     TEMPLATE_FEW_SHOT = """
     You are a helpful assistant that answers questions step by step.
 
-    FORMAT INSTRUCTIONS:
-    1. Show all your work with clear explanations
-    2. For each calculation, use the format: <<calculation=result>>result
-    3. End every answer with: #### [numerical_answer_only]
-
-    EXAMPLE:
-    [QUESTION] In Java, I want to replace string like 'This is a new {{ object }} at {{ place }}' with a Map, {{object: "student", "point 3, 4"}}, and get a result "This is a new student at point 3, 4". How can I do?
-    [ANSWER]  You can use the `String.format()` method in Java to replace placeholders in a string with values from a map. Here's an example code snippet that demonstrates how you can achieve this:
-    ```java
-    import java.util.HashMap;
-    import java.util.Map;
-
-    public class StringReplaceExample {{
-        public static void main(String[] args) {{
-            String input = "This is a new {{object}} at {{place}}";
-            Map<String, String> replacements = new HashMap<>();
-            replacements.put("object", "student");
-            replacements.put("place", "point 3, 4");
-
-            String output = replacePlaceholders(input, replacements);
-            System.out.println(output);
-        }}
-
-        public static String replacePlaceholders(String input, Map<String, String> replacements) {{
-            for (Map.Entry<String, String> entry : replacements.entrySet()) {{
-                String placeholder = "{{" + entry.getKey() + "}}";
-                String replacement = entry.getValue();
-                input = input.replace(placeholder, replacement);
-            }}
-            return input;
-        }}
-    }}
-    ```
-    In this example, we define the input string as "This is a new {{object}} at {{place}}", and create a `HashMap` called `replacements` that maps the placeholders "object" and "place" to their corresponding values "student" and "point 3, 4". We then pass these values to the `replacePlaceholders()` method, which iterates over the entries in the `replacements` map and replaces each placeholder in the input string with its corresponding value using the `replace()` method. Finally, the `replacePlaceholders()` method returns the modified string, which is printed to the console.
-
-    The output of this program will be:
-    ```csharp
-    This is a new student at point 3, 4
-    ```
-    Note that you can modify the `replacements` map to include additional placeholders and their corresponding values, and the `replacePlaceholders()` method will automatically replace them in the input string.
-
     Now solve the following problem using the exact format shown above:
     [QUESTION] {question}
     [ANSWER] 

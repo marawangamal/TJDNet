@@ -1,7 +1,12 @@
 from git import Optional
 import torch
 
-from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
+from tjdnet.distributions._base import (
+    BaseDistConfig,
+    BaseDistFromLinearConfig,
+    BaseDistribution,
+)
+from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
 from tjdnet.utils import sample_topk
 
@@ -33,6 +38,34 @@ class CPDist(BaseDistribution):
         if horizon is not None:
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
+
+    @classmethod
+    def from_linear(
+        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
+    ):
+        """Create a CP distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        n_emb, vocab_size = linear.weight.shape
+        if linear.bias is not None:
+            raise Warning("CPDist: Skiping bias initialization.")
+
+        return cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                param_net=config.param_net,
+            ),
+            **kwargs,
+        )
 
     def sample(
         self,

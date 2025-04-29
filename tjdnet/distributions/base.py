@@ -1,7 +1,12 @@
 from typing import Optional
 import torch
 
-from tjdnet.distributions._base import BaseDistribution, BaseDistConfig
+from tjdnet.distributions._base import (
+    BaseDistFromLinearConfig,
+    BaseDistribution,
+    BaseDistConfig,
+)
+from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.utils import sample_topk
 
 
@@ -31,6 +36,34 @@ class BaseDist(BaseDistribution):
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         p_tilde = self.param_func(last_hidden_state)  # (B, T, 1, V)
         return p_tilde.squeeze(-1)  # (B, T, V)
+
+    @classmethod
+    def from_linear(
+        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
+    ):
+        """Create a CP distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        n_emb, vocab_size = linear.weight.shape
+        if linear.bias is not None:
+            raise Warning("BaseDist: Skiping bias initialization.")
+
+        return cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                param_net=config.param_net,
+            ),
+            **kwargs,
+        )
 
     def sample(
         self,
