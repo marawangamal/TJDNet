@@ -340,6 +340,8 @@ class TJD(ABC, torch.nn.Module):
         accept_rate_metrics = {
             "tokens_proposed": 0,
             "tokens_accepted": 0,
+            "num_tokens_generated": 0,
+            "num_speculative_tokens_accepted": 0,
         }
 
         with torch.no_grad():
@@ -412,6 +414,11 @@ class TJD(ABC, torch.nn.Module):
                         top_k=top_k,
                     )  # (B_active, horizon_actual)
                 horizon_actual = y_hat.size(1)
+
+                accept_rate_metrics["num_tokens_generated"] += y_hat.size(1)
+                accept_rate_metrics["num_speculative_tokens_accepted"] += (
+                    y_hat.size(1) - 1 if self.use_speculative_sampling else 0
+                )
 
                 # Append new tokens
                 time_step_abs = input_ids.size(1) + time_step

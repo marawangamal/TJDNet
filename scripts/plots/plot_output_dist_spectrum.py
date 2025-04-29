@@ -27,60 +27,99 @@ from dataloaders.gsm8k import ChatTemplateGSM8k
 from dataloaders.sharegpt import ChatTemplateShareGPT
 from utils.utils import group_arr, plot_groups, replace_spec_chars
 
+"""You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] {question} \n [ANSWER]"""
+
 
 # Answers retrieved using `scripts/chat.py`
 PROMPTS = [
     {
         "name": "newline",
         "question": "\n",
-        "answer": "",  # answer recieved from the model
+        "answer": "It looks like you've entered some formatting code. If you're trying to send a message, I'd be happy to help with that. Is there something specific you'd like to talk about or ask? I can assist you with a question, provide information on a topic, or even engage in a conversation. Let me know how I can help!",  # answer recieved from the model
     },
     {"name": "space", "question": " ", "answer": ""},  # answer recieved from the model
     {
         "name": "poem",
         "question": "Write a poem.",
         "answer": """Moonlit Serenade
-                    The night sky is painted with hues of blue,
-                    A gentle breeze whispers secrets anew.
-                    The stars shine bright, like diamonds in the air,
-                    As I sit on the porch, with my guitar there.
 
-                    The moon, a glowing orb of white,
-                    Casts a silver light, on this peaceful night.
-                    The world is hushed, in a quiet sleep,
-                    As I strum the chords, my heart doth keep.
+        The night sky is painted with hues of blue,
+        A gentle breeze whispers secrets anew.
+        The stars shine bright, like diamonds in the air,
+        As I sit on the porch, with my guitar there.
 
-                    The music flows, like a river's stream,
-                    As I sing of love, of dreams, of hope, of scheme.
-                    The notes dance, like fireflies in flight,
-                    As I weave a tale, of love's sweet delight.
+        The moon, a glowing orb of white,
+        Casts a silver light, on this peaceful night.
+        The world is hushed, in a quiet sleep,
+        As I strum the chords, my heart doth keep.
 
-                    The world may be busy, with its noise and fray,
-                    But in this moment, all is calm, all is gray.
-                    The music washes over me, like a soothing balm,
-                    And I am free, my heart, my soul, my all.
+        The music flows, like a river's stream,
+        As I sing of love, of dreams, of hope, of scheme.
+        The notes dance, like fireflies in flight,
+        As I weave a tale, of love's sweet delight.
 
-                    The night air whispers secrets in my ear,
-                    Of the beauty of the world, of love, of fear.
-                    The stars shine bright, like diamonds in the sky,
-                    As I play on, my heart, my soul, on high.
+        The world may be busy, with its noise and fray,
+        But in this moment, all is calm, all is gray.
+        The music washes over me, like a soothing balm,
+        And I am free, my heart, my soul, my all.
 
-                    So let the music flow, let the notes be free,
-                    For in this moment, that's all that matters to me.
-                """,  # answer recieved from the model
+        The night air whispers secrets in my ear,
+        Of the beauty of the world, of love, of fear.
+        The stars shine bright, like diamonds in the sky,
+        As I play on, my heart, my soul, on high.
+
+        So let the music flow, let the notes be free,
+        For in this moment, that's all that matters to me.
+        """,
     },
     {
         "name": "gsm8k",
-        "question": ChatTemplateGSM8k.TEMPLATE_FEW_SHOT.format(
-            question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
-            answer="",
-        ),
-        "answer": "",  # answer recieved from the model
+        "question": """You are a mathematical reasoning assistant that solves problems step by step. \n  \n FORMAT INSTRUCTIONS: \n 1. Show all your work with clear explanations \n 2. For each calculation, use the format: <<calculation=result>>result \n 3. End every answer with: #### [numerical_answer_only]{eos_token} \n  \n EXAMPLE: \n [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? \n [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 {eos_token} \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] \n Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?""",
+        "answer": """[Weng's Earnings] 
+
+        To find out how much Weng earned, we need to convert the time she worked from minutes to hours and then multiply it by her hourly wage.
+
+        Time worked = 50 minutes
+        There are 60 minutes in an hour, so we can divide 50 by 60 to get the number of hours:
+        50/60 = 0.8333 hours
+
+        Weng earns $12 an hour, so we can multiply the number of hours she worked by her hourly wage:
+        0.8333 hours * $12/hour = $10
+
+        #### 10 
+        """,
     },
     {
         "name": "sharegpt",
-        "question": ChatTemplateShareGPT.get_sample_prompt(is_few_shot=True),
-        "answer": "",  # answer recieved from the model
+        "question": 'You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] complete the following code from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    """ Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n     \n [ANSWER]',
+        "answer": '''
+        [ANSWER] 
+        from typing import List
+
+        def has_close_elements(numbers: List[float], threshold: float) -> bool:
+            """Check if in given list of numbers, are any two numbers closer to each other than given threshold.
+            Args:
+                numbers (List[float]): A list of floating point numbers.
+                threshold (float): The maximum distance between two numbers for them to be considered close.
+            Returns:
+                bool: True if any two numbers in the list are closer than the threshold, False otherwise.
+            """
+            
+            # Sort the list in ascending order
+            numbers.sort()
+            
+            # Iterate over the list
+            for i in range(len(numbers) - 1):
+                # Calculate the distance between the current number and the next one
+                distance = numbers[i + 1] - numbers[i]
+                
+                # If the distance is less than or equal to the threshold, return True
+                if distance <= threshold:
+                    return True
+            
+            # If no two numbers are closer than the threshold, return False
+            return False
+        ''',
     },
 ]
 

@@ -19,7 +19,8 @@ import torch
 import pandas as pd
 
 from utils.latency import benchmark_model_v2
-from utils.models import create_model_gpt_fn, create_model_llama_fn, train_forward
+from utils.models import create_model, train_forward
+from utils.utils import replace_spec_chars
 
 
 class DataParallelWithGenerate(torch.nn.DataParallel):
@@ -112,81 +113,14 @@ def main(args):
         "train": {"benchmark_fn": train_forward},
     }[args.mode]
 
-    # GPT-2
-    gpt_experiments = (
-        [
-            {
-                "name": "gpt2::base",
-                "model_fn": create_model_gpt_fn(
-                    rank=1, horizon=1, model_head="base", hidden_dim=768
-                ),
-                **common_kwargs,
-            }
-        ]
-        + [
-            {
-                "name": f"gpt2::cp::horizon{h}::rank{r}::hd{hd}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="cp",
-                    hidden_dim=768,
-                ),
-                **common_kwargs,
-            }
-            for (r, h, hd) in zip([8, 8], [2, 3], [768, 768])
-        ]
-        # TMTP
-        + [
-            {
-                "name": f"gpt2::cpo::horizon{h}::rank{r}::hd{hd}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="cpo",
-                    hidden_dim=hd,
-                ),
-                **common_kwargs,
-            }
-            for (r, h, hd) in zip([8, 8], [2, 3], [768, 768])
-        ]
-        # MTP
-        + [
-            {
-                "name": f"gpt2::cpo::horizon{h}::rank{r}::hd{hd}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="cpo",
-                    hidden_dim=hd,
-                ),
-                **common_kwargs,
-            }
-            for (r, h, hd) in zip([1], [2], [768])
-        ]
-        + [
-            {
-                "name": f"gpt2::mps::horizon{h}::rank{r}::hd{hd}",
-                "model_fn": create_model_gpt_fn(
-                    rank=1,
-                    horizon=1,
-                    hidden_dim=hd,
-                    model_head="mps",
-                ),
-                **common_kwargs,
-            }
-            for (r, h, hd) in zip([2, 4], [2, 2], [768, 768])
-        ]
-    )
-
     # LLaMA
-    llama_experiments = (
+    exps = (
         []
         # Baseline
         + [
             {
-                "name": "llama::base",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::baseline",
+                "model_fn": create_model(
                     rank=1,
                     horizon=1,
                     model_head="cp",
@@ -198,8 +132,8 @@ def main(args):
         # CP
         + [
             {
-                "name": f"llama::cp::rank{r}::horizon{h}::hd{hd}",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::cp::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
                     rank=r,
                     horizon=h,
                     model_head="cp",
@@ -212,8 +146,8 @@ def main(args):
         # TMTP
         + [
             {
-                "name": f"llama::cpo::rank{r}::horizon{h}::hd{hd}",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::cpo::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
                     rank=r,
                     horizon=h,
                     model_head="cpo",
@@ -221,13 +155,13 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h, hd) in zip([32, 32], [2, 3], [5120, 5120])
+            for (r, h, hd) in zip([8, 8], [2, 3], [2048, 2048])
         ]
         # MTP
         + [
             {
-                "name": f"llama::cpo::rank{r}::horizon{h}::hd{hd}",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::cpo::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
                     rank=r,
                     horizon=h,
                     model_head="cpo",
@@ -240,8 +174,8 @@ def main(args):
         # MPS
         + [
             {
-                "name": f"llama::mps::rank{r}::horizon{h}::hd{hd}",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::mps::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
                     rank=r,
                     horizon=h,
                     model_head="mps",
@@ -252,12 +186,6 @@ def main(args):
             for (r, h, hd) in zip([2, 2], [2, 3], [2048, 2048])
         ]
     )
-
-    # Run benchmarks
-    exps = {
-        "llama": llama_experiments,
-        "gpt2": gpt_experiments,
-    }[args.model_family]
 
     print(f"Starting benchmarks ({args.device})...")
     results = {}
@@ -324,10 +252,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-m",
-        "--model_family",
+        "--model",
         type=str,
-        choices=["gpt2", "llama"],
         default="gpt2",
+        help="Huggingface model name or path",
     )
     parser.add_argument(
         "--mode",

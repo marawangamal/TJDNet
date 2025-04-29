@@ -5,7 +5,7 @@ from tjdnet.models._tjd import TJD, TJDConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
 
 
-def create_model_llama_fn(
+def create_model(
     rank,
     horizon,
     hidden_dim,
