@@ -131,6 +131,11 @@ def spec_sample_v2(
             ).all(),
             "msg": f"invalid probs in py: {py.sum(-1)}",
         },
+        # ----- only bs=1 supported currently -----
+        {
+            "test": lambda: batch_size == 1,
+            "msg": f"batch_size > 1 not yet supported: {batch_size}",
+        },
     ]
     for check in checks:
         if not check["test"]():

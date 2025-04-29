@@ -74,7 +74,7 @@ def compute_accuracy(
                 attention_mask=batch["attention_mask"],
                 tokenizer=tokenizer,
             )
-            outputs = model.generate(
+            outputs, _ = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 # max_new_tokens=max_new_tokens,

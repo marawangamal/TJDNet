@@ -24,6 +24,7 @@ import torch
 from tqdm import tqdm
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
+from utils.accpetance_rates import compute_acceptance_rate
 from utils.accuracy import compute_accuracy
 from utils.helpers import get_model_and_tokenizer
 
@@ -70,6 +71,13 @@ def parse_args():
         default=1,
         help="Batch size for evaluation",
     )
+    parser.add_argument(
+        "--metric",
+        type=str,
+        choices=["accuracy", "acceptance_rate"],
+        default="accuracy",
+        help="Metric to compute during evaluation",
+    )
     # ===== Generation kwargs =====
     parser.add_argument(
         "--max_new_tokens",
@@ -96,6 +104,11 @@ def parse_args():
 def main():
     args = parse_args()
 
+    metric_fn = {
+        "accuracy": compute_accuracy,
+        "acceptance_rate": compute_acceptance_rate,
+    }[args.metric]
+
     checkpoints: List[str] = [
         osp.join(args.checkpoint, c)
         for c in os.listdir(args.checkpoint)
@@ -105,6 +118,8 @@ def main():
 
     # 1. Setup
     exp_args = argparse.Namespace(**exp_args_dict)
+    if args.metric == "acceptance_rate":
+        exp_args.use_speculative_sampling = True
     model, tokenizer = get_model_and_tokenizer(exp_args)
     chat_template = CHAT_TEMPLATES[exp_args.dataset]
     lm_dataset = DATASET_LOADERS[exp_args.dataset](tokenizer, exp_args.seq_len)
@@ -112,19 +127,20 @@ def main():
     results = {}
     results_file = osp.join(
         args.checkpoint,
-        f"eval_results_b{args.batch_size}_t{args.max_new_tokens}.json",
+        f"eval_results_{args.metric}_b{args.batch_size}_t{args.max_new_tokens}.json",
     )
     if osp.exists(results_file):
         print(f"Initalizing results from {results_file}")
         with open(results_file) as f:
             results = json.load(f)
 
+    print(f"Evaluating metric: {args.metric}")
     print("Using device:", args.device)
     for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
         model = load_weights(model, checkpoint)
         model.to(args.device)
         average_meter_kwargs = results.get(checkpoint, {"sum": 0, "count": 0})
-        acc, avg_meter_kwargs = compute_accuracy(
+        metric_ds_val, metric_avg_meter_kwargs = metric_fn(
             model,
             tokenizer=tokenizer,
             test_dataset=lm_dataset["test"],
@@ -146,8 +162,8 @@ def main():
                 horizon=exp_args.horizon,
             ),
         )
-        results[checkpoint] = avg_meter_kwargs
-        print(f"Eval accuracy: {acc} for checkpoint: {checkpoint}")
+        results[checkpoint] = metric_avg_meter_kwargs
+        print(f"Eval {args.metric}: {metric_ds_val} for checkpoint: {checkpoint}")
 
     save_results_checkpoint(results, results_file)
     print(f"Results saved to {results_file}")

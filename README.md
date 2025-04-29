@@ -173,11 +173,16 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
 
 <!-- HASH: d679fdd46af3f9becd14178810fead94ee245412 -->
-| Model                                               | Latency [s]   | Accuracy |  
-|:----------------------------------------------------|:--------------|:---------|
-| llama-3.2-3b-instruct::base-fs::bs::1               |               | 0.6527   |  # few shot
-| llama-3.2-3b-instruct::base-ft::bs::1               |               | -        |  # retrained last layer
-
+| Model                                                         | Latency [s]   | GSM8k    |  
+|:--------------------------------------------------------------|:--------------|:---------|
+| llama-3.2-3b-instruct::base-fs::bs::1                         |               | 0.6527   |  # few shot
+| llama-3.2-3b-instruct::base-ft::bs::1                         |               | 0.4230   |  # retrained last layer
+| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2::bs::1     |               | train*   |  # ours
+| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon3::bs::1     |               | train*   |  # ours
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2::bs::1    |               |          |  # fb
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon3::bs::1    |               |          |  # fb
+| llama-3.2-3b-instruct::cpo::rank8::hd5120::horizon2::bs::1    |               |          |  # oslo
+| llama-3.2-3b-instruct::cpo::rank8::hd5120::horizon3::bs::1    |               |          |  # oslo
 <!-- 
 accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cpo --hidden_dim 2048 --horizon 3 --horizon_eval 3 --rank 8  2025-04-27 21:56:47 -->
 

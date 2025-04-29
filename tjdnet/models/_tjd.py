@@ -337,6 +337,11 @@ class TJD(ABC, torch.nn.Module):
         )  # (B, T_in + T_out)
         output_seqs[:, : input_ids.size(1)] = input_ids
 
+        accept_rate_metrics = {
+            "tokens_proposed": 0,
+            "tokens_accepted": 0,
+        }
+
         with torch.no_grad():
             time_step = 0
             # for time_step in range(0, max_new_tokens, horizon):
@@ -394,7 +399,11 @@ class TJD(ABC, torch.nn.Module):
                             top_k=top_k,
                         ),
                         sample_fn=lambda p: sample_topk(p, top_k=top_k).squeeze(-1),
-                    )
+                    )  # (B', H') -- H' <= H_tgt
+
+                    accept_rate_metrics["tokens_proposed"] += horizon_target
+                    accept_rate_metrics["tokens_accepted"] += y_hat.size(1)
+
                 else:
                     y_hat, _ = self.model_head.sample(
                         hidden_state,
@@ -423,7 +432,7 @@ class TJD(ABC, torch.nn.Module):
             stop_mask = (output_seqs == stop_token).float()  # (B, T_out)
             output_seqs[torch.cumsum(stop_mask, dim=1) >= 1] = stop_token
 
-        return output_seqs
+        return output_seqs, accept_rate_metrics
 
     def forward(
         self,

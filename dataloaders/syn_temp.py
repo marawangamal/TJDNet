@@ -55,9 +55,13 @@ def generate_sample():
 
 def parse_qa(example, eos_token="<|endoftext|>"):
     return {
-        "text": ChatTemplateSynTemp.format_qa(example["question"], example["response"])
+        "text": ChatTemplateSynTemp.TEMPLATE.format(
+            question=example["question"], answer=example["response"]
+        )
         + eos_token,
-        "prompt": ChatTemplateSynTemp.format_prompt(example["question"]),
+        "prompt": ChatTemplateSynTemp.TEMPLATE.format(
+            question=example["question"], answer=""
+        ),
     }
 
 
