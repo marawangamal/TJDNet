@@ -30,7 +30,7 @@ from transformers import (
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from utils.accuracy import compute_accuracy
-from utils.helpers import get_model_and_tokenizer
+from utils.helpers import get_auto_tokenizer, get_model_and_tokenizer
 from dataloaders.gsm8k import load_gsm8k_data
 from dataloaders.shakespeare import load_shakespeare_data
 from dataloaders.sharegpt import load_sharegpt
@@ -99,7 +99,7 @@ def parse_args():
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=128,
+        default=2048,
         help="Maximum number of tokens to generate",
     )
     parser.add_argument(
@@ -126,7 +126,10 @@ def main():
         args.model,
         low_cpu_mem_usage=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    tokenizer = get_auto_tokenizer(args.model)
+    # NOTE: do not do this for training, otherwise the model cannot learn to end sents
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token_id = tokenizer.eos_token_id
 
     # 2. Load ds and chat template
     lm_dataset = DATASET_LOADERS[args.dataset](

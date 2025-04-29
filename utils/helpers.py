@@ -401,13 +401,30 @@ def load_args(ckpt_dir):
     return args
 
 
-def get_model_and_tokenizer(args):
+def get_auto_tokenizer(model_name):
+    """Get the tokenizer for a given model name."""
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+    except Exception as e:
+        print(f"Error loading tokenizer for {model_name}: {e}")
+        raise
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    # Note: cant simply add pad token -- unless we retrain a model embedding layer
+    # Set padding token
     tokenizer.pad_token = "$"
     tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
     tokenizer.padding_side = "left"
+
+    return tokenizer
+
+
+def get_model_and_tokenizer(args):
+
+    # tokenizer = AutoTokenizer.from_pretrained(args.model)
+    # # Note: cant simply add pad token -- unless we retrain a model embedding layer
+    # tokenizer.pad_token = "$"
+    # tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+    # tokenizer.padding_side = "left"
+    tokenizer = get_auto_tokenizer(args.model)
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(

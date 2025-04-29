@@ -11,21 +11,39 @@ from dataloaders.common import BaseChatTemplate, group_texts
 
 class ChatTemplateGSM8k(BaseChatTemplate):
     TEMPLATE = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
+
     TEMPLATE_FEW_SHOT = """
-        You are a helpful math assistant. Solve the math problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an exmaple, follow the same output format. Just give the answer directly
+        You are a mathematical reasoning assistant that solves problems step by step.
 
-        [QUESTION]
-        Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
+        FORMAT INSTRUCTIONS:
+        1. Show all your work with clear explanations
+        2. For each calculation, use the format: <<calculation=result>>result
+        3. End every answer with: #### [numerical_answer_only]{eos_token}
 
-        [ANSWER]
-        Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72
+        EXAMPLE:
+        [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
+        [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 {eos_token}
 
-        [QUESTION]
-        {question}
-
-        [ANSWER]
-        {answer}
+        Now solve the following problem using the exact format shown above:
+        [QUESTION] {question}
+        [ANSWER] 
     """
+
+    # TEMPLATE_FEW_SHOT = """
+    #     You are a helpful math assistant. Solve the math problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an exmaple, follow the same output format. Just give the answer directly
+
+    #     [QUESTION]
+    #     Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
+
+    #     [ANSWER]
+    #     Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72
+
+    #     [QUESTION]
+    #     {question}
+
+    #     [ANSWER]
+    #     {answer}
+    # """
 
     @classmethod
     def get_sample_prompt(cls, is_few_shot: bool = False):
@@ -39,7 +57,13 @@ class ChatTemplateGSM8k(BaseChatTemplate):
     def safe_parse(cls, generation: str, eos_token: str):
         try:
             return (
-                float(generation.split("####")[1].split(eos_token)[0].strip())
+                float(
+                    generation.split("####")[-1]
+                    .split(eos_token)[0]
+                    .strip()
+                    .split(" ")[0]
+                    .split("\n")[0]
+                )
                 if "####" in generation
                 else None
             )
@@ -61,7 +85,9 @@ def prepare_example(example, eos_token="<|endoftext|>", use_few_shot=False):
         )
         + eos_token,
         # Used for test
-        "prompt": prompt_template.format(question=(example["question"]), answer=""),
+        "prompt": prompt_template.format(
+            question=(example["question"]), answer="", eos_token=eos_token
+        ),
     }
 
 

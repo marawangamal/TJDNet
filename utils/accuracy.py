@@ -125,7 +125,7 @@ def compute_accuracy(
                             if correct_mask[b]
                         ]
                     )
-                    print(f"Failures:\n{failures}\nSuccesses:\n{successes}\n")
+                    print(f"Failures:\n{failures}")
 
     # Print example
     if len(y_pred) > 0 and len(y_true) > 0:
