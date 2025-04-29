@@ -2,7 +2,7 @@
 
 from datasets import load_dataset
 
-from dataloaders.common import BaseChatTemplate, group_texts
+from dataloaders._base import BaseChatTemplate, group_texts
 
 
 class ChatTemplateShareGPT(BaseChatTemplate):

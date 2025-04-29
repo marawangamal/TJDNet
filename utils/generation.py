@@ -6,7 +6,7 @@ from sympy import true
 import wandb
 
 from transformers import TrainerCallback
-from dataloaders.common import BaseChatTemplate
+from dataloaders._base import BaseChatTemplate
 from tjdnet.models._tjd import TJD
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast

@@ -6,7 +6,7 @@ from git import Optional
 import torch
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from dataloaders.common import BaseChatTemplate, group_texts
+from dataloaders._base import BaseChatTemplate, group_texts
 
 
 class ChatTemplateGSM8k(BaseChatTemplate):

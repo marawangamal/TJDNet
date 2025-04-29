@@ -3,8 +3,7 @@
 import os
 from datasets import load_dataset
 
-from dataloaders.common import group_texts
-from dataloaders._base import HF_CACHE_DIR, setup
+from dataloaders._base import group_texts
 
 
 class ChatTemplateGithub:
@@ -27,7 +26,6 @@ def load_github_data(
         "codeparrot/github-code",
         split="train",
         languages=["Python"],
-        cache_dir=os.path.join(HF_CACHE_DIR, "datasets"),
     )
     dataset = dataset.select(range(max_num_samples))
     dataset = dataset.map(
@@ -74,7 +72,6 @@ def load_github_data(
 
 # Usage example:
 if __name__ == "__main__":
-    setup()
     from transformers import AutoTokenizer
 
     # Example usage

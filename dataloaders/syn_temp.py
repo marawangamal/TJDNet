@@ -1,7 +1,7 @@
 from typing import Optional
 import random
 from datasets import Dataset
-from dataloaders.common import BaseChatTemplate, group_texts
+from dataloaders._base import BaseChatTemplate, group_texts
 
 
 class ChatTemplateSynTemp(BaseChatTemplate):

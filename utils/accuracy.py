@@ -2,7 +2,7 @@ from typing import Optional, Union
 import torch
 from tqdm import tqdm
 
-from dataloaders.common import BaseChatTemplate
+from dataloaders._base import BaseChatTemplate
 from utils.utils import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast

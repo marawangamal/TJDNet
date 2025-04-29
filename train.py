@@ -43,7 +43,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
 from dataloaders import CHAT_TEMPLATES
-from dataloaders.common import BaseChatTemplate
+from dataloaders._base import BaseChatTemplate
 from utils.accuracy import compute_accuracy
 from utils.generation import GenerationCallback
 from dataloaders.gsm8k import load_gsm8k_data
@@ -63,6 +63,8 @@ from utils.helpers import (
 )
 
 CHECKPOINT_DIR = "checkpoints"
+
+EXP_NAME_EXCLUSIONS = ["cache_dir"]
 
 
 class TJDTrainer(Trainer):
@@ -182,7 +184,10 @@ def setup(args, local_rank: int):
         print(f"[{local_rank}] wandb_id: {wandb_id}")
 
     args.wandb_id = wandb_id
-    exp_name = get_experiment_name(vars(args))
+    exp_name = get_experiment_name(
+        # remove exluded keys
+        {k: v for k, v in vars(args).items() if k not in EXP_NAME_EXCLUSIONS}
+    )
     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
 
     has_checkpoint = False

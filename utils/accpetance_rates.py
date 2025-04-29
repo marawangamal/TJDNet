@@ -2,7 +2,7 @@ from typing import Union
 import torch
 from tqdm import tqdm
 
-from dataloaders.common import BaseChatTemplate
+from dataloaders._base import BaseChatTemplate
 from utils.utils import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -75,8 +75,8 @@ def compute_acceptance_rate(
             )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
 
             ar_meter.update(
-                val=acceptance_metrics["tokens_proposed"]
-                / acceptance_metrics["tokens_accepted"],
+                val=acceptance_metrics["tokens_accepted"]
+                / acceptance_metrics["tokens_proposed"],
                 n=acceptance_metrics["tokens_accepted"],
             )
 

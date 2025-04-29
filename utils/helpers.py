@@ -9,13 +9,6 @@ import numpy as np
 from transformers import AutoTokenizer
 
 from dataloaders import CHAT_TEMPLATES
-from dataloaders._base import HF_CACHE_DIR
-from dataloaders.gsm8k import ChatTemplateGSM8k
-from dataloaders.shakespeare import ChatTemplateShakespeare
-from dataloaders.sharegpt import ChatTemplateShareGPT
-from dataloaders.syn_number_bases import ChatTemplateSynNumBase
-from dataloaders.syn_numbers import ChatTemplateSynNum
-from dataloaders.syn_temp import ChatTemplateSynTemp
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models._tjd import DIST_MAP, TJDConfig
@@ -269,6 +262,17 @@ def parse_args():
         help="Wandb ID for resuming runs",
     )
 
+    # ---
+    # EXCLUDED FROM EXP NAME
+    # ---
+
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default=None,
+        help="Directory to cache the model.",
+    )
+
     args = parser.parse_args()
     validate_args(args)
     return parser.parse_args()
@@ -442,7 +446,7 @@ def get_model_and_tokenizer(args):
         lora_rank=args.lora_rank,
         auto_model_kwargs=dict(
             # NOTE: this will save hf models to `HF_CACHE_DIR` instead of `~/.cache/huggingface`
-            cache_dir=HF_CACHE_DIR,
+            # cache_dir=HF_CACHE_DIR,
             pretrained_model_name_or_path=args.model,
             low_cpu_mem_usage=True,
         ),
