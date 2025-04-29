@@ -6,6 +6,7 @@ from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
 from tjdnet.utils import sample_topk
 
 
+# TODO: maybe we can simplify this with einsum and sparse tensors
 class CPDist(BaseDistribution):
     def __init__(self, config: BaseDistConfig, **kwargs):
         """CP Distribution

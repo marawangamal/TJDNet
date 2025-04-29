@@ -7,6 +7,7 @@ Example:
 from argparse import Namespace
 import argparse
 import os
+import os.path as osp
 from typing import Union
 from tqdm import tqdm
 
@@ -24,8 +25,40 @@ import matplotlib.pyplot as plt
 
 from dataloaders.gsm8k import ChatTemplateGSM8k
 from dataloaders.sharegpt import ChatTemplateShareGPT
+from utils.utils import group_arr, plot_groups, replace_spec_chars
 
+
+# Answers retrieved using `scripts/chat.py`
 PROMPTS = [
+    {
+        "name": "newline",
+        "question": "\n",
+        "answer": "",  # answer recieved from the model
+    },
+    {"name": "space", "question": " ", "answer": ""},  # answer recieved from the model
+    {
+        "name": "poem",
+        "question": "Write a poem.",
+        "answer": "",  # answer recieved from the model
+    },
+    {
+        "name": "gsm8k",
+        "question": ChatTemplateGSM8k.TEMPLATE_FEW_SHOT.format(
+            question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
+            answer="",
+        ),
+        "answer": "",  # answer recieved from the model
+    },
+    {
+        "name": "sharegpt",
+        "question": ChatTemplateShareGPT.get_sample_prompt(is_few_shot=True),
+        "answer": "",  # answer recieved from the model
+    },
+]
+
+# We create the `PROMPTS_WINDOWED` list from the `PROMPTS` list by sliding over the answer
+
+PROMPTS_WINDOWED = [
     {
         "name": "newline",
         "value": "\n",
@@ -40,17 +73,27 @@ PROMPTS = [
     },
     {
         "name": "gsm8k",
-        "value": ChatTemplateGSM8k.get_sample_prompt_few_shot(),
+        "value": ChatTemplateGSM8k.TEMPLATE_FEW_SHOT.format(
+            question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
+            answer="",
+        ),
     },
     {
         "name": "sharegpt",
-        "value": ChatTemplateShareGPT.get_sample_prompt_few_shot(),
+        "value": ChatTemplateShareGPT.get_sample_prompt(is_few_shot=True),
     },
 ]
 
 
-def get_spectrum(output_mat):
-    """Get spectrum of 2D matrix by computing singular values"""
+def get_spectrum(output_mat: torch.Tensor) -> torch.Tensor:
+    """Get spectrum of 2D matrix by computing singular values
+
+    Args:
+        output_mat (torch.Tensor): 2D matrix. Shape: (vocab_size, vocab_size)
+
+    Returns:
+        torch.Tensor: Singular values of the matrix. Shape: (vocab_size,)
+    """
     spectrum_tests = [
         {
             "test": lambda x: torch.isnan(x).any(),
@@ -279,33 +322,48 @@ def main(args: Namespace):
         low_cpu_mem_usage=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model)
+    save_dir = f"results/plot_output_dist_spectrum/{replace_spec_chars(args.model)}"
+    os.makedirs(save_dir, exist_ok=True)
 
     if args.sample:
+        # === DEBUG =============================================================
         # Sample from the output distribution
         print("Sampling from the output distribution...")
         output = model.generate(
             torch.tensor(
-                tokenizer.encode(ChatTemplateGSM8k.get_sample_prompt_few_shot())
+                tokenizer.encode(ChatTemplateGSM8k.get_sample_prompt(is_few_shot=True))
             ).unsqueeze(0),
-            max_new_tokens=args.max_new_tokens,
+            max_new_tokens=32,
         )
         print(tokenizer.decode(output[0], skip_special_tokens=True))
 
-    spectrums = {}
+    spectrums = []
 
-    for prompt in PROMPTS:
+    for prompt in PROMPTS_WINDOWED:
         # Generate output distribution spectrum (resuming or starting fresh)
         print(f"[{prompt['name']}] Generating output distribution spectrum...")
         output_mat = generate_output_distribution_spectrum_batched(
             model,
             tokenizer,
             start_str=prompt["value"],
-            checkpoint_path=f"results/output_mat_{prompt['name']}_batched.pt",
+            checkpoint_path=osp.join(
+                save_dir, f"output_dist_2d_{replace_spec_chars(prompt['name'])}.pt"
+            ),
         )
 
         print(f"[{prompt['name']}]Computing spectrum...")
         spectrum = get_spectrum(output_mat)
-        spectrums[prompt["name"]] = spectrum
+        # spectrums[prompt["name"]] = spectrum
+        spectrums.extend(
+            [
+                {
+                    "prompt": prompt["name"],
+                    "index": i,
+                    "spectrum": s,
+                }
+                for i, s in enumerate(spectrum)
+            ]
+        )
 
         print(f"[{prompt['name']}] Plotting spectrum...")
         os.makedirs("results", exist_ok=True)
@@ -317,10 +375,68 @@ def main(args: Namespace):
             f"[{prompt['name']}] Effective rank (singular values > 1e-10): {(spectrum > 1e-10).sum()}"
         )
 
-    plot_spectrum(
+    grouped = group_arr(
         spectrums,
-        save_path=f"results/plots/output_dist_2d_spectrum_{args.model.split('/')[-1]}.png",
+        # prompt dataset
+        lambda x: x["prompt"].split("::")[0],
+        # prompt index
+        lambda x: x["prompt"].split("::")[1] if "::" in x["prompt"] else "0",
     )
+
+    plot_groups(
+        grouped,
+        x_key="index",
+        y_key="spectrum",
+        path=osp.join(save_dir, f"output_dist_2d_spectrum.png"),
+        # First level controls color, second controls marker
+        axes_kwargs={
+            "title": f"Spectrum of Matrix P(y1,y2|x)",
+            "xlabel": "Index",
+            "ylabel": "Singular Value (log scale)",
+        },
+        fig_kwargs={
+            "figsize": (10, 6),
+            "dpi": 300,
+        },
+        style_dims=[
+            "color",
+            "marker",
+            "linestyle",
+        ],
+        style_cycles={
+            "color": [
+                "#0173B2",
+                "#DE8F05",
+                "#029E73",
+                "#D55E00",
+                "#CC78BC",
+                "#CA9161",
+                "#FBAFE4",
+                "#949494",
+            ],
+            "marker": ["o", "s", "D", "X", "^", "v"],
+            "linestyle": ["-", "--", "-.", ":"],
+        },
+    )
+
+    # plot_spectrum(
+    #     spectrums,
+    #     save_path=osp.join(save_dir, f"output_dist_2d_spectrum.png"),
+    # )
+
+    #     # Add grid and labels
+    # plt.grid(True, which="both", ls="--")
+    # plt.xlabel("Index")
+    # plt.ylabel("Singular Value (log scale)")
+    # plt.title("Spectrum of Output Distribution Matrix")
+
+    # # Add a horizontal line at y=1 for reference
+    # plt.axhline(y=1, color="r", linestyle="-", alpha=0.3)
+
+    # # Add legend
+    # plt.legend(loc="best")
+
+    # plt.tight_layout()
 
 
 if __name__ == "__main__":
@@ -339,12 +455,6 @@ if __name__ == "__main__":
         "--sample",
         action="store_true",
         help="Sample from the output distribution",
-    )
-    parser.add_argument(
-        "--max_new_tokens",
-        type=int,
-        default=32,
-        help="Maximum number of tokens to generate",
     )
     args = parser.parse_args()
     main(args)

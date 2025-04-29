@@ -149,6 +149,8 @@ huggingface-cli upload mremila/tjdnet datasets/tjdnet --repo-type dataset
 ## Results
 Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
+
+<!-- HASH: 2e1b9e465bb1128a076d5500112fe9da441de5b3 -->
 | Model                                               | Latency [s]   | Accuracy |  
 |:----------------------------------------------------|:--------------|:---------|
 | llama::base::bs::1                                  | 2.884 ± 0.003 | 0.1290   |
@@ -168,6 +170,13 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama::cpo::rank8::hd2048::horizon2::bs::1          |               | train*   |  (to compare with oslo paper)
 | llama::cpo::rank8::hd2048::horizon3::bs::1          |               | eval*    |  wi51b58f77 (to compare with oslo paper)
 
+
+
+<!-- HASH: d679fdd46af3f9becd14178810fead94ee245412 -->
+| Model                                               | Latency [s]   | Accuracy |  
+|:----------------------------------------------------|:--------------|:---------|
+| llama-3.2-3b-instruct::base-fs::bs::1               |               | 0.6527   |  # few shot
+| llama-3.2-3b-instruct::base-ft::bs::1               |               | -        |  # retrained last layer
 
 <!-- 
 accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model_type llama7b --epochs 50 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cpo --hidden_dim 2048 --horizon 3 --horizon_eval 3 --rank 8  2025-04-27 21:56:47 -->

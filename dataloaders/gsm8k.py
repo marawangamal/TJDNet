@@ -26,31 +26,18 @@ class ChatTemplateGSM8k(BaseChatTemplate):
 
         Now solve the following problem using the exact format shown above:
         [QUESTION] {question}
-        [ANSWER] 
+        [ANSWER] {answer}
     """
 
-    # TEMPLATE_FEW_SHOT = """
-    #     You are a helpful math assistant. Solve the math problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an exmaple, follow the same output format. Just give the answer directly
-
-    #     [QUESTION]
-    #     Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
-
-    #     [ANSWER]
-    #     Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72
-
-    #     [QUESTION]
-    #     {question}
-
-    #     [ANSWER]
-    #     {answer}
-    # """
-
     @classmethod
-    def get_sample_prompt(cls, is_few_shot: bool = False):
+    def get_sample_prompt(
+        cls, is_few_shot: bool = False, eos_token: str = "<|eot_id|>"
+    ):
         tmp = cls.TEMPLATE if not is_few_shot else cls.TEMPLATE_FEW_SHOT
         return tmp.format(
             question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
             answer="",
+            eos_token=eos_token,
         )
 
     @classmethod
