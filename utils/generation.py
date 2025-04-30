@@ -60,7 +60,7 @@ class GenerationCallback(TrainerCallback):
                 inputs = self.tokenizer(prompt, return_tensors="pt").input_ids.to(
                     self.model.device
                 )
-                outputs = self.model.generate(
+                outputs, _ = self.model.generate(
                     input_ids=inputs,  # (batch_size, max_seq_len)
                     max_new_tokens=self.max_new_tokens,
                     top_k=self.top_k,

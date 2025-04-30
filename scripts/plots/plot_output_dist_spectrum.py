@@ -23,8 +23,6 @@ from transformers import (
 import numpy as np
 import matplotlib.pyplot as plt
 
-from dataloaders.gsm8k import ChatTemplateGSM8k
-from dataloaders.sharegpt import ChatTemplateShareGPT
 from utils.utils import group_arr, plot_groups, replace_spec_chars
 
 """You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] {question} \n [ANSWER]"""
@@ -140,14 +138,11 @@ PROMPTS_WINDOWED = [
     },
     {
         "name": "gsm8k",
-        "value": ChatTemplateGSM8k.TEMPLATE_FEW_SHOT.format(
-            question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
-            answer="",
-        ),
+        "value": "You are a mathematical reasoning assistant that solves problems step by step. \n  \n FORMAT INSTRUCTIONS: \n 1. Show all your work with clear explanations \n 2. For each calculation, use the format: <<calculation=result>>result \n 3. End every answer with: #### [numerical_answer_only]{eos_token} \n  \n EXAMPLE: \n [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? \n [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 {eos_token} \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] \n Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
     },
     {
         "name": "sharegpt",
-        "value": ChatTemplateShareGPT.get_sample_prompt(is_few_shot=True),
+        "value": 'You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] complete the following code from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    """ Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n     \n [ANSWER]',
     },
 ]
 
@@ -392,20 +387,7 @@ def main(args: Namespace):
     save_dir = f"results/plot_output_dist_spectrum/{replace_spec_chars(args.model)}"
     os.makedirs(save_dir, exist_ok=True)
 
-    if args.sample:
-        # === DEBUG =============================================================
-        # Sample from the output distribution
-        print("Sampling from the output distribution...")
-        output = model.generate(
-            torch.tensor(
-                tokenizer.encode(ChatTemplateGSM8k.get_sample_prompt(is_few_shot=True))
-            ).unsqueeze(0),
-            max_new_tokens=32,
-        )
-        print(tokenizer.decode(output[0], skip_special_tokens=True))
-
     spectrums = []
-
     for prompt in PROMPTS_WINDOWED:
         # Generate output distribution spectrum (resuming or starting fresh)
         print(f"[{prompt['name']}] Generating output distribution spectrum...")

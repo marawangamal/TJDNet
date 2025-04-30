@@ -272,6 +272,14 @@ def parse_args():
         default=None,
         help="Directory to cache the model.",
     )
+    parser.add_argument(
+        "--disable_wandb",
+        action="store_true",
+        help="Whether to disable wandb logging.",
+        default=False,
+    )
+
+    # disable_wandb
 
     args = parser.parse_args()
     validate_args(args)
