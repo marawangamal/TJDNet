@@ -27,7 +27,6 @@ from utils.utils import group_arr, plot_groups, replace_spec_chars
 
 """You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] {question} \n [ANSWER]"""
 
-
 # Answers retrieved using `scripts/chat.py`
 PROMPTS = [
     {
@@ -39,112 +38,109 @@ PROMPTS = [
     {
         "name": "poem",
         "question": "Write a poem.",
-        "answer": """Moonlit Serenade
+        "answer": """
+Moonlit Serenade
 
-        The night sky is painted with hues of blue,
-        A gentle breeze whispers secrets anew.
-        The stars shine bright, like diamonds in the air,
-        As I sit on the porch, with my guitar there.
+The night sky is painted with hues of blue,
+A gentle breeze whispers secrets anew.
+The stars shine bright, like diamonds in the air,
+As I sit on the porch, with my guitar there.
 
-        The moon, a glowing orb of white,
-        Casts a silver light, on this peaceful night.
-        The world is hushed, in a quiet sleep,
-        As I strum the chords, my heart doth keep.
+The moon, a glowing orb of white,
+Casts a silver light, on this peaceful night.
+The world is hushed, in a quiet sleep,
+As I strum the chords, my heart doth keep.
 
-        The music flows, like a river's stream,
-        As I sing of love, of dreams, of hope, of scheme.
-        The notes dance, like fireflies in flight,
-        As I weave a tale, of love's sweet delight.
+The music flows, like a river's stream,
+As I sing of love, of dreams, of hope, of scheme.
+The notes dance, like fireflies in flight,
+As I weave a tale, of love's sweet delight.
 
-        The world may be busy, with its noise and fray,
-        But in this moment, all is calm, all is gray.
-        The music washes over me, like a soothing balm,
-        And I am free, my heart, my soul, my all.
+The world may be busy, with its noise and fray,
+But in this moment, all is calm, all is gray.
+The music washes over me, like a soothing balm,
+And I am free, my heart, my soul, my all.
 
-        The night air whispers secrets in my ear,
-        Of the beauty of the world, of love, of fear.
-        The stars shine bright, like diamonds in the sky,
-        As I play on, my heart, my soul, on high.
+The night air whispers secrets in my ear,
+Of the beauty of the world, of love, of fear.
+The stars shine bright, like diamonds in the sky,
+As I play on, my heart, my soul, on high.
 
-        So let the music flow, let the notes be free,
-        For in this moment, that's all that matters to me.
-        """,
+So let the music flow, let the notes be free,
+For in this moment, that's all that matters to me.""",
     },
     {
         "name": "gsm8k",
         "question": """You are a mathematical reasoning assistant that solves problems step by step. \n  \n FORMAT INSTRUCTIONS: \n 1. Show your work with explanations \n 2. End every answer with: #### [numerical_answer_only]<eot_id> \n  \n EXAMPLE: \n [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? \n [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 <eot_id> \n  \n Now solve the following problem using the exact format shown above. Don't repeat the question: \n [QUESTION] \n Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn? \n [ANSWER]""",
-        "answer": """To find out how much Weng earned, we need to convert the time from minutes to hours and then multiply it by her hourly wage.
+        "answer": """
+To find out how much Weng earned, we need to convert the time from minutes to hours and then multiply it by her hourly wage.
 
-        First, we know that there are 60 minutes in an hour. To convert 50 minutes to hours, we can divide 50 by 60.
+First, we know that there are 60 minutes in an hour. To convert 50 minutes to hours, we can divide 50 by 60.
 
-        50 minutes / 60 = 5/6 hours
+50 minutes / 60 = 5/6 hours
 
-        Since Weng earns $12 an hour, we multiply the number of hours she worked (5/6) by her hourly wage (12).
+Since Weng earns $12 an hour, we multiply the number of hours she worked (5/6) by her hourly wage (12).
 
-        (5/6) * 12 = 10
+(5/6) * 12 = 10
 
-        So, Weng earned 10 dollars yesterday.
+So, Weng earned 10 dollars yesterday.
 
-        #### 10""",
+#### 10 """,
     },
     {
         "name": "sharegpt",
         "question": 'You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] complete the following code from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    """ Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n     \n [ANSWER]',
         "answer": '''
-        [ANSWER] 
-        from typing import List
+from typing import List
 
-        def has_close_elements(numbers: List[float], threshold: float) -> bool:
-            """Check if in given list of numbers, are any two numbers closer to each other than given threshold.
-            Args:
-                numbers (List[float]): A list of floating point numbers.
-                threshold (float): The maximum distance between two numbers for them to be considered close.
-            Returns:
-                bool: True if any two numbers in the list are closer than the threshold, False otherwise.
-            """
-            
-            # Sort the list in ascending order
-            numbers.sort()
-            
-            # Iterate over the list
-            for i in range(len(numbers) - 1):
-                # Calculate the distance between the current number and the next one
-                distance = numbers[i + 1] - numbers[i]
-                
-                # If the distance is less than or equal to the threshold, return True
-                if distance <= threshold:
-                    return True
-            
-            # If no two numbers are closer than the threshold, return False
-            return False
-        ''',
+def has_close_elements(numbers: List[float], threshold: float) -> bool:
+    """Check if in given list of numbers, are any two numbers closer to each other than given threshold.
+    Args:
+        numbers (List[float]): A list of floating point numbers.
+        threshold (float): The maximum distance between two numbers for them to be considered close.
+    Returns:
+        bool: True if any two numbers in the list are closer than the threshold, False otherwise.
+    """
+    
+    # Sort the list in ascending order
+    numbers.sort()
+    
+    # Iterate over the list
+    for i in range(len(numbers) - 1):
+        # Calculate the distance between the current number and the next one
+        distance = numbers[i + 1] - numbers[i]
+        
+        # If the distance is less than or equal to the threshold, return True
+        if distance <= threshold:
+            return True
+    
+    # If no two numbers are closer than the threshold, return False
+    return False''',
     },
 ]
 
-# We create the `PROMPTS_WINDOWED` list from the `PROMPTS` list by sliding over the answer
-
-PROMPTS_WINDOWED = [
-    {
-        "name": "newline",
-        "value": "\n",
-    },
-    {
-        "name": "space",
-        "value": " ",
-    },
-    {
-        "name": "poem",
-        "value": "Write a poem.",
-    },
-    {
-        "name": "gsm8k",
-        "value": "You are a mathematical reasoning assistant that solves problems step by step. \n  \n FORMAT INSTRUCTIONS: \n 1. Show all your work with clear explanations \n 2. For each calculation, use the format: <<calculation=result>>result \n 3. End every answer with: #### [numerical_answer_only]{eos_token} \n  \n EXAMPLE: \n [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? \n [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 {eos_token} \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] \n Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
-    },
-    {
-        "name": "sharegpt",
-        "value": 'You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] complete the following code from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    """ Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n     \n [ANSWER]',
-    },
-]
+# PROMPTS_V1 = [
+#     {
+#         "name": "newline",
+#         "value": "\n",
+#     },
+#     {
+#         "name": "space",
+#         "value": " ",
+#     },
+#     {
+#         "name": "poem",
+#         "value": "Write a poem.",
+#     },
+#     {
+#         "name": "gsm8k",
+#         "value": "You are a mathematical reasoning assistant that solves problems step by step. \n  \n FORMAT INSTRUCTIONS: \n 1. Show all your work with clear explanations \n 2. For each calculation, use the format: <<calculation=result>>result \n 3. End every answer with: #### [numerical_answer_only]{eos_token} \n  \n EXAMPLE: \n [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? \n [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 {eos_token} \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] \n Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
+#     },
+#     {
+#         "name": "sharegpt",
+#         "value": 'You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] complete the following code from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    """ Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n     \n [ANSWER]',
+#     },
+# ]
 
 
 def get_spectrum(output_mat: torch.Tensor) -> torch.Tensor:
@@ -311,6 +307,7 @@ def generate_output_distribution_spectrum_batched(
     batch_size: int = 16,
     resume: bool = True,
     checkpoint_path: str = "results/output_mat_batched_checkpoint.pt",
+    loading_message: str = "Processing tokens...",
 ):
     """Batched version of generate_output_distribution_spectrum"""
     # Ensure 'results' directory exists for checkpoint
@@ -340,7 +337,7 @@ def generate_output_distribution_spectrum_batched(
     with tqdm(
         total=vocab_size,
         initial=start_idx,
-        desc="Processing tokens",
+        desc=loading_message,
         unit="token",
         leave=False,
         dynamic_ncols=True,
@@ -387,9 +384,34 @@ def main(args: Namespace):
     save_dir = f"results/plot_output_dist_spectrum/{replace_spec_chars(args.model)}"
     os.makedirs(save_dir, exist_ok=True)
 
+    PROMPTS_WINDOWED = []
+    for prompt in PROMPTS:
+
+        if not prompt["name"] in ["poem", "gsm8k"]:
+            continue
+
+        # Split the answer into lines
+        x_tokens = tokenizer.encode(prompt["question"])
+        y_tokens = tokenizer.encode(prompt["answer"])
+        # Create a window of 5 lines
+        for j, i in enumerate(range(0, len(y_tokens) - 1, 2)):
+            if j >= args.num_dists_per_prompt:
+                break
+            # Create a new prompt with the first line as the question and the next 4 lines as the answer
+            PROMPTS_WINDOWED.append(
+                {
+                    "name": f"{prompt['name']}::{i}",
+                    "value": tokenizer.decode(
+                        x_tokens + y_tokens[: i + 2], skip_special_tokens=True
+                    ),
+                }
+            )
+
     spectrums = []
-    for prompt in PROMPTS_WINDOWED:
-        # Generate output distribution spectrum (resuming or starting fresh)
+    spectrums_dict = {}
+    for i, prompt in enumerate(PROMPTS_WINDOWED):
+
+        # ========== Generate output dist and spectrum
         print(f"[{prompt['name']}] Generating output distribution spectrum...")
         output_mat = generate_output_distribution_spectrum_batched(
             model,
@@ -398,11 +420,16 @@ def main(args: Namespace):
             checkpoint_path=osp.join(
                 save_dir, f"output_dist_2d_{replace_spec_chars(prompt['name'])}.pt"
             ),
+            loading_message=f"Processing {prompt['name']}...",
         )
 
         print(f"[{prompt['name']}]Computing spectrum...")
         spectrum = get_spectrum(output_mat)
-        # spectrums[prompt["name"]] = spectrum
+
+        # ====== Debug with dummy data
+        # spectrum = torch.linspace(1, 1000, 1000)  # Start at 1
+        # spectrum = spectrum ** (-1 - i * 0.5)  # Direct power law with i-based exponent
+
         spectrums.extend(
             [
                 {
@@ -413,6 +440,7 @@ def main(args: Namespace):
                 for i, s in enumerate(spectrum)
             ]
         )
+        spectrums_dict[prompt["name"]] = spectrum  # used for legacy plot
 
         print(f"[{prompt['name']}] Plotting spectrum...")
         os.makedirs("results", exist_ok=True)
@@ -424,12 +452,11 @@ def main(args: Namespace):
             f"[{prompt['name']}] Effective rank (singular values > 1e-10): {(spectrum > 1e-10).sum()}"
         )
 
+    # ==== Grouped plot
     grouped = group_arr(
         spectrums,
-        # prompt dataset
-        lambda x: x["prompt"].split("::")[0],
-        # prompt index
-        lambda x: x["prompt"].split("::")[1] if "::" in x["prompt"] else "0",
+        lambda x: x["prompt"],  # e.g. poem::2, gsm8k::2 -- group by [x] = [y]
+        lambda x: x["prompt"].split("::")[0],  # e.g. poem, gsm8k -- group by [x]
     )
 
     plot_groups(
@@ -442,6 +469,7 @@ def main(args: Namespace):
             "title": f"Spectrum of Matrix P(y1,y2|x)",
             "xlabel": "Index",
             "ylabel": "Singular Value (log scale)",
+            "yscale": "log",  # This sets the y-axis to logarithmic scale
         },
         fig_kwargs={
             "figsize": (10, 6),
@@ -449,7 +477,7 @@ def main(args: Namespace):
         },
         style_dims=[
             "color",
-            "marker",
+            "color",
             "linestyle",
         ],
         style_cycles={
@@ -468,24 +496,11 @@ def main(args: Namespace):
         },
     )
 
+    # ==== Spectrum plot
     # plot_spectrum(
-    #     spectrums,
+    #     spectrums_dict,
     #     save_path=osp.join(save_dir, f"output_dist_2d_spectrum.png"),
     # )
-
-    #     # Add grid and labels
-    # plt.grid(True, which="both", ls="--")
-    # plt.xlabel("Index")
-    # plt.ylabel("Singular Value (log scale)")
-    # plt.title("Spectrum of Output Distribution Matrix")
-
-    # # Add a horizontal line at y=1 for reference
-    # plt.axhline(y=1, color="r", linestyle="-", alpha=0.3)
-
-    # # Add legend
-    # plt.legend(loc="best")
-
-    # plt.tight_layout()
 
 
 if __name__ == "__main__":
@@ -500,10 +515,11 @@ if __name__ == "__main__":
         help="Hugging Face model identifier (default: gpt2)",
     )
     parser.add_argument(
-        "-s",
-        "--sample",
-        action="store_true",
-        help="Sample from the output distribution",
+        "-n",
+        "--num_dists_per_prompt",
+        type=int,
+        default=1,
+        help="Number of distributions to generate per prompt (i.e. sequence length // 2)",
     )
     args = parser.parse_args()
     main(args)

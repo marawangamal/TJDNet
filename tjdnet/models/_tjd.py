@@ -18,7 +18,7 @@ from tjdnet.distributions.mps import MPSDist
 from tjdnet.distributions.ucp import UCPDist
 from tjdnet.distributions.umps import UMPSDist
 from tjdnet.tensorops.common import get_windowed_input_ids
-from tjdnet.utils import diagnose, sample_topk, spec_sample_v2
+from tjdnet.utils import sample_topk, spec_sample_v2
 
 DIST_MAP: Dict[str, Type[BaseDistribution]] = {
     "base": BaseDist,
@@ -81,6 +81,7 @@ class TJDConfig:
     # Training configuration
     init_method: Literal["random", "pretrained"] = "random"
     train_mode: Literal["full", "last", "lora"] = "full"
+    loss_mode: Literal["joint", "draft"] = "draft"
     lora_rank: int = 512
     use_memory_efficient_loss: bool = False
     use_speculative_sampling: bool = False
@@ -113,6 +114,8 @@ class TJD(ABC, torch.nn.Module):
         self.rank = config.base_dist.rank
         self.horizon = config.base_dist.horizon
         self.vocab_size = config.base_dist.vocab_size
+        self.train_mode = config.train_mode
+        self.loss_mode = config.loss_mode
         self.n_embd = config.base_dist.param_net.in_dim
         self.eps = config.eps
         self.use_attn_layer = config.use_attn_layer
@@ -441,6 +444,29 @@ class TJD(ABC, torch.nn.Module):
 
         return output_seqs, accept_rate_metrics
 
+    def _get_tgt_loss(
+        self,
+        input_ids: torch.Tensor,
+        last_hidden_state: torch.Tensor,
+    ) -> torch.Tensor:
+        """Get the target loss.
+
+        Args:
+            input_ids (torch.Tensor): Input tensor of shape (B, T).
+            last_hidden_state (torch.Tensor): Input tensor of shape (B, T, V).
+
+        Returns:
+            torch.Tensor: Target loss of shape (B, T).
+        """
+        py_x_tilde = self.tgt_model_head(last_hidden_state)  # (B, T, V)
+        targets = get_windowed_input_ids(input_ids, horizon=1)  # (B, T-1, 1)
+        # (B, T, V) -> (B, T, 1) -> (B, T)
+        return torch.gather(
+            -torch.log_softmax(py_x_tilde, dim=-1)[:, :-1],  # (B, T-1, V)
+            dim=-1,
+            index=targets,
+        ).squeeze(-1)
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -523,6 +549,12 @@ class TJD(ABC, torch.nn.Module):
             - sum([torch.log(z) for z in p_tilde_scale_factors])  # (B, T')
             + sum([torch.log(z) for z in norm_const_scale_factors])
         )  # (B, T-H)
+
+        if self.loss_mode == "joint":
+            loss_tgt = self._get_tgt_loss(
+                last_hidden_state=last_hidden_state, input_ids=input_ids
+            )
+            loss = loss + loss_tgt
 
         # Loss validation
         if (loss < 0).any():

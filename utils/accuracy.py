@@ -40,6 +40,7 @@ def compute_accuracy(
     # horizon: int = 1,
     avg_meter_kwargs={},
     generate_kwargs={},
+    verbose=False,
     # **kwargs,
 ):
     dataloader = torch.utils.data.DataLoader(
@@ -63,7 +64,10 @@ def compute_accuracy(
     y_true = []
     failures = []
     successes = []
-    print("Total number of samples:", total_samples)
+
+    printv = print if verbose else lambda *args, **kwargs: None
+
+    printv("Total number of samples:", total_samples)
     with torch.no_grad():
         for i, batch in enumerate(pbar):
             if i < batches_to_skip:
@@ -88,7 +92,6 @@ def compute_accuracy(
             # Batched decoding
             y_pred = tokenizer.batch_decode(outputs)
             y_true = tokenizer.batch_decode(batch["labels"])
-            # print(f"y_pred:\n {y_pred}\ny_true:\n {y_true}")
             # Compute accuracy
             correct_mask = [
                 chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
@@ -125,11 +128,11 @@ def compute_accuracy(
                             if correct_mask[b]
                         ]
                     )
-                    print(f"Failures:\n{failures}")
+                    printv(f"Failures:\n{failures}")
 
     # Print example
     if len(y_pred) > 0 and len(y_true) > 0:
-        print("Example:")
-        print(f"y_true:\n {y_true[0]}")
-        print(f"y_pred:\n {y_pred[0]}")
+        printv("Example:")
+        printv(f"y_true:\n {y_true[0]}")
+        printv(f"y_pred:\n {y_pred[0]}")
     return acc_meter.avg, {**acc_meter.dump(), "total_samples": total_samples}

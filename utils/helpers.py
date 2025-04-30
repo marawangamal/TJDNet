@@ -279,8 +279,6 @@ def parse_args():
         default=False,
     )
 
-    # disable_wandb
-
     args = parser.parse_args()
     validate_args(args)
     return parser.parse_args()

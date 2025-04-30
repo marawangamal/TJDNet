@@ -76,6 +76,7 @@ class TJDTrainer(Trainer):
         # top_k: int,
         # eos_token: str,
         acc_batch_size: int = 1,
+        on_converge_callback_cs=None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -88,6 +89,7 @@ class TJDTrainer(Trainer):
         self.tokenizer = tokenizer
         self.acc_batch_size = acc_batch_size
         self.generate_kwargs = generate_kwargs
+        self.on_converge_callback_cs = on_converge_callback_cs
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
@@ -110,9 +112,17 @@ class TJDTrainer(Trainer):
                 batch_size=self.acc_batch_size,
                 generate_kwargs=self.generate_kwargs,
             )
-            print("Eval accuracy:", acc)
+
             if output and output.metrics:
                 output.metrics[f"eval_acc"] = acc
+
+            print("Eval accuracy:", acc)
+            if abs(acc - 1.0) < 1e-3:
+                print("Accuracy is 1.0, ending training.")
+                if self.on_converge_callback_cs is not None:
+                    self.on_converge_callback_cs(output.metrics)
+                exit(0)
+
         return output
 
 
@@ -206,6 +216,8 @@ def setup(args, local_rank: int):
         has_checkpoint = len(checkpoint_files) > 0
         if has_checkpoint:
             print(f"Resuming from checkpoint: {ckpt_dir}")
+        else:
+            print(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
 
     return args, exp_name, ckpt_dir, has_checkpoint
 
@@ -239,6 +251,13 @@ def main():
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     # data_collator = CustomDataCollator(tokenizer=tokenizer, mlm=False)
 
+    def on_converge_callback_cs(metrics):
+        # save metrics to to accuracy.json
+        accuracy_file = os.path.join(ckpt_dir, "eval_converged_metrics.json")
+        with open(accuracy_file, "w") as f:
+            json.dump(metrics, f)
+        print(f"Accuracy saved to {accuracy_file}")
+
     training_args = TrainingArguments(
         output_dir=ckpt_dir,
         num_train_epochs=args.epochs,
@@ -252,7 +271,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        # eval_on_start=True,
+        eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
@@ -291,17 +310,17 @@ def main():
             )
 
     # In your main function, add this before initializing the trainer:
-    generation_callback = GenerationCallback(
-        model=model,
-        tokenizer=tokenizer,
-        generate_strategy=args.generate_strategy,
-        generate_steps=args.generate_steps,  # or any other frequency you want
-        max_new_tokens=args.max_new_tokens,
-        horizon=args.horizon_eval,
-        chat_template=chat_template,
-        top_k=args.top_k,
-        disable_wandb=args_raw.disable_wandb,
-    )
+    # generation_callback = GenerationCallback(
+    #     model=model,
+    #     tokenizer=tokenizer,
+    #     generate_strategy=args.generate_strategy,
+    #     generate_steps=args.generate_steps,  # or any other frequency you want
+    #     max_new_tokens=args.max_new_tokens,
+    #     horizon=args.horizon_eval,
+    #     chat_template=chat_template,
+    #     top_k=args.top_k,
+    #     disable_wandb=args_raw.disable_wandb,
+    # )
 
     # Initialize the trainer
     trainer = TJDTrainer(
@@ -311,7 +330,7 @@ def main():
         eval_dataset=lm_dataset["eval"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[generation_callback] if args.compute_acc else None,
+        # callbacks=[generation_callback] if args.compute_acc else None,
         # Evaluation
         tokenizer=tokenizer,
         test_dataset=lm_dataset["test"] if args.compute_acc else None,  # type: ignore
@@ -325,6 +344,7 @@ def main():
             stop_token=tokenizer.eos_token_id,
         ),
         acc_batch_size=args.acc_batch_size,
+        on_converge_callback_cs=on_converge_callback_cs,
     )
 
     if args.eval_only:
