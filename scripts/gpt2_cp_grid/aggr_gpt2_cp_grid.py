@@ -1,10 +1,31 @@
 import os
 import json
 import glob
+import re
 from collections import defaultdict
 import pandas as pd
 
 CKPT_DIR = "checkpoints"
+
+
+def parse_friendly_name(checkpoint_name):
+    """Parse the checkpoint name to extract a more friendly name.
+
+    Example:
+    From: e20_bs64_sl128_l0_001_ws100_gcv1_0_mgpt2_mhcp_hd128_r1_h2_pfexp_imrandom_tmlora_lr32_umelTrue_he2_mnt128_tk200_ussFalse_dstemp_lsepoch_lo1_esepoch_ev1_gsepoch_ge1000_mns10000_eoFalse_caTrue_abs1_wie87841a4
+    To: gpt2::cp::rank1::horizon2::hd128
+    """
+    exp_attrs = [
+        {"abbrev": "", "fn": lambda x: re.search(r"_m([^_]+)", x).group(1)},
+        {"abbrev": "mh", "fn": lambda x: re.search(r"_mh([^_]+)", x).group(1)},
+        {"abbrev": "rank", "fn": lambda x: re.search(r"_r(\d+)", x).group(1)},
+        {"abbrev": "horizon", "fn": lambda x: re.search(r"_h(\d+)", x).group(1)},
+    ]
+    name_parts = []
+    for attr in exp_attrs:
+        name_part = attr["abbrev"] + attr["fn"](checkpoint_name)
+        name_parts.append(name_part)
+    return "::".join(name_parts)
 
 
 def main():
@@ -43,6 +64,12 @@ def main():
             ckpt_name = os.path.basename(ckpt_dir)
             metrics["checkpoint"] = ckpt_name
 
+            # Add friendly name
+            try:
+                metrics["friendly_name"] = parse_friendly_name(ckpt_name)
+            except Exception as e:
+                print(f"Error parsing friendly name for {ckpt_name}: {str(e)}")
+
             # Add to results
             results.append(metrics)
 
@@ -54,6 +81,9 @@ def main():
     # Convert results to DataFrame for easier analysis
     if results:
         df = pd.DataFrame(results)
+
+        # Sort by 'friendly_name'
+        df.sort_values(by="friendly_name", inplace=True)
 
         # Print summary statistics
         print(f"Found metrics for {len(results)} checkpoints")

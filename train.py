@@ -119,8 +119,14 @@ class TJDTrainer(Trainer):
             print("Eval accuracy:", acc)
             if abs(acc - 1.0) < 1e-3:
                 print("Accuracy is 1.0, ending training.")
-                if self.on_converge_callback_cs is not None:
-                    self.on_converge_callback_cs(output.metrics)
+                if (
+                    self.on_converge_callback_cs is not None
+                    and output
+                    and output.metrics
+                ):
+                    self.on_converge_callback_cs(
+                        {**output.metrics, "epoch": self.state.epoch}
+                    )
                 exit(0)
 
         return output
@@ -249,7 +255,6 @@ def main():
         print_stats=local_rank == 0,
     )
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    # data_collator = CustomDataCollator(tokenizer=tokenizer, mlm=False)
 
     def on_converge_callback_cs(metrics):
         # save metrics to to accuracy.json
@@ -257,6 +262,22 @@ def main():
         with open(accuracy_file, "w") as f:
             json.dump(metrics, f)
         print(f"Accuracy saved to {accuracy_file}")
+
+    # Check if exp previously ran and converged
+    if has_checkpoint:
+        # Check if accuracy.json exists
+        accuracy_file = os.path.join(ckpt_dir, "eval_converged_metrics.json")
+        if os.path.exists(accuracy_file):
+            with open(accuracy_file, "r") as f:
+                metrics = json.load(f)
+            print(f"Converged metrics: {metrics}")
+            if (
+                "eval_acc" in metrics
+                and abs(metrics["eval_acc"] - 1.0) < 1e-3
+                and local_rank == 0
+            ):
+                print("Accuracy is 1.0, ending training.")
+                exit(0)
 
     training_args = TrainingArguments(
         output_dir=ckpt_dir,
@@ -271,7 +292,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        eval_on_start=True,
+        # eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting

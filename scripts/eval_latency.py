@@ -6,7 +6,7 @@ Usage:
     python scripts/eval_latency.py --device [device] --model_family [model_family] --out_seq_len [out_seq_len] --inp_seq_len [inp_seq_len]
 
 Example:
-    python scripts/eval_latency.py --device cuda --model_family llama --inp_seq_len 8 --out_seq_len 32
+    python scripts/eval_latency.py --device cuda --exp llama --inp_seq_len 8 --out_seq_len 32
     python scripts/eval_latency.py --device cuda --model_family gpt2  --inp_seq_len 8 --out_seq_len 64
 
 """
@@ -184,6 +184,19 @@ def main(args):
                 **common_kwargs,
             }
             for (r, h, hd) in zip([2, 2], [2, 3], [2048, 2048])
+        ]  # uMPS
+        + [
+            {
+                "name": f"{replace_spec_chars(args.model)}::mps::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
+                    rank=r,
+                    horizon=h,
+                    model_head="umps",
+                    hidden_dim=hd,
+                ),
+                **common_kwargs,
+            }
+            for (r, h, hd) in zip([2, 2], [2, 3, 4], [5120, 5120])
         ]
     )
 

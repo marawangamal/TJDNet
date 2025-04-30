@@ -518,7 +518,7 @@ if __name__ == "__main__":
         "-n",
         "--num_dists_per_prompt",
         type=int,
-        default=1,
+        default=3,
         help="Number of distributions to generate per prompt (i.e. sequence length // 2)",
     )
     args = parser.parse_args()

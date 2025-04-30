@@ -2,15 +2,16 @@
 torch
 transformers
 datasets
-matplotlib
-wandb
-tensorly
 peft
-line_profiler
 pandas
 tabulate
 scikit-learn
 pyaml
-seaborn
+tensorly
 huggingface_hub[cli]
-tntorch
+# matplotlib
+# tntorch
+# wandb
+# seaborn
+# line_profiler
+
