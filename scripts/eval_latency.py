@@ -6,13 +6,14 @@ Usage:
     python scripts/eval_latency.py --device [device] --model_family [model_family] --out_seq_len [out_seq_len] --inp_seq_len [inp_seq_len]
 
 Example:
-    python scripts/eval_latency.py --device cuda --model_family llama --inp_seq_len 8   --out_seq_len 32
-    python scripts/eval_latency.py --device cuda --model_family gpt2  --inp_seq_len 256 --out_seq_len 128
+    python scripts/eval_latency.py --device cuda --model_family llama --inp_seq_len 8 --out_seq_len 32
+    python scripts/eval_latency.py --device cuda --model_family gpt2  --inp_seq_len 8 --out_seq_len 64
 
 """
 
 import gc
 import argparse
+import itertools
 import traceback
 
 import torch
@@ -113,8 +114,7 @@ def main(args):
         "train": {"benchmark_fn": train_forward},
     }[args.mode]
 
-    # LLaMA
-    exps = (
+    exp_set_a = (
         []
         # Baseline
         + [
@@ -187,6 +187,25 @@ def main(args):
         ]
     )
 
+    exp_set_b = [
+        {
+            "name": f"{replace_spec_chars(args.model)}::{args.exp_grid_model_head}::rank{r}::horizon{h}::hd{hd}",
+            "model_fn": create_model(
+                rank=r,
+                horizon=h,
+                model_head=args.exp_grid_model_head,
+                hidden_dim=hd,
+                use_memory_efficient_loss=args.use_memory_efficient_loss,
+            ),
+            **common_kwargs,
+        }
+        for (r, h, hd) in itertools.product(
+            [1, 2, 4, 8, 16], [2, 4, 8, 16, 32], [5120, 768]
+        )
+    ]
+
+    exps = {"compare": exp_set_a, "grid": exp_set_b}[args.exp]
+
     print(f"Starting benchmarks ({args.device})...")
     results = {}
     input_ids_dict = {
@@ -240,6 +259,7 @@ def main(args):
     # Print results (detailed)
     print("\n\n")
     log_results(results)
+    log_results(results, output_format="string")
 
 
 if __name__ == "__main__":
@@ -262,6 +282,26 @@ if __name__ == "__main__":
         type=str,
         choices=["train", "eval"],
         default="eval",
+    )
+    parser.add_argument(
+        "--exp",
+        type=str,
+        choices=["compare", "grid"],
+        default="compare",
+        help="Experiment to run",
+    )
+    parser.add_argument(
+        "--exp_grid_model_head",
+        type=str,
+        choices=["cp", "cpo", "mps", "umps"],
+        default="cp",
+        help="Model head to use for the grid search",
+    )
+    parser.add_argument(
+        "--use_memory_efficient_loss",
+        action="store_true",
+        default=False,
+        help="Use memory efficient loss",
     )
     parser.add_argument(
         "-b",

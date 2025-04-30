@@ -22,6 +22,8 @@ Hardware requirements:
 
 """
 
+from argparse import Namespace
+import copy
 import json
 import os
 import os.path as osp
@@ -180,10 +182,7 @@ def setup(args, local_rank: int):
         print(f"[{local_rank}] wandb_id: {wandb_id}")
 
     args.wandb_id = wandb_id
-    exp_name = get_experiment_name(
-        # remove exluded keys
-        {k: v for k, v in vars(args).items() if k not in EXP_NAME_EXCLUSIONS}
-    )
+    exp_name = get_experiment_name(vars(args))
     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
 
     has_checkpoint = False
@@ -214,8 +213,11 @@ def setup(args, local_rank: int):
 def main():
     # Configuration
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    args = parse_args()
-    args, exp_name, ckpt_dir, has_checkpoint = setup(args, local_rank)
+    args_raw = parse_args()
+    filtered_args = Namespace(
+        **{k: v for k, v in vars(args_raw).items() if k not in EXP_NAME_EXCLUSIONS}
+    )
+    args, exp_name, ckpt_dir, has_checkpoint = setup(filtered_args, local_rank)
     set_seed(42)
 
     # Model and tokenizer
@@ -255,7 +257,7 @@ def main():
         eval_steps=args.eval_steps,
         # Reporting
         # report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
-        report_to="wandb" if not args.disable_wandb else "none",
+        report_to="wandb" if not args_raw.disable_wandb else "none",
         # Checkpoints
         save_strategy=args.eval_strategy,
         save_steps=args.eval_steps,
@@ -279,7 +281,7 @@ def main():
         project_name = (
             "tjdnet-prod" if git_info.get("branch") == "main" else "tjdnet-dev"
         )
-        if not args.disable_wandb:
+        if not args_raw.disable_wandb:
             wandb.init(
                 project=project_name,
                 name=exp_name,
@@ -298,6 +300,7 @@ def main():
         horizon=args.horizon_eval,
         chat_template=chat_template,
         top_k=args.top_k,
+        disable_wandb=args_raw.disable_wandb,
     )
 
     # Initialize the trainer

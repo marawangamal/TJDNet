@@ -72,20 +72,20 @@ PROMPTS = [
     },
     {
         "name": "gsm8k",
-        "question": """You are a mathematical reasoning assistant that solves problems step by step. \n  \n FORMAT INSTRUCTIONS: \n 1. Show all your work with clear explanations \n 2. For each calculation, use the format: <<calculation=result>>result \n 3. End every answer with: #### [numerical_answer_only]{eos_token} \n  \n EXAMPLE: \n [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? \n [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 {eos_token} \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] \n Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?""",
-        "answer": """[Weng's Earnings] 
+        "question": """You are a mathematical reasoning assistant that solves problems step by step. \n  \n FORMAT INSTRUCTIONS: \n 1. Show your work with explanations \n 2. End every answer with: #### [numerical_answer_only]<eot_id> \n  \n EXAMPLE: \n [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? \n [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 <eot_id> \n  \n Now solve the following problem using the exact format shown above. Don't repeat the question: \n [QUESTION] \n Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn? \n [ANSWER]""",
+        "answer": """To find out how much Weng earned, we need to convert the time from minutes to hours and then multiply it by her hourly wage.
 
-        To find out how much Weng earned, we need to convert the time she worked from minutes to hours and then multiply it by her hourly wage.
+        First, we know that there are 60 minutes in an hour. To convert 50 minutes to hours, we can divide 50 by 60.
 
-        Time worked = 50 minutes
-        There are 60 minutes in an hour, so we can divide 50 by 60 to get the number of hours:
-        50/60 = 0.8333 hours
+        50 minutes / 60 = 5/6 hours
 
-        Weng earns $12 an hour, so we can multiply the number of hours she worked by her hourly wage:
-        0.8333 hours * $12/hour = $10
+        Since Weng earns $12 an hour, we multiply the number of hours she worked (5/6) by her hourly wage (12).
 
-        #### 10 
-        """,
+        (5/6) * 12 = 10
+
+        So, Weng earned 10 dollars yesterday.
+
+        #### 10""",
     },
     {
         "name": "sharegpt",

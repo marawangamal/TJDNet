@@ -25,6 +25,7 @@ class GenerationCallback(TrainerCallback):
         horizon: int = 1,
         chat_template: Optional[BaseChatTemplate] = None,
         top_k: int = 50,
+        disable_wandb: bool = False,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -34,6 +35,7 @@ class GenerationCallback(TrainerCallback):
         self.horizon = horizon
         self.prompts = [chat_template.get_sample_prompt() if chat_template else ""]
         self.top_k = top_k
+        self.disable_wandb = disable_wandb
 
     def on_step_end(self, args, state, control, **kwargs):
         if not args.local_rank == 0:
@@ -72,10 +74,11 @@ class GenerationCallback(TrainerCallback):
                     truncate_tens(outputs[0], self.tokenizer.eos_token_id)  # type: ignore
                 )
                 print(f"\nPrompt:\n{prompt}\nOutput:\n{sample}\n")
-                wandb.log(
-                    {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},
-                    step=state.global_step,
-                )
+                if not self.disable_wandb:
+                    wandb.log(
+                        {f"generation_text_{i}": wandb.Html(f"<pre>{sample}</pre>")},
+                        step=state.global_step,
+                    )
 
             self.model.train()
             print("=" * 50 + "\n")

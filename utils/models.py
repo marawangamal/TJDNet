@@ -9,10 +9,9 @@ def create_model(
     rank,
     horizon,
     hidden_dim,
+    use_memory_efficient_loss=False,
+    model="meta-llama/Llama-2-7b-chat-hf",
     model_head="cp",
-    auto_model_kwargs={
-        "pretrained_model_name_or_path": "meta-llama/Llama-2-7b-chat-hf"
-    },
     **kwargs,
 ):
     return lambda: TJDHuggingFace(
@@ -24,7 +23,8 @@ def create_model(
                 param_net=TensorParamNetConfig(hidden_dim=hidden_dim),
             ),
             model_head=model_head,
-            auto_model_kwargs=auto_model_kwargs,
+            auto_model_kwargs={"pretrained_model_name_or_path": model},
+            use_memory_efficient_loss=use_memory_efficient_loss,
             **kwargs,
         ),
     )
