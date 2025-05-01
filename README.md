@@ -222,14 +222,14 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama-3.2-3b-instruct::base-fs::bs::1                   |               | 0.6527   |  # few shot
 | llama-3.2-3b-instruct::base-ft::bs::1                   |               |          |  # retrained last layer
 | --------------------------------------------------------|---------------|----------| 
-| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2     |               | train*   |  # fb
-| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon3     |               | PD       |  # fb
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2     |               | eval*    |  # fb
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon3     |               | eval*    |  # fb
 | llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon2     |               |          |  # oslo
 | llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon3     |               |          |  # oslo
 | llama-3.2-3b-instruct::umps::rank8::hd5120::horizon2    |               |          |  # ours 
 | llama-3.2-3b-instruct::umps::rank8::hd5120::horizon3    |               |          |  # ours
 | llama-3.2-3b-instruct::mps::rank8::hd5120::horizon2     |               |          |  # ours
 | llama-3.2-3b-instruct::mps::rank8::hd5120::horizon3     |               |          |  # ours
-| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2      |               | PD       |  # ours 
-| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2      |               | PD       |  # ours 
-| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon3      |               | PD       |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2      |               | eval*    |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2      |               | eval*    |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon3      |               | eval*    |  # ours 
