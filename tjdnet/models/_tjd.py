@@ -763,7 +763,9 @@ class TJD(ABC, torch.nn.Module):
             loss = self.model_head.compute_loss(
                 x=last_hidden_state_ds.reshape(-1, self.n_embd),
                 y=targets_ds.reshape(-1, horizon),
-            ).reshape(batch_size, -1)
+            ).reshape(
+                batch_size, -1
+            )  # (B, T-H // H)
         else:
             loss = self.compute_loss_v2(
                 last_hidden_state=last_hidden_state_ds,

@@ -127,4 +127,4 @@ class CPBDist(BaseDistribution):
 
         log_py_pprime = log_py_prime.reshape(-1, self.horizon, self.rank).sum(dim=1)
         log_py = torch.logsumexp(lsm_alpha + log_py_pprime, dim=1)  # (B, R) -> (B,)
-        return -log_py
+        return -log_py  # (B,)
