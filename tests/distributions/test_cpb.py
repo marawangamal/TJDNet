@@ -54,7 +54,7 @@ class TestCPBDist(unittest.TestCase):
         )
         assert y.shape == (batch_size, horizon)
         assert py.shape == (batch_size, horizon, vocab_size)
-        assert torch.all(py.sum(dim=-1) == 1.0)
+        assert torch.allclose(py.sum(dim=-1), torch.ones_like(py.sum(dim=-1)))
 
 
 if __name__ == "__main__":

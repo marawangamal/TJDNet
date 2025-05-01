@@ -40,7 +40,7 @@ def compute_accuracy(
     # horizon: int = 1,
     avg_meter_kwargs={},
     generate_kwargs={},
-    verbose=False,
+    verbose=True,
     # **kwargs,
 ):
     dataloader = torch.utils.data.DataLoader(

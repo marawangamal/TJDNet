@@ -92,7 +92,7 @@ class CPBDist(BaseDistribution):
                 # + py.sum(dim=1).unsqueeze(-1)
                 history.unsqueeze(-1) + log_ph_dist,
                 dim=1,
-            )
+            ) - torch.logsumexp(history.unsqueeze(-1), dim=1)
             probs = torch.exp(log_ph)
             probs_list.append(probs)
             sample_fn = lambda x: (

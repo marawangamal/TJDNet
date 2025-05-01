@@ -47,10 +47,6 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
 from utils.accuracy import compute_accuracy
-from utils.generation import GenerationCallback
-from dataloaders.gsm8k import load_gsm8k_data
-from dataloaders.syn_temp import load_syn_temp_data
-from dataloaders.wikitext import load_wikitext_data
 from utils.utils import get_experiment_name
 from utils.helpers import (
     get_git_info,
