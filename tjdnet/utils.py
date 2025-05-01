@@ -234,3 +234,7 @@ def diagnose(tens: torch.Tensor, tens_name: str = "tensor"):
     assert not torch.isinf(
         tens
     ).any(), f"Inf found in {tens_name} -- (min: {tens.min()}, max: {tens.max()})"
+
+
+def mem_check(msg: str = "unknown"):
+    print(f"MEM [{msg}]: {torch.cuda.memory_allocated()/1e9:.2f} GB")

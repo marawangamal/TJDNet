@@ -5,8 +5,8 @@
 
 # Define the ranks and horizons to search over
 RANKS=(1 2 4 8 16)
-HORIZONS=(2 4 8)
-MODEL_HEADS=("cp" "umps")
+HORIZONS=(2 4 8 16)
+MODEL_HEADS=("umps")
 
 # Run all configurations
 for model_head in "${MODEL_HEADS[@]}"; do
@@ -25,7 +25,7 @@ for model_head in "${MODEL_HEADS[@]}"; do
             echo "Running configuration: model_head=$model_head, rank=$rank, horizon=$horizon, lr=$lr"
             
             python train.py \
-                --epochs 20 \
+                --epochs 50 \
                 --horizon "$horizon" \
                 --horizon_eval "$horizon" \
                 --rank "$rank" \

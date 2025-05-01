@@ -3,6 +3,7 @@ from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models._tjd import TJD, TJDConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
+from tjdnet.utils import mem_check
 
 
 def create_model(
@@ -25,6 +26,7 @@ def create_model(
             model_head=model_head,
             auto_model_kwargs={"pretrained_model_name_or_path": model},
             use_memory_efficient_loss=use_memory_efficient_loss,
+            fw_version=2,
             **kwargs,
         ),
     )
@@ -59,8 +61,12 @@ def train_forward(
 ):
     """Forward pass for training mode."""
     # Forward pass
+    mem_check("before model.forward")
     outputs = model.forward(input_ids, labels=input_ids)
+    mem_check("after model.forward")
     loss = outputs["loss"]
-    # backward pass
+
+    mem_check("before loss.backward")
     loss.backward()
+    mem_check("after loss.backward")
     return loss

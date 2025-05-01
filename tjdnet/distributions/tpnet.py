@@ -20,7 +20,7 @@ class TensorParamNetConfig:
     hidden_dim: int = 512
     out_dim_encoder: int = 1
     out_dim_decoder: int = 1
-    positivity_func: Literal["sq", "abs", "exp"] = "exp"
+    positivity_func: Literal["sq", "abs", "exp", "none"] = "exp"
     use_decoder: bool = True
 
 
@@ -32,6 +32,7 @@ class TensorParamNet(nn.Module):
             "sq": lambda x: x**2,
             "abs": lambda x: torch.abs(x),
             "exp": torch.exp,
+            "none": lambda x: x,
         }[config.positivity_func]
         self.tpnet_config = config
         self.w = torch.nn.Linear(

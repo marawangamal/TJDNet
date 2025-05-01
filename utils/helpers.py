@@ -256,6 +256,12 @@ def parse_args():
         help="Batch size for computing accuracy. (NOTE: only models that support attention_mask can use batch_size > 1)",
     )
     parser.add_argument(
+        "--fw_version",
+        type=int,
+        default=1,
+        help="Version of the forward pass to use. (1 or 2)",
+    )
+    parser.add_argument(
         "--wandb_id",
         type=str,
         default=None,
@@ -464,6 +470,7 @@ def get_model_and_tokenizer(args):
         # gen_version=(
         #     args.gen_version if hasattr(args, "gen_version") else 2
         # ),  # Backward compatibility
+        fw_version=args.fw_version,
     )
     model = TJDHuggingFace(model_config)
 

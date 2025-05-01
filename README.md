@@ -232,4 +232,5 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama-3.2-3b-instruct::mps::rank8::hd5120::horizon3     |               |          |  # ours
 | llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2      |               | eval*    |  # ours 
 | llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2      |               | eval*    |  # ours 
-| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon3      |               | eval*    |  # ours 
+| llama-3.2-3b-instruct::cp::rank1::hd5120::horizon3      |               | eval*    |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon3      |               | eval*    |  # ours 

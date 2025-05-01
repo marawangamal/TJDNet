@@ -6,8 +6,10 @@ Usage:
     python scripts/eval_latency.py --device [device] --model_family [model_family] --out_seq_len [out_seq_len] --inp_seq_len [inp_seq_len]
 
 Example:
-    python scripts/eval_latency.py --device cuda --exp llama --inp_seq_len 8 --out_seq_len 32
-    python scripts/eval_latency.py --device cuda --model_family gpt2  --inp_seq_len 8 --out_seq_len 64
+    python scripts/eval_latency.py --device cuda --model meta-llama/Llama-3.2-3B-Instruct --inp_seq_len 8 --out_seq_len 32
+    python scripts/eval_latency.py --device cuda --model meta-llama/Llama-3.2-3B-Instruct --inp_seq_len 8 --out_seq_len 32 --exp grid
+    python scripts/eval_latency.py --device cuda --model gpt2  --inp_seq_len 8 --out_seq_len 64
+    python scripts/eval_latency.py --device cuda --model gpt2  --inp_seq_len 8 --out_seq_len 64 --exp grid
 
 """
 
@@ -22,6 +24,11 @@ import pandas as pd
 from utils.latency import benchmark_model_v2
 from utils.models import create_model, train_forward
 from utils.utils import replace_spec_chars
+
+MODEL_HIDDEN_DIMS = {
+    "meta-llama/Llama-3.2-3B-Instruct": 4096,
+    "gpt2": 768,
+}
 
 
 class DataParallelWithGenerate(torch.nn.DataParallel):
@@ -114,7 +121,7 @@ def main(args):
         "train": {"benchmark_fn": train_forward},
     }[args.mode]
 
-    exp_set_a = (
+    exp_compare = (
         []
         # Baseline
         + [
@@ -200,7 +207,7 @@ def main(args):
         ]
     )
 
-    exp_set_b = [
+    exp_grid = [
         {
             "name": f"{replace_spec_chars(args.model)}::{args.exp_grid_model_head}::rank{r}::horizon{h}::hd{hd}",
             "model_fn": create_model(
@@ -213,11 +220,13 @@ def main(args):
             **common_kwargs,
         }
         for (r, h, hd) in itertools.product(
-            [1, 2, 4, 8, 16], [2, 4, 8, 16, 32], [5120, 768]
+            [1, 2, 4, 8, 16],
+            [2, 4, 8, 16, 32],
+            [MODEL_HIDDEN_DIMS.get(args.exp_grid_model_head, 768)],
         )
     ]
 
-    exps = {"compare": exp_set_a, "grid": exp_set_b}[args.exp]
+    exps = {"compare": exp_compare, "grid": exp_grid}[args.exp]
 
     print(f"Starting benchmarks ({args.device})...")
     results = {}
@@ -272,7 +281,6 @@ def main(args):
     # Print results (detailed)
     print("\n\n")
     log_results(results)
-    log_results(results, output_format="string")
 
 
 if __name__ == "__main__":
@@ -309,6 +317,12 @@ if __name__ == "__main__":
         choices=["cp", "cpo", "mps", "umps"],
         default="cp",
         help="Model head to use for the grid search",
+    )
+    parser.add_argument(
+        "--exp_grid_hidden_dim",
+        type=int,
+        default=768,
+        help="Hidden dimension to use for the grid search",
     )
     parser.add_argument(
         "--use_memory_efficient_loss",

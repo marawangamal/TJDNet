@@ -155,3 +155,22 @@ class CPDist(BaseDistribution):
             norm_consts.reshape(batch_size, seq_len),
             [s.reshape(batch_size, seq_len) for s in norm_consts_scale_factors],
         )
+
+
+# if __name__ == "__main__":
+#     # Example usage
+#     config = BaseDistConfig(
+#         vocab_size=100,
+#         horizon=10,
+#         rank=5,
+#         param_net=TensorParamNetConfig(
+#             in_dim=768,
+#             hidden_dim=512,
+#             out_dim_encoder=1,
+#             out_dim_decoder=1,
+#             positivity_func="exp",
+#         ),
+#     )
+#     cp_dist = CPDist(config)
+#     # Check if cp_dist has `forward` method
+#     assert hasattr(cp_dist, "compute_loss"), "CPDist should have a compute_loss method"
