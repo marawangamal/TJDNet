@@ -470,7 +470,7 @@ def get_model_and_tokenizer(args):
         # gen_version=(
         #     args.gen_version if hasattr(args, "gen_version") else 2
         # ),  # Backward compatibility
-        fw_version=args.fw_version,
+        # fw_version=args.fw_version if hasattr(args, "fw_version") else 1,
     )
     model = TJDHuggingFace(model_config)
 

@@ -58,8 +58,8 @@ class CPBDist(BaseDistribution):
         self,
         hidden_state: torch.Tensor,
         horizon: Optional[int],
-        do_sample: bool,
-        top_k: int,
+        do_sample: bool = True,
+        top_k: int = 200,
         **kwargs,
     ):
         x = hidden_state[:, -1]  # (B, D)
