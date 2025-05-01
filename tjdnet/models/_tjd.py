@@ -7,27 +7,10 @@ from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 
 import torch
 
-from tjdnet.distributions._base import (
-    BaseDistConfig,
-    BaseDistFromLinearConfig,
-    BaseDistribution,
-)
-from tjdnet.distributions.base import BaseDist
-from tjdnet.distributions.cp import CPDist
-from tjdnet.distributions.mps import MPSDist
-from tjdnet.distributions.ucp import UCPDist
-from tjdnet.distributions.umps import UMPSDist
+from tjdnet.distributions import TJD_DISTS
+from tjdnet.distributions._base import BaseDistConfig, BaseDistFromLinearConfig
 from tjdnet.tensorops.common import get_windowed_input_ids
 from tjdnet.utils import mem_check, sample_topk, spec_sample_v2
-
-DIST_MAP: Dict[str, Type[BaseDistribution]] = {
-    "base": BaseDist,
-    "cp": CPDist,
-    "cpo": CPDist,
-    "ucp": UCPDist,
-    "mps": MPSDist,
-    "umps": UMPSDist,
-}
 
 
 def extend_attn(mat: torch.Tensor, horizon: int = 1):
@@ -161,7 +144,7 @@ class TJD(ABC, torch.nn.Module):
 
         # Handle model initialization
         if config.init_method == "pretrained":
-            self.model_head = DIST_MAP[config.model_head].from_linear(
+            self.model_head = TJD_DISTS[config.model_head].from_linear(
                 self.tgt_model_head,
                 BaseDistFromLinearConfig(
                     horizon=config.base_dist.horizon,
@@ -170,7 +153,7 @@ class TJD(ABC, torch.nn.Module):
                 ),
             )
         else:
-            self.model_head = DIST_MAP[config.model_head](config.base_dist)
+            self.model_head = TJD_DISTS[config.model_head](config.base_dist)
 
         # Trainer compatibility
         self.gradient_checkpointing_enable = self.backbone.gradient_checkpointing_enable
@@ -477,7 +460,7 @@ class TJD(ABC, torch.nn.Module):
         targets: torch.Tensor,
         horizon: int,
         reduce: str = "mean",
-    ) -> Dict[str, torch.Tensor]:
+    ):
         """Compute the loss.
 
         Args:
@@ -492,6 +475,9 @@ class TJD(ABC, torch.nn.Module):
                 - nll (torch.Tensor): Reduced negative log likelihood of shape (B,)
                 - loss_scale (torch.Tensor): Loss scaling factor, scalar tensor of value 1/rank
         """
+
+        if hasattr(self.model_head, "compute_loss"):
+            pass
 
         p_tilde, p_tilde_scale_factors, norm_const, norm_const_scale_factors = (
             self.model_head.evaluate_at_points_and_get_norm_consts(
@@ -533,19 +519,81 @@ class TJD(ABC, torch.nn.Module):
         if (loss < 0).any():
             print("Detect negative loss")
 
+        return loss
+
         # Train loss
         # NLL computation requires only each horizon-th element
-        nll = loss if self.use_memory_efficient_loss else loss[:, ::horizon]
-        reduct_fn = {
-            "mean": torch.mean,
-            "sum": torch.sum,
-            "none": lambda x: x,
-        }[reduce]
-        return {
-            "loss": reduct_fn(loss.sum(dim=-1)),
-            "nll": reduct_fn(nll.sum(dim=-1)),
-            "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
-        }
+        # nll = loss if self.use_memory_efficient_loss else loss[:, ::horizon]
+        # reduct_fn = {
+        #     "mean": torch.mean,
+        #     "sum": torch.sum,
+        #     "none": lambda x: x,
+        # }[reduce]
+        # return {
+        #     "loss": reduct_fn(loss.sum(dim=-1)),
+        #     "nll": reduct_fn(nll.sum(dim=-1)),
+        #     "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
+        # }
+
+    def compute_loss_v2(
+        self,
+        last_hidden_state: torch.Tensor,
+        targets: torch.Tensor,
+        **kwargs,
+    ):
+        """Compute negative log likelihood loss.
+
+        Args:
+            last_hidden_state (torch.Tensor): Last hidden state of the model. Shape (B, T, D)
+            targets (torch.Tensor): Targets for the model. Shape (B, T, H)
+
+        Raises:
+            NotImplementedError: _description_
+
+        Returns:
+            _type_: _description_
+        """
+        p_tilde, p_tilde_scale_factors, norm_const, norm_const_scale_factors = (
+            self.model_head.evaluate_at_points_and_get_norm_consts(
+                last_hidden_state, targets
+            )
+        )  # (B, T-H)
+
+        # Health checks
+        # 1. Ensure no NaNs
+        assert not torch.isnan(p_tilde).any(), "p_tilde NaN"
+        assert not torch.isnan(norm_const).any(), "norm_const NaN"
+        # 2. Ensure p_tilde < norm_const (if no scale factors)
+        if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
+            if (p_tilde > norm_const).any():
+                print("p_tilde >= norm_const")
+                print("p_tilde:", p_tilde)
+                print("norm_const:", norm_const)
+
+            if not (p_tilde <= norm_const).all():
+                print("p_tilde > norm_const")
+            assert (p_tilde <= norm_const).all(), "p_tilde <= norm_const"
+
+        loss = (
+            -torch.log(p_tilde)  # (B, T')
+            + torch.log(norm_const)  # (B, T')
+            # Contraction Stability Scale Factors
+            - sum([torch.log(z) for z in p_tilde_scale_factors])  # (B, T')
+            + sum([torch.log(z) for z in norm_const_scale_factors])
+        )  # (B, T-H)
+
+        if self.loss_mode == "joint":
+            # loss_tgt = self._get_tgt_loss(
+            #     last_hidden_state=last_hidden_state, input_ids=input_ids
+            # )
+            # loss = loss + loss_tgt
+            raise NotImplementedError("Joint loss not implemented.")
+
+        # Loss validation
+        if (loss < 0).any():
+            print("Detect negative loss")
+
+        return loss
 
     def forward_v2(
         self,
@@ -585,6 +633,12 @@ class TJD(ABC, torch.nn.Module):
         batch_size, _ = input_ids.size()
         horizon = self._get_horizon(horizon)
 
+        reduce_func = {
+            "mean": torch.mean,
+            "sum": torch.sum,
+            "none": lambda x: x,
+        }[reduce]
+
         mem_check("before get_attn_last_hidden_state")
 
         # (B, T-H, D)
@@ -610,22 +664,25 @@ class TJD(ABC, torch.nn.Module):
             targets_ds = targets[:, shift::horizon]  # (B, T-H // H, H)
             mem_check("before _compute_loss")
             if shift == 0:
-                loss_dict = self._compute_loss(
+                loss = self._compute_loss(
                     last_hidden_state=last_hidden_state_ds,
                     targets=targets_ds,
                     horizon=horizon,
-                    reduce=reduce,
-                )
+                )  # (B, T-H // H)
+                loss_dict = {
+                    "loss": loss.sum(dim=-1),
+                    "nll": loss.sum(dim=-1),
+                    "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
+                }
             else:
-                loss_dict_i = self._compute_loss(
+                loss_i = self._compute_loss(
                     last_hidden_state=last_hidden_state_ds,
                     targets=targets_ds,
                     horizon=horizon,
-                    reduce=reduce,
                 )
-                loss_dict["loss"] += loss_dict_i["loss"]
-                loss_dict["nll"] += loss_dict_i["nll"]
-                loss_dict["loss_scale"] += loss_dict_i["loss_scale"]
+                loss_dict["loss"] += reduce_func(loss.sum(dim=-1))
+                # loss_dict["nll"] += loss_dict_i["nll"]
+                # loss_dict["loss_scale"] += loss_dict_i["loss_scale"]
 
             mem_check("after _compute_loss")
             # Return means
@@ -643,6 +700,7 @@ class TJD(ABC, torch.nn.Module):
         attention_mask=None,
         horizon: Optional[int] = None,
         reduce="mean",
+        shift=0,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass of the model.
@@ -652,6 +710,7 @@ class TJD(ABC, torch.nn.Module):
             labels (torch.Tensor): Tensor of shape (B, T)
             horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
             reduce (str, optional): Reduction method. Defaults to "mean".
+            shift (int, optional): Shift for downsampling. Defaults to 0.
             use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
 
         Note:
@@ -665,10 +724,20 @@ class TJD(ABC, torch.nn.Module):
 
         """
 
-        # Sequence length must be greater than horizon
-        assert (
-            input_ids.size(1) > self.horizon
-        ), "Sequence length must be greater than horizon"
+        # ==== Input validation
+        input_validation_checks = [
+            {
+                "test": lambda: input_ids.size(1) > self.horizon,
+                "msg": "Sequence length must be greater than horizon",
+            },
+            {
+                "test": lambda: shift < self.horizon,
+                "msg": "Shift must be less than horizon",
+            },
+        ]
+        for check in input_validation_checks:
+            assert check["test"](), check["msg"]
+        # ====
 
         batch_size, _ = input_ids.size()
         horizon = self._get_horizon(horizon)
@@ -686,60 +755,20 @@ class TJD(ABC, torch.nn.Module):
         targets_ds = targets  # (B, T-H, H)
         if self.use_memory_efficient_loss:
             # Downsample hidden states and targets
-            last_hidden_state_ds = last_hidden_state_ds[:, ::horizon]
-            targets_ds = targets[:, ::horizon]
+            # (B, T-H // H, D), (B, T-H // H, H)
+            last_hidden_state_ds = last_hidden_state_ds[:, shift::horizon]
+            targets_ds = targets[:, shift::horizon]
 
-        p_tilde, p_tilde_scale_factors, norm_const, norm_const_scale_factors = (
-            self.model_head.evaluate_at_points_and_get_norm_consts(
-                last_hidden_state_ds, targets_ds
-            )
-        )  # (B, T-H)
-
-        # Health checks
-        # 1. Ensure no NaNs
-        assert not torch.isnan(p_tilde).any(), "p_tilde NaN"
-        assert not torch.isnan(norm_const).any(), "norm_const NaN"
-        # 2. Ensure p_tilde < norm_const (if no scale factors)
-        if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
-            if (p_tilde > norm_const).any():
-                print("p_tilde >= norm_const")
-                print("p_tilde:", p_tilde)
-                print("norm_const:", norm_const)
-
-            if not (p_tilde <= norm_const).all():
-                print("p_tilde > norm_const")
-            assert (p_tilde <= norm_const).all(), "p_tilde <= norm_const"
-
-        loss = (
-            -torch.log(p_tilde)  # (B, T')
-            + torch.log(norm_const)  # (B, T')
-            # Contraction Stability Scale Factors
-            - sum([torch.log(z) for z in p_tilde_scale_factors])  # (B, T')
-            + sum([torch.log(z) for z in norm_const_scale_factors])
-        )  # (B, T-H)
-
-        if self.loss_mode == "joint":
-            loss_tgt = self._get_tgt_loss(
-                last_hidden_state=last_hidden_state, input_ids=input_ids
-            )
-            loss = loss + loss_tgt
-
-        # Loss validation
-        if (loss < 0).any():
-            print("Detect negative loss")
-
-        # assert (loss >= 0).all(), "Loss < 0"
-        # diagnose(loss, "loss")
-        # diagnose(p_tilde, "p_tilde")
-        # diagnose(norm_const, "norm_const")
-        # [
-        #     diagnose(z, f"p_tilde_scale_factors::{i}")
-        #     for i, z in enumerate(p_tilde_scale_factors)
-        # ]
-        # [
-        #     diagnose(z, f"norm_const_scale_factors::{i}")
-        #     for i, z in enumerate(norm_const_scale_factors)
-        # ]
+        if hasattr(self.model_head, "compute_loss"):
+            loss = self.model_head.compute_loss(
+                x=last_hidden_state_ds.reshape(-1, self.n_embd),
+                y=targets_ds.reshape(-1, horizon),
+            ).reshape(batch_size, -1)
+        else:
+            loss = self.compute_loss_v2(
+                last_hidden_state=last_hidden_state_ds,
+                targets=targets_ds,
+            )  # (B, T*)
 
         # Train loss
         # NLL computation requires only each horizon-th element

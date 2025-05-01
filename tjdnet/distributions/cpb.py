@@ -98,12 +98,15 @@ class CPBDist(BaseDistribution):
 
         return y_out, torch.stack(probs_list, dim=1)  # (B, H), (B, H, V)
 
-    def compute_loss(self, x: torch.Tensor, y: torch.Tensor, reduce_fn: str = "mean"):
+    def compute_loss(self, x: torch.Tensor, y: torch.Tensor):
         """Computes loss for CPB distribution.
 
         Args:
             x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
             y (torch.Tensor): Target labels. Shape (B,).
+
+        Returns:
+            torch.Tensor: Computed loss. Shape (B,).
         """
         alpha = self.alpha_func(x)  # (B, R)
         p_tilde = self.param_func(x)  # (B, HR, V)
@@ -118,12 +121,4 @@ class CPBDist(BaseDistribution):
         log_py = torch.logsumexp(
             torch.log(alpha) + log_py_prime, dim=1
         )  # (B, R) -> (B,)
-
-        reduce_func = {
-            "mean": torch.mean,
-            "sum": torch.sum,
-            "max": torch.max,
-        }[reduce_fn]
-
-        loss = -reduce_func(log_py, dim=0)
-        return loss
+        return -log_py

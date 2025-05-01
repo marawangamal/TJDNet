@@ -11,7 +11,7 @@ from transformers import AutoTokenizer
 from dataloaders import CHAT_TEMPLATES
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models._tjd import DIST_MAP, TJDConfig
+from tjdnet.models._tjd import TJD_DISTS, TJDConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
 
 
@@ -83,7 +83,7 @@ def parse_args():
         type=str,
         default="cp",
         help="Type of factorization to use for the model.",
-        choices=DIST_MAP.keys(),
+        choices=TJD_DISTS.keys(),
     )
     parser.add_argument(
         "--hidden_dim",
