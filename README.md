@@ -201,9 +201,9 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | Model                                                         | Latency [s]   | GSM8k    |  
 |:--------------------------------------------------------------|:--------------|:---------|
 | llama-3.2-3b-instruct::base-fs::bs::1                         |               | 0.6527   |  # few shot
-| llama-3.2-3b-instruct::base-ft::bs::1                         |               | eval*    |  # wic185147d
+| llama-3.2-3b-instruct::base-ft::bs::1                         |               | 0.4352  |  # wic185147d
 | --------------------------------------------------------------|---------------|----------| 
-| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2::bs::1    |               | eval*    |  # fb wi9ce48df7
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2::bs::1    |               | 0.228    |  # fb wi9ce48df7
 | llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon3::bs::1    |               |          |  # fb
 | llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon2::bs::1    |               |          |  # oslo
 | llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon3::bs::1    |               |          |  # oslo
@@ -211,7 +211,7 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama-3.2-3b-instruct::umps::rank8::hd5120::horizon3::bs::1   |               |          |  # ours
 | llama-3.2-3b-instruct::mps::rank8::hd5120::horizon2::bs::1    |               |          |  # ours
 | llama-3.2-3b-instruct::mps::rank8::hd5120::horizon3::bs::1    |               |          |  # ours
-| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2::bs::1     |               | train*   |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2::bs::1     |               | 0.2835   |  # ours 
 | llama-3.2-3b-instruct::cp::rank8::hd8192::horizon3::bs::1     |               |          |  # ours
 
 
@@ -220,7 +220,7 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | Model                                                    Latency [s]   | GSM8k    |  
 |:--------------------------------------------------------|:--------------|:---------|
 | llama-3.2-3b-instruct::base-fs::bs::1                   |               | 0.6527   |  # few shot
-| llama-3.2-3b-instruct::base-ft::bs::1                   |               |          |  # retrained last layer
+| llama-3.2-3b-instruct::base-ft::bs::1                   |               | 0.4352   |  # retrained last layer
 | --------------------------------------------------------|---------------|----------| 
 | llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2     |               | eval*    |  # fb
 | llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon3     |               | eval*    |  # fb
@@ -231,6 +231,6 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama-3.2-3b-instruct::mps::rank8::hd5120::horizon2     |               |          |  # ours
 | llama-3.2-3b-instruct::mps::rank8::hd5120::horizon3     |               |          |  # ours
 | llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2      |               | eval*    |  # ours 
-| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2      |               | eval*    |  # ours 
-| llama-3.2-3b-instruct::cp::rank1::hd5120::horizon3      |               | eval*    |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2      |               | 0.260*   |  # ours 
+| llama-3.2-3b-instruct::cp::rank1::hd5120::horizon3      |               | 0.100*   |  # ours 
 | llama-3.2-3b-instruct::cp::rank8::hd8192::horizon3      |               | eval*    |  # ours 

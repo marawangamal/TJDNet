@@ -295,10 +295,14 @@ def main():
         # report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
         report_to="wandb" if not args_raw.disable_wandb else "none",
         # Checkpoints
-        save_strategy=args.eval_strategy,
-        save_steps=args.eval_steps,
-        save_total_limit=2,  # Save only 3 checkpoints
-        load_best_model_at_end=True,
+        # prev save_strategy ===>
+        # save_strategy=args.eval_strategy,
+        # save_steps=args.eval_steps,
+        # save_total_limit=2,  # Save only 3 checkpoints
+        # load_best_model_at_end=True,
+        # ====
+        save_strategy="best",
+        # <=== new save_strategy
         save_safetensors=False,
         metric_for_best_model="eval_nll",
         greater_is_better=False,

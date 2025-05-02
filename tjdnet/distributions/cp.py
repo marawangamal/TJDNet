@@ -57,7 +57,7 @@ class CPDist(BaseDistribution):
         if linear.bias is not None:
             raise Warning("CPDist: Skiping bias initialization.")
 
-        return cls(
+        obj = cls(
             config=BaseDistConfig(
                 vocab_size=vocab_size,
                 horizon=config.horizon,
@@ -66,6 +66,11 @@ class CPDist(BaseDistribution):
             ),
             **kwargs,
         )
+
+        # Initialize the parameters in obj.tensor_param_net
+        # with the parameters from the linear layer
+        obj.param_func.linear.weight.data = linear.weight.data
+        return obj
 
     def sample(
         self,
@@ -96,6 +101,7 @@ class CPDist(BaseDistribution):
                 ),
                 dim=1,
             )  # (B, T)
+            #  (B, R, H*, V) -> (B, V)
             p_ops_tilde, _ = select_margin_cp_tensor_batched(
                 cp_params=model_head_params,
                 ops=ops_tensor,
