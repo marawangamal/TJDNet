@@ -505,7 +505,6 @@ class TJD(ABC, torch.nn.Module):
         attention_mask=None,
         horizon: Optional[int] = None,
         reduce="mean",
-        shift=0,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass of the model.
@@ -515,7 +514,6 @@ class TJD(ABC, torch.nn.Module):
             labels (torch.Tensor): Tensor of shape (B, T)
             horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
             reduce (str, optional): Reduction method. Defaults to "mean".
-            shift (int, optional): Shift for downsampling. Defaults to 0.
             use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
 
         Note:
@@ -534,11 +532,7 @@ class TJD(ABC, torch.nn.Module):
             {
                 "test": lambda: input_ids.size(1) > self.horizon,
                 "msg": "Sequence length must be greater than horizon",
-            },
-            {
-                "test": lambda: shift < self.horizon,
-                "msg": "Shift must be less than horizon",
-            },
+            }
         ]
         for check in input_validation_checks:
             assert check["test"](), check["msg"]
@@ -567,6 +561,7 @@ class TJD(ABC, torch.nn.Module):
         if self.use_memory_efficient_loss:
             # Downsample hidden states and targets
             # (B, T-H // H, D), (B, T-H // H, H)
+            shift = torch.randint(0, horizon, (1,)).item()
             last_hidden_state_ds = last_hidden_state_ds[:, shift::horizon]
             targets_ds = targets[:, shift::horizon]
 
