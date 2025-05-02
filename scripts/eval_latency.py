@@ -21,7 +21,7 @@ import traceback
 import torch
 import pandas as pd
 
-from utils.latency import benchmark_model_v2
+from utils.latency import benchmark_model_v2, get_params
 from utils.models import create_model, train_forward
 from utils.utils import replace_spec_chars
 
@@ -96,12 +96,6 @@ def log_results(results, output_format="markdown", cols=None):
 
     print(result)
     return result
-
-
-def get_params(model):
-    # Get the number of parameters in the model head
-    param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return param_count / 1e6  # Convert to millions
 
 
 def main(args):

@@ -435,7 +435,7 @@ def generate_output_distribution_spectrum_batched(
 
 
 def main(args: Namespace):
-    model_fn = lambda x: AutoModelForCausalLM.from_pretrained(
+    model_fn = lambda: AutoModelForCausalLM.from_pretrained(
         args.model,
         low_cpu_mem_usage=True,
     )
