@@ -4,6 +4,7 @@ import re
 from typing import Optional, Any, Dict, List, Sequence, Tuple, Union
 from collections.abc import Mapping
 
+import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -254,3 +255,79 @@ def plot_groups(
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     ax.figure.savefig(path)
     plt.close(ax.figure)
+
+
+def plot_conf_bands(
+    x_values, y_values_by_group, save_path, title="Spectrum with Confidence Bands"
+):
+    """
+    Plot confidence bands for grouped data with minimal input requirements.
+
+    Parameters:
+    -----------
+    x_values : list or array
+        Array of x values (shared across all groups)
+    y_values_by_group : dict
+        Dictionary where keys are group names and values are lists of lists.
+        Each inner list contains y values for a specific item in the group.
+        Example: {'poem': [[0.5, 0.4, 0.3], [0.6, 0.5, 0.4]], 'gsm8k': [[0.2, 0.1, 0.05]]}
+    save_path : str
+        Path to save the plot
+    """
+    # Setup figure
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Define colors for groups
+    colors = [
+        "#0173B2",
+        "#DE8F05",
+        "#029E73",
+        "#D55E00",
+        "#CC78BC",
+        "#CA9161",
+        "#FBAFE4",
+        "#949494",
+    ]
+
+    # Plot each group with confidence bands
+    for i, (group_key, y_lists) in enumerate(y_values_by_group.items()):
+        # Convert to numpy array for calculations
+        y_array = np.array(y_lists)
+
+        # Compute mean and std dev across samples
+        y_mean = np.mean(y_array, axis=0)
+        y_std = np.std(y_array, axis=0)
+
+        # Get color for this group
+        color = colors[i % len(colors)]
+
+        # Plot mean line
+        ax.plot(x_values, y_mean, label=group_key, color=color)
+
+        # Plot confidence band
+        ax.fill_between(
+            x_values,
+            y_mean - y_std,
+            y_mean + y_std,
+            color=color,
+            alpha=0.2,
+            edgecolor="none",
+        )
+
+    # Set plot parameters
+    ax.set_title(title)
+    ax.set_xlabel("Index")
+    ax.set_ylabel("Singular Value")
+    ax.set_yscale("log")
+    ax.legend()
+    ax.grid(True, which="both", ls="--", alpha=0.3)
+
+    # Save the plot
+    plt.tight_layout()
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close(fig)
+
+    print(f"Confidence band plot saved to {save_path}")
+
+    return save_path

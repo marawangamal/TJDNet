@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from typing import Dict, Literal, Optional, Tuple, Type
+from typing import Dict, Literal, Optional, Tuple
 
 from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 
@@ -72,12 +72,10 @@ class TJDConfig:
 
     # Numerical parameters
     eps: float = 1e-9
+    joint_loss_lambda: float = 0.1
 
     # Generation parameters
     eos_token_id: Optional[int] = None
-
-    # Debug
-    fw_version: int = 1
 
 
 class TJD(ABC, torch.nn.Module):
@@ -103,11 +101,11 @@ class TJD(ABC, torch.nn.Module):
         self.train_mode = config.train_mode
         self.loss_mode = config.loss_mode
         self.n_embd = config.base_dist.param_net.in_dim
+        self.joint_loss_lambda = config.joint_loss_lambda
         self.eps = config.eps
         self.use_attn_layer = config.use_attn_layer
         self.use_memory_efficient_loss = config.use_memory_efficient_loss
         self.use_speculative_sampling = config.use_speculative_sampling
-        self.fw_version = config.fw_version
 
         # DEBUG: LoraConfig
         if config.train_mode == "full":
@@ -262,14 +260,6 @@ class TJD(ABC, torch.nn.Module):
             )
             return attn_output  # (B, T, n_embd)
         return hidden_states
-
-    # def get_pretrained_lm_head_weights(
-    #     self,
-    # ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-    #     """Get the language model head weights + bias. Used for initializing the model head."""
-    #     raise NotImplementedError(
-    #         "get_pretrained_lm_head_weights must be implemented for pretrained init"
-    #     )
 
     def freeze_base_model(self):
         """Freeze the base model."""
@@ -454,88 +444,7 @@ class TJD(ABC, torch.nn.Module):
             index=targets,
         ).squeeze(-1)
 
-    def _compute_loss(
-        self,
-        last_hidden_state: torch.Tensor,
-        targets: torch.Tensor,
-        horizon: int,
-        reduce: str = "mean",
-    ):
-        """Compute the loss.
-
-        Args:
-            last_hidden_state (torch.Tensor): Last hidden state of the model. Shape (B, T, D)
-            targets (torch.Tensor): Targets for the model. Shape (B, T-H, H)
-            horizon (int): Horizon for the model.
-            reduce (str, optional): Defaults to "mean".
-
-        Returns:
-            dict[str, torch.Tensor]: Dictionary containing:
-                - loss (torch.Tensor): Reduced loss value of shape (B,)
-                - nll (torch.Tensor): Reduced negative log likelihood of shape (B,)
-                - loss_scale (torch.Tensor): Loss scaling factor, scalar tensor of value 1/rank
-        """
-
-        if hasattr(self.model_head, "compute_loss"):
-            pass
-
-        p_tilde, p_tilde_scale_factors, norm_const, norm_const_scale_factors = (
-            self.model_head.evaluate_at_points_and_get_norm_consts(
-                last_hidden_state, targets
-            )
-        )  # (B, T-H)
-
-        # Health checks
-        # 1. Ensure no NaNs
-        assert not torch.isnan(p_tilde).any(), "p_tilde NaN"
-        assert not torch.isnan(norm_const).any(), "norm_const NaN"
-        # 2. Ensure p_tilde < norm_const (if no scale factors)
-        if len(p_tilde_scale_factors) == 0 and len(norm_const_scale_factors) == 0:
-            if (p_tilde > norm_const).any():
-                print("p_tilde >= norm_const")
-                print("p_tilde:", p_tilde)
-                print("norm_const:", norm_const)
-
-            if not (p_tilde <= norm_const).all():
-                print("p_tilde > norm_const")
-            assert (p_tilde <= norm_const).all(), "p_tilde <= norm_const"
-
-        loss = (
-            -torch.log(p_tilde)  # (B, T')
-            + torch.log(norm_const)  # (B, T')
-            # Contraction Stability Scale Factors
-            - sum([torch.log(z) for z in p_tilde_scale_factors])  # (B, T')
-            + sum([torch.log(z) for z in norm_const_scale_factors])
-        )  # (B, T-H)
-
-        if self.loss_mode == "joint":
-            # loss_tgt = self._get_tgt_loss(
-            #     last_hidden_state=last_hidden_state, input_ids=input_ids
-            # )
-            # loss = loss + loss_tgt
-            raise NotImplementedError("Joint loss not implemented.")
-
-        # Loss validation
-        if (loss < 0).any():
-            print("Detect negative loss")
-
-        return loss
-
-        # Train loss
-        # NLL computation requires only each horizon-th element
-        # nll = loss if self.use_memory_efficient_loss else loss[:, ::horizon]
-        # reduct_fn = {
-        #     "mean": torch.mean,
-        #     "sum": torch.sum,
-        #     "none": lambda x: x,
-        # }[reduce]
-        # return {
-        #     "loss": reduct_fn(loss.sum(dim=-1)),
-        #     "nll": reduct_fn(nll.sum(dim=-1)),
-        #     "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
-        # }
-
-    def compute_loss_v2(
+    def _get_draft_loss(
         self,
         last_hidden_state: torch.Tensor,
         targets: torch.Tensor,
@@ -582,117 +491,13 @@ class TJD(ABC, torch.nn.Module):
             + sum([torch.log(z) for z in norm_const_scale_factors])
         )  # (B, T-H)
 
-        if self.loss_mode == "joint":
-            # loss_tgt = self._get_tgt_loss(
-            #     last_hidden_state=last_hidden_state, input_ids=input_ids
-            # )
-            # loss = loss + loss_tgt
-            raise NotImplementedError("Joint loss not implemented.")
-
         # Loss validation
         if (loss < 0).any():
             print("Detect negative loss")
 
         return loss
 
-    def forward_v2(
-        self,
-        input_ids: torch.Tensor,
-        # NOTE: needed for compatibility with Trainer
-        labels: torch.Tensor,
-        attention_mask=None,
-        horizon: Optional[int] = None,
-        reduce="mean",
-        **kwargs,
-    ) -> Dict[str, torch.Tensor]:
-        """Forward pass of the model.
-
-        Args:
-            input_ids (torch.Tensor): Tensor of shape (B, T)
-            labels (torch.Tensor): Tensor of shape (B, T)
-            horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
-            reduce (str, optional): Reduction method. Defaults to "mean".
-            use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
-
-        Note:
-            horizon must be less than or equal to the model horizon specified during initialization.
-
-        Returns:
-            Dict[str, torch.Tensor]: Dictionary containing:
-                - loss (torch.Tensor): Reduced loss value of shape (B,)
-                - nll (torch.Tensor): Reduced negative log likelihood of shape (B,)
-                - loss_scale (torch.Tensor): Loss scaling factor, scalar tensor of value 1/rank
-
-        """
-
-        # Sequence length must be greater than horizon
-        assert (
-            input_ids.size(1) > self.horizon
-        ), "Sequence length must be greater than horizon"
-
-        batch_size, _ = input_ids.size()
-        horizon = self._get_horizon(horizon)
-
-        reduce_func = {
-            "mean": torch.mean,
-            "sum": torch.sum,
-            "none": lambda x: x,
-        }[reduce]
-
-        mem_check("before get_attn_last_hidden_state")
-
-        # (B, T-H, D)
-        last_hidden_state = self.get_attn_last_hidden_state(
-            input_ids, attention_mask=attention_mask
-        )[:, :-horizon]
-        targets = get_windowed_input_ids(input_ids, horizon=horizon).reshape(
-            batch_size, -1, horizon
-        )  # (B, T-H, H)
-
-        mem_check("after get_attn_last_hidden_state")
-
-        assert targets.size(1) >= horizon, "Invalid targets"
-
-        num_shifts = 1
-        if self.use_memory_efficient_loss:
-            num_shifts = horizon
-
-        for shift in range(num_shifts):
-            # Downsample hidden states and targets
-            # (B, T-H, D) -> (B, T-H // H, D)
-            last_hidden_state_ds = last_hidden_state[:, shift::horizon]
-            targets_ds = targets[:, shift::horizon]  # (B, T-H // H, H)
-            mem_check("before _compute_loss")
-            if shift == 0:
-                loss = self._compute_loss(
-                    last_hidden_state=last_hidden_state_ds,
-                    targets=targets_ds,
-                    horizon=horizon,
-                )  # (B, T-H // H)
-                loss_dict = {
-                    "loss": loss.sum(dim=-1),
-                    "nll": loss.sum(dim=-1),
-                    "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
-                }
-            else:
-                loss_i = self._compute_loss(
-                    last_hidden_state=last_hidden_state_ds,
-                    targets=targets_ds,
-                    horizon=horizon,
-                )
-                loss_dict["loss"] += reduce_func(loss.sum(dim=-1))
-                # loss_dict["nll"] += loss_dict_i["nll"]
-                # loss_dict["loss_scale"] += loss_dict_i["loss_scale"]
-
-            mem_check("after _compute_loss")
-            # Return means
-            loss_dict["loss"] = loss_dict["loss"] / num_shifts
-            loss_dict["nll"] = loss_dict["nll"] / num_shifts
-            loss_dict["loss_scale"] = loss_dict["loss_scale"] / num_shifts
-
-        return loss_dict
-
-    def forward_v1(
+    def forward(
         self,
         input_ids: torch.Tensor,
         # NOTE: needed for compatibility with Trainer
@@ -739,6 +544,12 @@ class TJD(ABC, torch.nn.Module):
             assert check["test"](), check["msg"]
         # ====
 
+        reduce_fn = {
+            "mean": torch.mean,
+            "sum": torch.sum,
+            "none": lambda x: x,
+        }[reduce]
+
         batch_size, _ = input_ids.size()
         horizon = self._get_horizon(horizon)
 
@@ -760,43 +571,42 @@ class TJD(ABC, torch.nn.Module):
             targets_ds = targets[:, shift::horizon]
 
         if hasattr(self.model_head, "compute_loss"):
-            loss = self.model_head.compute_loss(
+            draft_loss = self.model_head.compute_loss(
                 x=last_hidden_state_ds.reshape(-1, self.n_embd),
                 y=targets_ds.reshape(-1, horizon),
             ).reshape(
                 batch_size, -1
             )  # (B, T-H // H)
         else:
-            loss = self.compute_loss_v2(
+            draft_loss = self._get_draft_loss(
                 last_hidden_state=last_hidden_state_ds,
                 targets=targets_ds,
             )  # (B, T*)
 
         # Train loss
-        # NLL computation requires only each horizon-th element
-        nll = loss if self.use_memory_efficient_loss else loss[:, ::horizon]
-        reduct_fn = {
-            "mean": torch.mean,
-            "sum": torch.sum,
-            "none": lambda x: x,
-        }[reduce]
-        return {
-            "loss": reduct_fn(loss.sum(dim=-1)),
-            "nll": reduct_fn(nll.sum(dim=-1)),
-            "loss_scale": torch.tensor(1 / self.rank).to(loss.device),
-        }
+        loss_tot = draft_loss.sum(-1)
+        if self.loss_mode == "joint":
+            # Joint loss
+            tgt_log_probs = self.tgt_model_head(
+                last_hidden_state[:, :-1]
+            )  # (B, T-1, V)
+            tgt_gt = get_windowed_input_ids(
+                input_ids,
+                horizon=1,
+            ).squeeze(
+                -1
+            )  # (B, T-1)
+            tgt_loss = torch.nn.functional.cross_entropy(
+                tgt_log_probs.view(-1, self.vocab_size),
+                tgt_gt.view(-1),
+                reduction="none",
+            ).reshape(batch_size, -1)
+            loss_tot = loss_tot + self.joint_loss_lambda * tgt_loss.sum(-1)  # (B,)
 
-    def forward(
-        self,
-        input_ids: torch.Tensor,
-        labels: torch.Tensor,
-        attention_mask=None,
-        *args,
-        **kwargs,
-    ):
+        # NLL computation requires only each horizon-th element
+        nll = draft_loss if self.use_memory_efficient_loss else draft_loss[:, ::horizon]
         return {
-            1: self.forward_v1,
-            2: self.forward_v2,
-        }[
-            self.fw_version
-        ](input_ids=input_ids, labels=labels, attention_mask=attention_mask, **kwargs)
+            "loss": reduce_fn(loss_tot),
+            "nll": reduce_fn(nll.sum(dim=-1)),
+            "loss_scale": torch.tensor(1 / self.rank).to(draft_loss.device),
+        }

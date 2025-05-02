@@ -52,6 +52,19 @@ groups:
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cpo --hidden_dim 2048 --horizon 2 --horizon_eval 2 --rank 8 
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cpo --hidden_dim 2048 --horizon 3 --horizon_eval 3 --rank 8 
 
+  - name: gsm8k-speculative-sampling
+    preamble:
+      - "#SBATCH --partition=dev-short-unkillable"
+      - "#SBATCH --gres=gpu:a100l:4"
+      - "#SBATCH --cpus-per-task=12"
+      - "#SBATCH --mem=128G"
+      - "#SBATCH --nodes=1"
+      - "#SBATCH --time=3:00:00"
+
+    paralleljobs:
+      # ours (cp)
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 8 --use_speculative_sampling
+
   # - name: gsm8k-eval
   #   # Run eval for every experiment in the `checkpoints` directory
   #   paralleljobs: find checkpoints -mindepth 1 -maxdepth 1 -type d | sed 's/^/python scripts\/eval_acc.py -c checkpoint /'

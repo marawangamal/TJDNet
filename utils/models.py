@@ -26,7 +26,6 @@ def create_model(
             model_head=model_head,
             auto_model_kwargs={"pretrained_model_name_or_path": model},
             use_memory_efficient_loss=use_memory_efficient_loss,
-            fw_version=2,
             **kwargs,
         ),
     )

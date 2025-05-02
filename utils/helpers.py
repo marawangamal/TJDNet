@@ -71,7 +71,6 @@ def parse_args():
     # Model init args
     # ---------------
 
-    # TODO: rename to `model`
     parser.add_argument(
         "--model",
         type=str,
@@ -119,6 +118,19 @@ def parse_args():
             "pretrained",  # Initialize the model tensor head with pretrained weights
         ],
         help="Initialization method for model head - pretrained or random",
+    )
+    parser.add_argument(
+        "--loss_mode",
+        type=str,
+        default="draft",
+        choices=["joint", "draft"],
+        help="Loss mode for training.",
+    )
+    parser.add_argument(
+        "--joint_loss_lambda",
+        type=float,
+        default=0.2,
+        help="Weight for target model loss in joint loss.",
     )
 
     # Training mode
@@ -254,12 +266,6 @@ def parse_args():
         default=1,
         # GPT2 does not support batch_size > 1
         help="Batch size for computing accuracy. (NOTE: only models that support attention_mask can use batch_size > 1)",
-    )
-    parser.add_argument(
-        "--fw_version",
-        type=int,
-        default=1,
-        help="Version of the forward pass to use. (1 or 2)",
     )
     parser.add_argument(
         "--wandb_id",
@@ -462,6 +468,7 @@ def get_model_and_tokenizer(args):
             pretrained_model_name_or_path=args.model,
             low_cpu_mem_usage=True,
         ),
+        loss_mode=args.loss_mode,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
         use_speculative_sampling=args.use_speculative_sampling,
         # use_attn_layer=(

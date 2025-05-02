@@ -30,7 +30,7 @@ import os.path as osp
 from re import L
 import shutil
 import time
-from typing import Union
+from typing import Literal, Union
 import uuid
 
 import torch
@@ -46,6 +46,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
+from utils.accpetance_rates import compute_acceptance_rate
 from utils.accuracy import compute_accuracy
 from utils.utils import get_experiment_name
 from utils.helpers import (
@@ -73,6 +74,7 @@ class TJDTrainer(Trainer):
         # eos_token: str,
         acc_batch_size: int = 1,
         on_converge_callback_cs=None,
+        metric: Literal["accuracy", "acceptance_rate"] = "accuracy",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -86,6 +88,11 @@ class TJDTrainer(Trainer):
         self.acc_batch_size = acc_batch_size
         self.generate_kwargs = generate_kwargs
         self.on_converge_callback_cs = on_converge_callback_cs
+        self.metric_name = metric
+        self.metric_fn = {
+            "accuracy": compute_accuracy,
+            "acceptance_rate": compute_acceptance_rate,
+        }[metric]
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
@@ -97,7 +104,7 @@ class TJDTrainer(Trainer):
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
         if self.test_dataset:
-            acc, _ = compute_accuracy(
+            acc, _ = self.metric_fn(
                 self.model,
                 tokenizer=self.tokenizer,  # type: ignore
                 test_dataset=self.test_dataset,  # type: ignore
@@ -112,9 +119,9 @@ class TJDTrainer(Trainer):
             if output and output.metrics:
                 output.metrics[f"eval_acc"] = acc
 
-            print("Eval accuracy:", acc)
+            print(f"Eval {self.metric_name}:", acc)
             if abs(acc - 1.0) < 1e-3:
-                print("Accuracy is 1.0, ending training.")
+                print(f"Eval {self.metric_name} is 1.0, ending training.")
                 if (
                     self.on_converge_callback_cs is not None
                     and output
@@ -366,6 +373,7 @@ def main():
         ),
         acc_batch_size=args.acc_batch_size,
         on_converge_callback_cs=on_converge_callback_cs,
+        metric="acceptance_rate" if args.use_speculative_sampling else "accuracy",
     )
 
     if args.eval_only:

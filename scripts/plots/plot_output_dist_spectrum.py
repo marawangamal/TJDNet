@@ -23,7 +23,7 @@ from transformers import (
 import numpy as np
 import matplotlib.pyplot as plt
 
-from utils.utils import group_arr, plot_groups, replace_spec_chars
+from utils.utils import group_arr, plot_conf_bands, plot_groups, replace_spec_chars
 
 """You are a helpful assistant that answers questions step by step. \n  \n Now solve the following problem using the exact format shown above: \n [QUESTION] {question} \n [ANSWER]"""
 
@@ -235,6 +235,61 @@ def plot_spectrum(spectrums, save_path=None):
     return plt.gcf()
 
 
+def prepare_data_from_spectrums(spectrums_list):
+    """
+    Prepare data for plot_conf_bands directly from the spectrums list.
+
+    Parameters:
+    -----------
+    spectrums_list : list
+        List of dictionaries with 'prompt', 'index', and 'spectrum' keys
+
+    Returns:
+    --------
+    tuple: (x_values, y_values_by_group)
+    """
+    import numpy as np
+    from collections import defaultdict
+
+    # Group by prompt
+    data_by_prompt = defaultdict(list)
+    all_indices = set()
+
+    for item in spectrums_list:
+        # Extract the base prompt name (e.g., 'poem' from 'poem::2')
+        base_prompt = item["prompt"].split("::")[0]
+
+        # Add to the appropriate group
+        data_by_prompt[base_prompt].append((item["index"], item["spectrum"]))
+        all_indices.add(item["index"])
+
+    # Sort indices
+    x_values = sorted(all_indices)
+
+    # Prepare y_values_by_group
+    y_values_by_group = {}
+
+    for prompt_name, values in data_by_prompt.items():
+        # Group by sequence (e.g., all values for 'poem::0', then all for 'poem::2', etc.)
+        values_by_seq = defaultdict(list)
+
+        for idx, val in values:
+            # Count occurrences of each index to determine which sequence it belongs to
+            seq_idx = len([i for i, v in values if i == idx]) - 1
+            values_by_seq[seq_idx].append((idx, val))
+
+        # Create list of arrays, one for each sequence
+        y_arrays = []
+
+        for seq_idx in sorted(values_by_seq.keys()):
+            seq_values = sorted(values_by_seq[seq_idx])
+            y_arrays.append([v for _, v in seq_values])
+
+        y_values_by_group[prompt_name] = y_arrays
+
+    return np.array(x_values), y_values_by_group
+
+
 def generate_output_distribution_spectrum(
     model: torch.nn.Module,
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
@@ -409,6 +464,7 @@ def main(args: Namespace):
 
     spectrums = []
     spectrums_dict = {}
+    y_values_by_group = {}
     for i, prompt in enumerate(PROMPTS_WINDOWED):
 
         # ========== Generate output dist and spectrum
@@ -441,6 +497,10 @@ def main(args: Namespace):
             ]
         )
         spectrums_dict[prompt["name"]] = spectrum  # used for legacy plot
+        if not prompt["name"].split("::")[0] in y_values_by_group:
+            # Initialize the list for the first occurrence of the prompt
+            y_values_by_group[prompt["name"].split("::")[0]] = []
+        y_values_by_group[prompt["name"].split("::")[0]].append(spectrum)
 
         print(f"[{prompt['name']}] Plotting spectrum...")
         os.makedirs("results", exist_ok=True)
@@ -453,47 +513,50 @@ def main(args: Namespace):
         )
 
     # ==== Grouped plot
-    grouped = group_arr(
-        spectrums,
-        lambda x: x["prompt"],  # e.g. poem::2, gsm8k::2 -- group by [x] = [y]
-        lambda x: x["prompt"].split("::")[0],  # e.g. poem, gsm8k -- group by [x]
-    )
+    # grouped = group_arr(
+    #     spectrums,
+    #     lambda x: x["prompt"],  # e.g. poem::2, gsm8k::2 -- group by [x] = [y]
+    #     lambda x: x["prompt"].split("::")[0],  # e.g. poem, gsm8k -- group by [x]
+    # )
 
-    plot_groups(
-        grouped,
-        x_key="index",
-        y_key="spectrum",
-        path=osp.join(save_dir, f"output_dist_2d_spectrum.png"),
-        # First level controls color, second controls marker
-        axes_kwargs={
-            "title": f"Spectrum of Matrix P(y1,y2|x)",
-            "xlabel": "Index",
-            "ylabel": "Singular Value (log scale)",
-            "yscale": "log",  # This sets the y-axis to logarithmic scale
-        },
-        fig_kwargs={
-            "figsize": (10, 6),
-            "dpi": 300,
-        },
-        style_dims=[
-            "color",
-            "color",
-            "linestyle",
-        ],
-        style_cycles={
-            "color": [
-                "#0173B2",
-                "#DE8F05",
-                "#029E73",
-                "#D55E00",
-                "#CC78BC",
-                "#CA9161",
-                "#FBAFE4",
-                "#949494",
-            ],
-            "marker": ["o", "s", "D", "X", "^", "v"],
-            "linestyle": ["-", "--", "-.", ":"],
-        },
+    # # Create a plot with confidence bands for the first group level
+    # plot_groups(
+    #     grouped,
+    #     x_key="index",
+    #     y_key="spectrum",
+    #     path=osp.join(save_dir, f"output_dist_2d_spectrum_with_confidence.png"),
+    #     style_dims=["color", "confidence"],  # Add confidence as a style dimension
+    #     style_cycles={
+    #         "color": [
+    #             "#0173B2",
+    #             "#DE8F05",
+    #             "#029E73",
+    #             "#D55E00",
+    #             "#CC78BC",
+    #             "#CA9161",
+    #             "#FBAFE4",
+    #             "#949494",
+    #         ],
+    #         "confidence": [True, False],  # First group will get confidence bands
+    #     },
+    #     axes_kwargs={
+    #         "title": f"Spectrum of Matrix P(y1,y2|x) with Confidence Bands",
+    #         "xlabel": "Index",
+    #         "ylabel": "Singular Value (log scale)",
+    #         "yscale": "log",
+    #     },
+    #     fig_kwargs={
+    #         "figsize": (10, 6),
+    #         "dpi": 300,
+    #     },
+    # )
+
+    # ==== Spectrum plot
+    plot_conf_bands(
+        x_values=np.arange(0, len(next(iter(y_values_by_group.items()))[1][0])),
+        y_values_by_group=y_values_by_group,
+        save_path=osp.join(save_dir, f"output_dist_2d_spectrum.png"),
+        title=f"Spectrums of Joint Distributions P(y1,y2|x)",
     )
 
     # ==== Spectrum plot
