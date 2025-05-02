@@ -468,7 +468,7 @@ def get_model_and_tokenizer(args):
             pretrained_model_name_or_path=args.model,
             low_cpu_mem_usage=True,
         ),
-        loss_mode=args.loss_mode,
+        loss_mode=args.loss_mode if hasattr(args, "loss_mode") else "draft",
         use_memory_efficient_loss=args.use_memory_efficient_loss,
         use_speculative_sampling=args.use_speculative_sampling,
         # use_attn_layer=(

@@ -135,6 +135,55 @@ class TJDTrainer(Trainer):
         return output
 
 
+def setup_dist_class_fsdp_wrapping(model, training_args):
+    """Modify FSDP wrapping to include distribution classes."""
+    import importlib
+    from functools import partial
+
+    # Find all distribution classes in the model
+    dist_classes = set()
+
+    def find_dist_classes_in_model(module):
+        for name, child in module.named_children():
+            if "Dist" in child.__class__.__name__:
+                dist_classes.add(child.__class__)
+                print(f"Found distribution class: {child.__class__.__name__}")
+            find_dist_classes_in_model(child)
+
+    # Find classes in the model
+    find_dist_classes_in_model(model)
+
+    # Only proceed if we found distribution classes and have FSDP
+    if (
+        dist_classes
+        and hasattr(training_args, "_fsdp_plugin")
+        and training_args._fsdp_plugin is not None
+    ):
+        # Get existing auto wrap policy
+        fsdp_plugin = training_args._fsdp_plugin
+        existing_policy = getattr(fsdp_plugin, "auto_wrap_policy", None)
+
+        # Create a combined policy
+        def combined_wrap_policy(module, recurse=True, **kwargs):
+            # Check if module is one of our distribution classes
+            if module.__class__ in dist_classes:
+                return True
+
+            # Otherwise, use the existing policy
+            if callable(existing_policy):
+                return existing_policy(module, recurse=recurse, **kwargs)
+
+            return False
+
+        # Apply the combined policy
+        fsdp_plugin.auto_wrap_policy = combined_wrap_policy
+        print(
+            f"Applied custom FSDP wrapping for {len(dist_classes)} distribution classes"
+        )
+    else:
+        print("No distribution classes found or FSDP not active")
+
+
 # Custom evaluation function
 def compute_metrics(eval_pred):
     # Note: If return type of model forward is a dict, then the `predictions` will be tuple of all vals of keys except loss
@@ -318,7 +367,7 @@ def main():
         # fp16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
-        # optim="adafactor",  # Use Adafactor optimizer
+        optim="adafactor",  # Use Adafactor optimizer
         # torch_empty_cache_steps=1,
         # no_cuda=True,  # Force CPU usage
     )
@@ -349,6 +398,9 @@ def main():
     #     top_k=args.top_k,
     #     disable_wandb=args_raw.disable_wandb,
     # )
+
+    # Add this line here:
+    setup_dist_class_fsdp_wrapping(model, training_args)
 
     # Initialize the trainer
     trainer = TJDTrainer(

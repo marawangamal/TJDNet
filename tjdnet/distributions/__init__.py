@@ -1,3 +1,4 @@
+# tjdnet/distributions/__init__.py
 from typing import Dict, Type
 from tjdnet.distributions._base import BaseDistribution
 from tjdnet.distributions.base import BaseDist

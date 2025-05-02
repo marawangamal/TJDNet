@@ -8,7 +8,7 @@ from argparse import Namespace
 import argparse
 import os
 import os.path as osp
-from typing import Union
+from typing import Callable, Union
 from tqdm import tqdm
 
 import torch
@@ -354,7 +354,7 @@ def generate_output_distribution_spectrum(
 
 
 def generate_output_distribution_spectrum_batched(
-    model: torch.nn.Module,
+    model_fn: Callable[[], torch.nn.Module],
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     start_str: str = "\n",
     checkpoint_steps: int = 5,  # Save progress every n tokens
@@ -379,6 +379,10 @@ def generate_output_distribution_spectrum_batched(
         # Copy the saved matrix into our newly allocated matrix in case sizes match
         p_y1_y2[: saved_mat.shape[0], : saved_mat.shape[1]] = saved_mat
         start_idx = saved_idx
+        # Check if completed
+        if start_idx >= vocab_size:
+            print(f"Checkpoint {checkpoint_path} already completed.")
+            return p_y1_y2
         print(f"Resuming from {checkpoint_path} at token index {start_idx}.")
     else:
         print(f"Starting fresh at token index {start_idx}.")
@@ -386,7 +390,7 @@ def generate_output_distribution_spectrum_batched(
     x = torch.tensor(tokenizer.encode(start_str, return_tensors="pt")).to(
         device
     )  # Shape: (1, seq_len)
-    model.to(device)
+    model_fn().to(device)
 
     # Use 'total' and 'initial' in tqdm, then manually call pbar.update(1)
     with tqdm(
@@ -406,7 +410,7 @@ def generate_output_distribution_spectrum_batched(
                     .reshape(-1, 1)
                     .to(device)
                 )  # Shape: (batch_size, 1)
-                outputs = model(torch.cat([x.repeat(y1.size(0), 1), y1], dim=-1))
+                outputs = model_fn(torch.cat([x.repeat(y1.size(0), 1), y1], dim=-1))
             logits = outputs.logits  # Shape: (batch_size, 2, vocab_size)
             p_y1 = torch.nn.functional.softmax(
                 logits[:, -2], dim=-1
@@ -431,7 +435,7 @@ def generate_output_distribution_spectrum_batched(
 
 
 def main(args: Namespace):
-    model = AutoModelForCausalLM.from_pretrained(
+    model_fn = lambda x: AutoModelForCausalLM.from_pretrained(
         args.model,
         low_cpu_mem_usage=True,
     )
@@ -470,7 +474,7 @@ def main(args: Namespace):
         # ========== Generate output dist and spectrum
         print(f"[{prompt['name']}] Generating output distribution spectrum...")
         output_mat = generate_output_distribution_spectrum_batched(
-            model,
+            model_fn,
             tokenizer,
             start_str=prompt["value"],
             checkpoint_path=osp.join(
@@ -513,49 +517,52 @@ def main(args: Namespace):
         )
 
     # ==== Grouped plot
-    # grouped = group_arr(
-    #     spectrums,
-    #     lambda x: x["prompt"],  # e.g. poem::2, gsm8k::2 -- group by [x] = [y]
-    #     lambda x: x["prompt"].split("::")[0],  # e.g. poem, gsm8k -- group by [x]
-    # )
+    grouped = group_arr(
+        spectrums,
+        lambda x: x["prompt"],  # e.g. poem::2, gsm8k::2 -- group by [x] = [y]
+        lambda x: x["prompt"].split("::")[0],  # e.g. poem, gsm8k -- group by [x]
+    )
 
-    # # Create a plot with confidence bands for the first group level
-    # plot_groups(
-    #     grouped,
-    #     x_key="index",
-    #     y_key="spectrum",
-    #     path=osp.join(save_dir, f"output_dist_2d_spectrum_with_confidence.png"),
-    #     style_dims=["color", "confidence"],  # Add confidence as a style dimension
-    #     style_cycles={
-    #         "color": [
-    #             "#0173B2",
-    #             "#DE8F05",
-    #             "#029E73",
-    #             "#D55E00",
-    #             "#CC78BC",
-    #             "#CA9161",
-    #             "#FBAFE4",
-    #             "#949494",
-    #         ],
-    #         "confidence": [True, False],  # First group will get confidence bands
-    #     },
-    #     axes_kwargs={
-    #         "title": f"Spectrum of Matrix P(y1,y2|x) with Confidence Bands",
-    #         "xlabel": "Index",
-    #         "ylabel": "Singular Value (log scale)",
-    #         "yscale": "log",
-    #     },
-    #     fig_kwargs={
-    #         "figsize": (10, 6),
-    #         "dpi": 300,
-    #     },
-    # )
+    # Create a plot with confidence bands for the first group level
+    plot_groups(
+        grouped,
+        x_key="index",
+        y_key="spectrum",
+        path=osp.join(save_dir, f"output_dist_2d_spectrum.png"),
+        style_dims=[
+            "color",
+            "color",
+            "linestyle",
+        ],
+        style_cycles={
+            "color": [
+                "#0173B2",
+                "#DE8F05",
+                "#029E73",
+                "#D55E00",
+                "#CC78BC",
+                "#CA9161",
+                "#FBAFE4",
+                "#949494",
+            ],
+        },
+        axes_kwargs={
+            "title": f"Spectrum of Matrix P(y1,y2|x)",
+            "xlabel": "Index",
+            "ylabel": "Singular Value (log scale)",
+            "yscale": "log",
+        },
+        fig_kwargs={
+            "figsize": (10, 6),
+            "dpi": 300,
+        },
+    )
 
     # ==== Spectrum plot
     plot_conf_bands(
         x_values=np.arange(0, len(next(iter(y_values_by_group.items()))[1][0])),
         y_values_by_group=y_values_by_group,
-        save_path=osp.join(save_dir, f"output_dist_2d_spectrum.png"),
+        save_path=osp.join(save_dir, f"output_dist_2d_spectrum_confidence.png"),
         title=f"Spectrums of Joint Distributions P(y1,y2|x)",
     )
 

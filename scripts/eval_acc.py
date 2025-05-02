@@ -97,6 +97,14 @@ def parse_args():
         default=0.95,
         help="Top-p value for sampling",
     )
+    # === Early stopping ===
+    parser.add_argument(
+        "-m",
+        "--max_num_samples",
+        type=int,
+        default=None,
+        help="Maximum number of samples to evaluate",
+    )
     args = parser.parse_args()
     return args
 
@@ -114,6 +122,10 @@ def main():
         for c in os.listdir(args.checkpoint)
         if c.startswith("checkpoint")
     ]
+    if len(checkpoints) == 0:
+        print(f"No checkpoints found in {args.checkpoint}.")
+        return
+
     exp_args_dict = json.load(open(os.path.join(args.checkpoint, "args.json")))
 
     # 1. Setup
@@ -161,12 +173,16 @@ def main():
                 top_k=args.top_k,
                 horizon=exp_args.horizon,
             ),
+            max_num_samples=args.max_num_samples,
         )
         results[checkpoint] = metric_avg_meter_kwargs
         print(f"Eval {args.metric}: {metric_ds_val} for checkpoint: {checkpoint}")
 
     save_results_checkpoint(results, results_file)
     print(f"Results saved to {results_file}")
+    # Print best eval metric achieved
+    best_acc = max([r["avg"] for r in results.values()])
+    print(f"Eval {args.metric} (best): {best_acc} for exp: {args.checkpoint}")
 
 
 if __name__ == "__main__":

@@ -40,7 +40,8 @@ def compute_accuracy(
     # horizon: int = 1,
     avg_meter_kwargs={},
     generate_kwargs={},
-    verbose=True,
+    verbose=False,
+    max_num_samples: Optional[int] = None,
     # **kwargs,
 ):
     dataloader = torch.utils.data.DataLoader(
@@ -129,6 +130,10 @@ def compute_accuracy(
                         ]
                     )
                     printv(f"Failures:\n{failures}")
+
+            if max_num_samples and i * batch_size >= max_num_samples:
+                print("Max number of samples reached, stopping evaluation.")
+                break
 
     # Print example
     if len(y_pred) > 0 and len(y_true) > 0:

@@ -150,7 +150,7 @@ huggingface-cli upload mremila/tjdnet datasets/tjdnet --repo-type dataset
 Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
 
-<!-- HASH: 2e1b9e465bb1128a076d5500112fe9da441de5b3 -->
+<!-- HASH: 2e1b9e465bb1128a076d5500112fe9da441de5b3
 | Model                                               | Latency [s]   | Accuracy |  
 |:----------------------------------------------------|:--------------|:---------|
 | llama::base::bs::1                                  | 2.884 ± 0.003 | 0.1290   |
@@ -172,7 +172,7 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
 
 
-<!-- HASH: d679fdd46af3f9becd14178810fead94ee245412 -->
+ HASH: d679fdd46af3f9becd14178810fead94ee245412 
 | Model                                                         | Latency [s]   | GSM8k    |  
 |:--------------------------------------------------------------|:--------------|:---------|
 | llama-3.2-3b-instruct::base-fs::bs::1                         |               | 0.6527   |  # few shot
@@ -196,7 +196,7 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
 
 
-<!-- New with lr=5e-5, epochs=5 -->
+ New with lr=5e-5, epochs=5 
 
 | Model                                                         | Latency [s]   | GSM8k    |  
 |:--------------------------------------------------------------|:--------------|:---------|
@@ -215,7 +215,7 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama-3.2-3b-instruct::cp::rank8::hd8192::horizon3::bs::1     |               |          |  # ours
 
 
-<!-- New with lr=5e-5, epochs=5, umel -->
+ New with lr=5e-5, epochs=5, umel 
 
 | Model                                                    Latency [s]   | GSM8k    |  
 |:--------------------------------------------------------|:--------------|:---------|
@@ -233,4 +233,27 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2      |               | eval*    |  # ours 
 | llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2      |               | 0.260*   |  # ours 
 | llama-3.2-3b-instruct::cp::rank1::hd5120::horizon3      |               | 0.100*   |  # ours 
-| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon3      |               | eval*    |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon3      |               | eval*    |  # ours  -->
+
+
+
+<!-- New with lr=5e-5, epochs=5 -->
+<!-- HASH: c8092fce214595f4401a7fb60f067357fcc83075 -->
+
+| Model                                                    Latency [s]   | GSM8k    |  
+|:--------------------------------------------------------|:--------------|:---------|
+| base-fs                                                 |               | 0.6527   |  # few shot
+| base                                                    |               | 0.4352   |  # retrained last layer
+| --------------------------------------------------------|---------------|----------| 
+| cpo::hd5120::h3::r1                                     |               |          |  
+| cpo::hd5120::h2::r1                                     |               |          |  
+| cpo::hd2048::h3::r8                                     |               |          |
+| cpo::hd2048::h2::r8                                     |               |          |
+| cp::hd8192::h3::r4                                      |               |          |
+| cp::hd8192::h2::r8                                      |               |          |  
+
+<!-- 
+| cp::hd8192::h3::r8                                      |               |  OOM     | 
+| mps::hd5120::h3::r8                                     |               |  OOM     | 
+| mps::hd5120::h2::r8                                     |               |  OOM     | 
+  -->

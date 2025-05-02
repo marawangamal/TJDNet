@@ -4,9 +4,9 @@
 # Different learning rates are used for each head type: lr=1e-3 for cp and lr=1e-4 for umps
 
 # Define the ranks and horizons to search over
-RANKS=(1 2 4 8 16)
-HORIZONS=(2 4 8 16)
-MODEL_HEADS=("umps")
+RANKS=(1 2 4 8 16 32)
+HORIZONS=(2 4 8 16 32)
+MODEL_HEADS=("cp")
 
 # Run all configurations
 for model_head in "${MODEL_HEADS[@]}"; do

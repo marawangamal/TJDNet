@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 import torch
 from tqdm import tqdm
 
@@ -36,6 +36,7 @@ def compute_acceptance_rate(
     log_samples_count=10,
     avg_meter_kwargs={},
     generate_kwargs={},
+    max_num_samples: Optional[int] = None,
     **kwargs,
 ):
 
@@ -84,5 +85,9 @@ def compute_acceptance_rate(
 
             if on_batch_end:
                 on_batch_end({**ar_meter.dump(), "total_samples": total_samples})
+
+            if max_num_samples and i * batch_size >= max_num_samples:
+                print("Max number of samples reached, stopping evaluation.")
+                break
 
     return ar_meter.avg, {**ar_meter.dump(), "total_samples": total_samples}
