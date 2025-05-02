@@ -1,11 +1,17 @@
 from git import Optional
 import torch
 
-from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
+from tjdnet.distributions._base import (
+    BaseDistConfig,
+    BaseDistFromLinearConfig,
+    BaseDistribution,
+)
+from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
 from tjdnet.utils import sample_topk
 
 
+# TODO: maybe we can simplify this with einsum and sparse tensors
 class CPDist(BaseDistribution):
     def __init__(self, config: BaseDistConfig, **kwargs):
         """CP Distribution
@@ -33,6 +39,39 @@ class CPDist(BaseDistribution):
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
 
+    @classmethod
+    def from_linear(
+        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
+    ):
+        """Create a CP distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        n_emb, vocab_size = linear.weight.shape
+        if linear.bias is not None:
+            raise Warning("CPDist: Skiping bias initialization.")
+
+        obj = cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                param_net=config.param_net,
+            ),
+            **kwargs,
+        )
+
+        # Initialize the parameters in obj.tensor_param_net
+        # with the parameters from the linear layer
+        obj.param_func.linear.weight.data = linear.weight.data
+        return obj
+
     def sample(
         self,
         hidden_state: torch.Tensor,
@@ -40,7 +79,7 @@ class CPDist(BaseDistribution):
         do_sample: bool = False,
         top_k: int = 200,
         **kwargs,
-    ) -> torch.Tensor:
+    ):
         horizon = self._get_horizon(horizon)
         batch_size = hidden_state.size(0)
         dvc = hidden_state.device
@@ -48,6 +87,7 @@ class CPDist(BaseDistribution):
         model_head_params = self._get_params(hidden_state[:, -1:, :]).squeeze(
             1
         )  # (B, 1, R, H*, V) => (B, R, H*, V)
+        py_list = []
         for h in range(horizon):
             ops_tensor = torch.cat(
                 (
@@ -61,16 +101,19 @@ class CPDist(BaseDistribution):
                 ),
                 dim=1,
             )  # (B, T)
+            #  (B, R, H*, V) -> (B, V)
             p_ops_tilde, _ = select_margin_cp_tensor_batched(
                 cp_params=model_head_params,
                 ops=ops_tensor,
             )  # (B, V), (B, T)
+            py_list.append(p_ops_tilde)
             if do_sample:
                 next_token = sample_topk(p_ops_tilde, top_k, num_samples=1)
             else:  # greedy sampling
                 next_token = sample_topk(p_ops_tilde, 1, num_samples=1)
             y_hat = torch.cat([y_hat, next_token], dim=1)
-        return y_hat  # (B, H)
+        py = torch.stack(py_list, dim=1)  # (B, H, V)
+        return y_hat, py  # (B, H)
 
     def evaluate_at_points_and_get_norm_consts(
         self,
@@ -118,3 +161,22 @@ class CPDist(BaseDistribution):
             norm_consts.reshape(batch_size, seq_len),
             [s.reshape(batch_size, seq_len) for s in norm_consts_scale_factors],
         )
+
+
+# if __name__ == "__main__":
+#     # Example usage
+#     config = BaseDistConfig(
+#         vocab_size=100,
+#         horizon=10,
+#         rank=5,
+#         param_net=TensorParamNetConfig(
+#             in_dim=768,
+#             hidden_dim=512,
+#             out_dim_encoder=1,
+#             out_dim_decoder=1,
+#             positivity_func="exp",
+#         ),
+#     )
+#     cp_dist = CPDist(config)
+#     # Check if cp_dist has `forward` method
+#     assert hasattr(cp_dist, "compute_loss"), "CPDist should have a compute_loss method"

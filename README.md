@@ -52,25 +52,14 @@ huggingface-cli login
 ```
 
 ### Sanity Check ✅
+
 To verify that your installation and setup are correct train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
 
 ```bash
-python train.py \
-    --dataset stemp \ 
-    --model_type gpt2 \ 
-    --epochs 15 \ 
-    --batch_size 8  \ 
-    --seq_len 128 \ 
-    --lr 1e-4 \ 
-    --model_head cp \ 
-    --hidden_dim 768  \ 
-    --horizon 2 \ 
-    --horizon_eval 2 \ 
-    --rank 2 \ 
-    --compute_acc
+python train.py --compute_acc
 ```
 
-After training for 10 epochs (~10 minutes on a single 40GB GPU), you should observe **100% accuracy** on the stemp dataset and an output like this
+After training for 4 epochs (~5 minutes on a single 40GB GPU), you should observe **100% accuracy** on the stemp dataset and an output like this
 
 ```txt
 What is -8°C in Fahrenheit?
@@ -160,11 +149,13 @@ huggingface-cli upload mremila/tjdnet datasets/tjdnet --repo-type dataset
 ## Results
 Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
+
+<!-- HASH: 2e1b9e465bb1128a076d5500112fe9da441de5b3 -->
 | Model                                               | Latency [s]   | Accuracy |  
 |:----------------------------------------------------|:--------------|:---------|
 | llama::base::bs::1                                  | 2.884 ± 0.003 | 0.1290   |
-| llama::cp::rank8::hd1024::horizon2::bs::1           |               | incomp.  |
-| llama::cp::rank8::hd1280::horizon2::bs::1           |               | incomp.  |
+| llama::cp::rank1::hd5120::horizon2::bs::1           |               | train*   | (to compare with fb paper)
+| llama::cp::rank1::hd5120::horizon3::bs::1           |               | train*   | (to compare with fb paper)
 | llama::cp::rank8::hd2048::horizon2::bs::1           |               | 0.0902   |
 | llama::cp::rank8::hd4096::horizon2::bs::1           |               | 0.0842   |
 | llama::cp::rank8::hd5120::horizon2::bs::1           | 1.520 ± 0.001 | 0.0925   |
@@ -174,7 +165,72 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | llama::cp::rank8::hd5192::horizon3::bs::1           |               | 0.050    | 
 | llama::cp::rank8::hd5192::horizon4::bs::1           |               | 0.028    |
 | llama::cp::rank8::hd5192::horizon2::bs::1::umel     |               | 0.055    |  
-| llama::mps::rank2::hd5192::horizon2::bs::1          |               | train*   |  
+| llama::mps::rank2::hd5192::horizon2::bs::1          |               | eval*    | wifd66589a
 | llama::mps::rank4::hd5192::horizon2::bs::1          |               | train*   |  
+| llama::cpo::rank8::hd2048::horizon2::bs::1          |               | train*   |  (to compare with oslo paper)
+| llama::cpo::rank8::hd2048::horizon3::bs::1          |               | eval*    |  wi51b58f77 (to compare with oslo paper)
 
 
+
+<!-- HASH: d679fdd46af3f9becd14178810fead94ee245412 -->
+| Model                                                         | Latency [s]   | GSM8k    |  
+|:--------------------------------------------------------------|:--------------|:---------|
+| llama-3.2-3b-instruct::base-fs::bs::1                         |               | 0.6527   |  # few shot
+| llama-3.2-3b-instruct::base-ft::bs::1                         |               | 0.4230   |  # retrained last layer
+| --------------------------------------------------------------|---------------|----------| 
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2::bs::1    |               | 0.2714*  |  # fb wi9df9b1c7
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2::bs::1    |               |          |  # fb lr=5e-5
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon3::bs::1    |               |          |  # fb
+| llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon2::bs::1    |               | train*   |  # oslo
+| llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon3::bs::1    |               |          |  # oslo
+| llama-3.2-3b-instruct::umps::rank8::hd5120::horizon3::bs::1   |               |          |  # ours
+| llama-3.2-3b-instruct::umps::rank8::hd5120::horizon3::bs::1   |               |          |  # ours
+| llama-3.2-3b-instruct::mps::rank8::hd5120::horizon2::bs::1    |               |          |  # ours
+| llama-3.2-3b-instruct::mps::rank8::hd5120::horizon3::bs::1    |               |          |  # ours
+| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2::bs::1     |               | 0.2752*  |  # ours
+| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2::bs::1     |               | 0.314*   |  # ours lr=1e-4
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2::bs::1     |               | eval*    |  # ours wi6eae9a97
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2::bs::1     |               | train*   |  # ours lr=5e-5
+| llama-3.2-3b-instruct::cp::rank8::hd10240::horizon2::bs::1    |               | train*   |  # ours
+| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon3::bs::1     |               | train*   |  # ours
+
+
+
+<!-- New with lr=5e-5, epochs=5 -->
+
+| Model                                                         | Latency [s]   | GSM8k    |  
+|:--------------------------------------------------------------|:--------------|:---------|
+| llama-3.2-3b-instruct::base-fs::bs::1                         |               | 0.6527   |  # few shot
+| llama-3.2-3b-instruct::base-ft::bs::1                         |               | 0.4352  |  # wic185147d
+| --------------------------------------------------------------|---------------|----------| 
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2::bs::1    |               | 0.228    |  # fb wi9ce48df7
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon3::bs::1    |               |          |  # fb
+| llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon2::bs::1    |               |          |  # oslo
+| llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon3::bs::1    |               |          |  # oslo
+| llama-3.2-3b-instruct::umps::rank8::hd5120::horizon2::bs::1   |               | eval*    |  # ours wi7743d2c3
+| llama-3.2-3b-instruct::umps::rank8::hd5120::horizon3::bs::1   |               |          |  # ours
+| llama-3.2-3b-instruct::mps::rank8::hd5120::horizon2::bs::1    |               |          |  # ours
+| llama-3.2-3b-instruct::mps::rank8::hd5120::horizon3::bs::1    |               |          |  # ours
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2::bs::1     |               | 0.2835   |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon3::bs::1     |               |          |  # ours
+
+
+<!-- New with lr=5e-5, epochs=5, umel -->
+
+| Model                                                    Latency [s]   | GSM8k    |  
+|:--------------------------------------------------------|:--------------|:---------|
+| llama-3.2-3b-instruct::base-fs::bs::1                   |               | 0.6527   |  # few shot
+| llama-3.2-3b-instruct::base-ft::bs::1                   |               | 0.4352   |  # retrained last layer
+| --------------------------------------------------------|---------------|----------| 
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon2     |               | eval*    |  # fb
+| llama-3.2-3b-instruct::cpo::rank1::hd5120::horizon3     |               | eval*    |  # fb
+| llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon2     |               |          |  # oslo
+| llama-3.2-3b-instruct::cpo::rank8::hd2048::horizon3     |               |          |  # oslo
+| llama-3.2-3b-instruct::umps::rank8::hd5120::horizon2    |               |          |  # ours 
+| llama-3.2-3b-instruct::umps::rank8::hd5120::horizon3    |               |          |  # ours
+| llama-3.2-3b-instruct::mps::rank8::hd5120::horizon2     |               |          |  # ours
+| llama-3.2-3b-instruct::mps::rank8::hd5120::horizon3     |               |          |  # ours
+| llama-3.2-3b-instruct::cp::rank8::hd5120::horizon2      |               | eval*    |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon2      |               | 0.260*   |  # ours 
+| llama-3.2-3b-instruct::cp::rank1::hd5120::horizon3      |               | 0.100*   |  # ours 
+| llama-3.2-3b-instruct::cp::rank8::hd8192::horizon3      |               | eval*    |  # ours 

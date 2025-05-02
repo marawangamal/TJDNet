@@ -1,38 +1,29 @@
+from __future__ import annotations  # only needed on 3.10 and below
+
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Type, TypeVar
 
 import torch
 
 from tjdnet.distributions.tpnet import TensorParamNet, TensorParamNetConfig
 
+T = TypeVar("T", bound="BaseDistribution")  # ① one line
+
+
+@dataclass
+class BaseDistFromLinearConfig:
+    horizon: int
+    rank: int
+    param_net: TensorParamNetConfig
+
 
 @dataclass
 class BaseDistConfig:
-    """Configuration for base distribution models.
-
-    This class defines the core parameters shared across different tensor network
-    distribution implementations (CP, MPS, etc.).
-
-    Attributes:
-        # Core Distribution Parameters
-        vocab_size (int): Size of the vocabulary for token generation.
-        vocab_size_compr (int): Compressed vocabulary size.
-        horizon (int): Number of future tokens to predict.
-        rank (int): Rank of the tensor decomposition.
-            - Higher rank allows modeling more complex token dependencies
-            - But increases computation and memory requirements
-
-        # Network Architecture
-        param_net (TensorParamNetConfig): Configuration for the parameter network
-            that transforms embeddings into distribution parameters.
-    """
-
     vocab_size: int
     horizon: int
     rank: int
     param_net: TensorParamNetConfig
-    vocab_size_compr: int = 4096
 
 
 class BaseDistribution(ABC, torch.nn.Module):
@@ -40,7 +31,6 @@ class BaseDistribution(ABC, torch.nn.Module):
         """Abstract base class for distributions compatible with TJDGPT2."""
         super().__init__()
         self.vocab_size = config.vocab_size
-        self.vocab_size_compr = config.vocab_size_compr
         self.horizon = config.horizon
         self.rank = config.rank
         self.cache = {}
@@ -85,7 +75,7 @@ class BaseDistribution(ABC, torch.nn.Module):
         do_sample: bool,
         top_k: int,
         **kwargs,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Sample from the distribution.
 
         Args:
@@ -93,7 +83,9 @@ class BaseDistribution(ABC, torch.nn.Module):
             horizon (int): Number of future tokens to predict.
 
         Returns:
-            torch.Tensor: Sampled tokens of shape (B, H).
+            tuple:
+                - torch.Tensor: Sampled tokens of shape (B, H).
+                - torch.Tensor: Probs of shape (B, H, V).
         """
         pass
 
@@ -106,6 +98,8 @@ class BaseDistribution(ABC, torch.nn.Module):
     ) -> Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
         """Evaluate the distribution at the given points and get normalization constants.
 
+        Computes p'(y) and z(y) for the given points y.
+
         Args:
             last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
             points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H).
@@ -116,5 +110,20 @@ class BaseDistribution(ABC, torch.nn.Module):
                 - Scale tensors (empty list).
                 - Normalization constants of shape (B, T).
                 - Scale tensors for normalization constants (empty list).
+        """
+        pass
+
+    @classmethod  # <-- important
+    @abstractmethod  # <-- keep it abstract
+    def from_linear(
+        cls: Type[T], linear: torch.nn.Linear, config: BaseDistFromLinearConfig
+    ) -> T:
+        """Initialize the distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to initialize the distribution.
+
+        Returns:
+            T: An instance of the distribution class.
         """
         pass

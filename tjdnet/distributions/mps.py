@@ -1,7 +1,12 @@
 from typing import Optional
 import torch
 
-from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
+from tjdnet.distributions._base import (
+    BaseDistConfig,
+    BaseDistFromLinearConfig,
+    BaseDistribution,
+)
+from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.tensorops.mps import select_margin_mps_tensor_batched
 from tjdnet.utils import sample_topk
 
@@ -65,6 +70,34 @@ class MPSDist(BaseDistribution):
             beta,
         )
 
+    @classmethod
+    def from_linear(
+        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
+    ):
+        """Create an MPS distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        n_emb, vocab_size = linear.weight.shape
+        if linear.bias is not None:
+            raise Warning("CPDist: Skiping bias initialization.")
+
+        return cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                param_net=config.param_net,
+            ),
+            **kwargs,
+        )
+
     def sample(
         self,
         hidden_state: torch.Tensor,
@@ -72,7 +105,7 @@ class MPSDist(BaseDistribution):
         do_sample: bool = False,
         top_k: int = 200,
         **kwargs,
-    ) -> torch.Tensor:
+    ):
         horizon = self._get_horizon(horizon)
         batch_size = hidden_state.size(0)
         dvc = hidden_state.device
@@ -80,7 +113,7 @@ class MPSDist(BaseDistribution):
         alpha, core, beta = self.get_mps_params(
             hidden_state[:, -1:, :],
         )  # (B, 1, R), (B, 1, H, R, V, R), (B, 1, R)
-
+        py_list = []
         for h in range(horizon):
             ops_tensor = torch.cat(
                 (
@@ -100,12 +133,14 @@ class MPSDist(BaseDistribution):
                 core=core.squeeze(1)[:horizon],
                 ops=ops_tensor,
             )  # (V,), (T,)
+            py_list.append(p_ops_tilde)
             if do_sample:
                 next_token = sample_topk(p_ops_tilde, top_k, num_samples=1)
             else:  # greedy sampling
                 next_token = sample_topk(p_ops_tilde, 1, num_samples=1)
             y_hat = torch.cat([y_hat, next_token], dim=1)
-        return y_hat  # (B, H)
+        py = torch.stack(py_list, dim=1)  # (B, H, V)
+        return y_hat, py  # (B, H)
 
     def evaluate_at_points_and_get_norm_consts(
         self,

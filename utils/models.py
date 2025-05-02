@@ -2,32 +2,30 @@ import torch
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models._tjd import TJD, TJDConfig
-from tjdnet.models.tjdgpt2 import TJDGPT2
-from tjdnet.models.tjdllama import TJDLLAMA
+from tjdnet.models.tjdhf import TJDHuggingFace
+from tjdnet.utils import mem_check
 
 
-def create_model_llama_fn(
+def create_model(
     rank,
     horizon,
+    hidden_dim,
+    use_memory_efficient_loss=False,
+    model="meta-llama/Llama-2-7b-chat-hf",
     model_head="cp",
-    model_kwargs={"hf_model_name": "meta-llama/Llama-2-7b-chat-hf"},
-    vocab_size=32000,
-    param_net_config={
-        "hidden_dim": 32000,
-        "use_decoder": True,
-    },
     **kwargs,
 ):
-    return lambda: TJDLLAMA(
+    return lambda: TJDHuggingFace(
         TJDConfig(
             base_dist=BaseDistConfig(
-                vocab_size=vocab_size,
+                vocab_size=-1,  # will be set by tjd
                 horizon=horizon,
                 rank=rank,
-                param_net=TensorParamNetConfig(**param_net_config),
+                param_net=TensorParamNetConfig(hidden_dim=hidden_dim),
             ),
             model_head=model_head,
-            model_kwargs=model_kwargs,
+            auto_model_kwargs={"pretrained_model_name_or_path": model},
+            use_memory_efficient_loss=use_memory_efficient_loss,
             **kwargs,
         ),
     )
@@ -36,23 +34,21 @@ def create_model_llama_fn(
 def create_model_gpt_fn(
     rank,
     horizon,
+    hidden_dim,
     model_head="cp",
-    vocab_size=768,
-    param_net_config={
-        "hidden_dim": 768,  # should be vocab_size for base
-        "use_decoder": True,
-    },
+    auto_model_kwargs={"pretrained_model_name_or_path": "gpt2"},
     **kwargs,
 ):
-    return lambda: TJDGPT2(
+    return lambda: TJDHuggingFace(
         TJDConfig(
             base_dist=BaseDistConfig(
-                vocab_size=vocab_size,
+                vocab_size=-1,  # will be set by tjd
                 rank=rank,
                 horizon=horizon,
-                param_net=TensorParamNetConfig(**param_net_config),
+                param_net=TensorParamNetConfig(hidden_dim=hidden_dim),
             ),
             model_head=model_head,
+            auto_model_kwargs=auto_model_kwargs,
             **kwargs,
         )
     )
@@ -64,8 +60,12 @@ def train_forward(
 ):
     """Forward pass for training mode."""
     # Forward pass
+    mem_check("before model.forward")
     outputs = model.forward(input_ids, labels=input_ids)
+    mem_check("after model.forward")
     loss = outputs["loss"]
-    # backward pass
+
+    mem_check("before loss.backward")
     loss.backward()
+    mem_check("after loss.backward")
     return loss

@@ -6,20 +6,29 @@ Usage:
     python scripts/eval_latency.py --device [device] --model_family [model_family] --out_seq_len [out_seq_len] --inp_seq_len [inp_seq_len]
 
 Example:
-    python scripts/eval_latency.py --device cuda --model_family llama --inp_seq_len 8   --out_seq_len 32
-    python scripts/eval_latency.py --device cuda --model_family gpt2  --inp_seq_len 256 --out_seq_len 128
+    python scripts/eval_latency.py --device cuda --model meta-llama/Llama-3.2-3B-Instruct --inp_seq_len 8 --out_seq_len 32
+    python scripts/eval_latency.py --device cuda --model meta-llama/Llama-3.2-3B-Instruct --inp_seq_len 8 --out_seq_len 32 --exp grid
+    python scripts/eval_latency.py --device cuda --model gpt2  --inp_seq_len 8 --out_seq_len 64
+    python scripts/eval_latency.py --device cuda --model gpt2  --inp_seq_len 8 --out_seq_len 64 --exp grid
 
 """
 
 import gc
 import argparse
+import itertools
 import traceback
 
 import torch
 import pandas as pd
 
 from utils.latency import benchmark_model_v2
-from utils.models import create_model_gpt_fn, create_model_llama_fn, train_forward
+from utils.models import create_model, train_forward
+from utils.utils import replace_spec_chars
+
+MODEL_HIDDEN_DIMS = {
+    "meta-llama/Llama-3.2-3B-Instruct": 4096,
+    "gpt2": 768,
+}
 
 
 class DataParallelWithGenerate(torch.nn.DataParallel):
@@ -89,11 +98,9 @@ def log_results(results, output_format="markdown", cols=None):
     return result
 
 
-def get_model_head_param_count(model):
+def get_params(model):
     # Get the number of parameters in the model head
-    param_count = sum(
-        p.numel() for p in model.model_head.parameters() if p.requires_grad
-    )
+    param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return param_count / 1e6  # Convert to millions
 
 
@@ -114,83 +121,17 @@ def main(args):
         "train": {"benchmark_fn": train_forward},
     }[args.mode]
 
-    # GPT-2
-    gpt_experiments = (
-        [
-            {
-                "name": "gpt2::base",
-                "model_fn": create_model_gpt_fn(1, 1, model_head="base"),
-                **common_kwargs,
-            }
-        ]
-        + [
-            {
-                "name": f"gpt2::cp::horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="cp",
-                ),
-                **common_kwargs,
-            }
-            for (r, h) in zip([8, 8], [2, 3])
-        ]
-        # TMTP
-        + [
-            {
-                "name": f"gpt2::cpo::horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="cpo",
-                ),
-                **common_kwargs,
-            }
-            for (r, h) in zip([8, 8], [2, 3])
-        ]
-        # MTP
-        + [
-            {
-                "name": f"gpt2::cpo::horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="cpo",
-                ),
-                **common_kwargs,
-            }
-            for (r, h) in zip([1], [2])
-        ]
-        + [
-            {
-                "name": f"gpt2::mps::horizon{h}::rank{r}",
-                "model_fn": create_model_gpt_fn(
-                    rank=r,
-                    horizon=h,
-                    model_head="mps",
-                    param_net_config={"hidden_dim": 768, "use_decoder": True},
-                ),
-                **common_kwargs,
-            }
-            for (r, h) in zip([2, 4], [2, 2])
-        ]
-    )
-
-    # LLaMA
-    llama_experiments = (
+    exp_compare = (
         []
         # Baseline
         + [
             {
-                "name": "llama::base",
-                "model_fn": create_model_llama_fn(
-                    1,
-                    1,
-                    model_head="base",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                        "use_decoder": True,
-                    },
+                "name": f"{replace_spec_chars(args.model)}::baseline",
+                "model_fn": create_model(
+                    rank=1,
+                    horizon=1,
+                    model_head="cp",
+                    hidden_dim=5120,
                 ),
                 **common_kwargs,
             }
@@ -198,74 +139,94 @@ def main(args):
         # CP
         + [
             {
-                "name": f"llama::cp::rank{r}::horizon{h}",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::cp::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
                     rank=r,
                     horizon=h,
                     model_head="cp",
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([8, 8], [2, 3])
+            for (r, h, hd) in zip([8, 8], [2, 3], [5120, 5120])
         ]
         # TMTP
         + [
             {
-                "name": f"llama::cpo::rank{r}::horizon{h}",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::cpo::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
                     rank=r,
                     horizon=h,
                     model_head="cpo",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                        "use_decoder": True,
-                    },
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([32, 32], [2, 3])
+            for (r, h, hd) in zip([8, 8], [2, 3], [2048, 2048])
         ]
         # MTP
         + [
             {
-                "name": f"llama::cpo::rank{r}::horizon{h}",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::cpo::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
                     rank=r,
                     horizon=h,
                     model_head="cpo",
-                    param_net_config={
-                        "hidden_dim": 5120,
-                        "use_decoder": True,
-                    },
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([1, 1], [2, 3])
+            for (r, h, hd) in zip([1, 1], [2, 3], [5120, 5120])
         ]
         # MPS
         + [
             {
-                "name": f"llama::mps::rank{r}::horizon{h}",
-                "model_fn": create_model_llama_fn(
+                "name": f"{replace_spec_chars(args.model)}::mps::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
                     rank=r,
                     horizon=h,
                     model_head="mps",
-                    param_net_config={
-                        "hidden_dim": 2048,
-                        "use_decoder": True,
-                    },
+                    hidden_dim=hd,
                 ),
                 **common_kwargs,
             }
-            for (r, h) in zip([2, 2], [2, 3])
+            for (r, h, hd) in zip([2, 2], [2, 3], [2048, 2048])
+        ]  # uMPS
+        + [
+            {
+                "name": f"{replace_spec_chars(args.model)}::mps::rank{r}::horizon{h}::hd{hd}",
+                "model_fn": create_model(
+                    rank=r,
+                    horizon=h,
+                    model_head="umps",
+                    hidden_dim=hd,
+                ),
+                **common_kwargs,
+            }
+            for (r, h, hd) in zip([2, 2], [2, 3, 4], [5120, 5120])
         ]
     )
 
-    # Run benchmarks
-    exps = {
-        "llama": llama_experiments,
-        "gpt2": gpt_experiments,
-    }[args.model_family]
+    exp_grid = [
+        {
+            "name": f"{replace_spec_chars(args.model)}::{args.exp_grid_model_head}::rank{r}::horizon{h}::hd{hd}",
+            "model_fn": create_model(
+                rank=r,
+                horizon=h,
+                model_head=args.exp_grid_model_head,
+                hidden_dim=hd,
+                use_memory_efficient_loss=args.use_memory_efficient_loss,
+            ),
+            **common_kwargs,
+        }
+        for (r, h, hd) in itertools.product(
+            [1, 2, 4, 8, 16],
+            [2, 4, 8, 16, 32],
+            [MODEL_HIDDEN_DIMS.get(args.exp_grid_model_head, 768)],
+        )
+    ]
+
+    exps = {"compare": exp_compare, "grid": exp_grid}[args.exp]
 
     print(f"Starting benchmarks ({args.device})...")
     results = {}
@@ -297,7 +258,7 @@ def main(args):
                 # Save results
                 results[exp_name] = benchmark_results
                 results[exp_name]["Accuracy"] = {"mean": 0, "std": 0}
-                results[exp_name]["Params [M]"] = get_model_head_param_count(model)
+                results[exp_name]["Params [M]"] = get_params(model)
 
                 # Clean up
                 del model
@@ -332,16 +293,42 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-m",
-        "--model_family",
+        "--model",
         type=str,
-        choices=["gpt2", "llama"],
         default="gpt2",
+        help="Huggingface model name or path",
     )
     parser.add_argument(
         "--mode",
         type=str,
         choices=["train", "eval"],
         default="eval",
+    )
+    parser.add_argument(
+        "--exp",
+        type=str,
+        choices=["compare", "grid"],
+        default="compare",
+        help="Experiment to run",
+    )
+    parser.add_argument(
+        "--exp_grid_model_head",
+        type=str,
+        choices=["cp", "cpo", "mps", "umps"],
+        default="cp",
+        help="Model head to use for the grid search",
+    )
+    parser.add_argument(
+        "--exp_grid_hidden_dim",
+        type=int,
+        default=768,
+        help="Hidden dimension to use for the grid search",
+    )
+    parser.add_argument(
+        "--use_memory_efficient_loss",
+        action="store_true",
+        default=False,
+        help="Use memory efficient loss",
     )
     parser.add_argument(
         "-b",

@@ -15,7 +15,7 @@ References:
     - HuggingFace multi-GPU training: https://huggingface.co/docs/transformers/en/perf_train_gpu_many
 """
 
-# python train.py --model_type llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
+# python train.py --model llama --model_head base --horizon 1 --horizon_eval 1 --dataset sharegpt --freeze_base_model --batch_size 2 --seq_len 32
 
 import os
 import os.path as osp
@@ -48,7 +48,7 @@ from utils.utils import get_experiment_name
 def main():
 
     args = parse_args()
-    set_seed(args.seed)
+    set_seed(42)
 
     exp_name = get_experiment_name(vars(args))
     ckpt_dir = osp.join("checkpoints", exp_name)

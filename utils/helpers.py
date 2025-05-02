@@ -8,19 +8,11 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer
 
-from dataloaders.gsm8k import ChatTemplateGSM8k, ChatTemplateGSM8kFewShot
-from dataloaders.shakespeare import ChatTemplateShakespeare
-from dataloaders.sharegpt import ChatTemplateShareGPT
-from dataloaders.syn_number_bases import ChatTemplateSynNumBase
-from dataloaders.syn_numbers import ChatTemplateSynNum
-from dataloaders.syn_temp import ChatTemplateSynTemp
+from dataloaders import CHAT_TEMPLATES
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models._tjd import DIST_MAP, TJDConfig
-from tjdnet.models.gpt2 import GPT2
-from tjdnet.models.llama import LLAMA
-from tjdnet.models.tjdgpt2 import TJDGPT2
-from tjdnet.models.tjdllama import TJDLLAMA
+from tjdnet.models._tjd import TJD_DISTS, TJDConfig
+from tjdnet.models.tjdhf import TJDHuggingFace
 
 
 import uuid
@@ -45,12 +37,12 @@ def parse_args():
     # ------------------
 
     parser.add_argument(
-        "--epochs", type=int, default=10, help="Number of training epochs."
+        "--epochs", type=int, default=4, help="Number of training epochs."
     )
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=8,
+        default=64,
         help="Batch size for training and evaluation.",
     )
     parser.add_argument(
@@ -60,7 +52,7 @@ def parse_args():
         help="Block size for model input sequences.",
     )
     parser.add_argument(
-        "--lr", type=float, default=1e-4, help="Learning rate for training."
+        "--lr", type=float, default=1e-3, help="Learning rate for training."
     )
     parser.add_argument(
         "--warmup_steps",
@@ -76,52 +68,38 @@ def parse_args():
     )
 
     # ---------------
-    # Model arguments
+    # Model init args
     # ---------------
 
     parser.add_argument(
-        "--model_type",
+        "--model",
         type=str,
         default="gpt2",
-        help="Type of base model to use",
-        choices=[
-            "gpt2",
-            "llama7b",
-            "llama13b",
-            "llama70b",
-            "gpt2r",
-            "llamar",
-            "llama3-8b-i",
-            "llama3-8b",
-        ],
+        help="Huggingface model id.",
     )
     parser.add_argument(
         "--model_head",
         type=str,
-        default="mps",
+        default="cp",
         help="Type of factorization to use for the model.",
-        choices=DIST_MAP.keys(),
+        choices=TJD_DISTS.keys(),
     )
     parser.add_argument(
         "--hidden_dim",
         type=int,
-        default=256,
+        default=128,
         help="Hidden size of model head.",
-    )
-
-    parser.add_argument(
-        "--num_layers", type=int, default=1, help="Number of layers in the model head."
     )
     parser.add_argument(
         "--rank",
         type=int,
-        default=1,
+        default=2,
         help="Rank of the tensor train decomposition.",
     )
     parser.add_argument(
         "--horizon",
         type=int,
-        default=1,
+        default=2,
         help="Horizon for TJD models. (E.g. if horizon=2 the model will make 2x less forward passes)",
     )
     parser.add_argument(
@@ -141,6 +119,19 @@ def parse_args():
         ],
         help="Initialization method for model head - pretrained or random",
     )
+    parser.add_argument(
+        "--loss_mode",
+        type=str,
+        default="draft",
+        choices=["joint", "draft"],
+        help="Loss mode for training.",
+    )
+    parser.add_argument(
+        "--joint_loss_lambda",
+        type=float,
+        default=0.2,
+        help="Weight for target model loss in joint loss.",
+    )
 
     # Training mode
     parser.add_argument(
@@ -159,6 +150,7 @@ def parse_args():
         default=32,
         help="Rank of the tensor train decomposition for LORA training.",
     )
+
     parser.add_argument(
         "--use_memory_efficient_loss",
         default=False,
@@ -169,7 +161,7 @@ def parse_args():
     parser.add_argument(
         "--horizon_eval",
         type=int,
-        default=1,
+        default=2,
         help="Horizon for TJD models during evaluation. (Note: horizon_eval cannot be greater than horizon for some TJD dists)",
     )
     parser.add_argument(
@@ -185,19 +177,17 @@ def parse_args():
         help="Retain only the top_k most likely tokens, clamp others to have 0 probability",
     )
     parser.add_argument(
-        "--num_beams",
-        type=int,
-        default=1,
-        help="Number of beams to use during evaluation.",
+        "--use_speculative_sampling",
+        action="store_true",
+        default=False,
+        help="Whether to use speculative sampling.",
     )
-    parser.add_argument(
-        "--gen_version", type=int, default=3, help="Generation method version"
-    )
+
     # Data Arguments
     parser.add_argument(
         "--dataset",
         type=str,
-        default="gsm8k",
+        default="stemp",
         help="Type of dataset to use for training.",
         choices=[
             "shakespeare",
@@ -208,18 +198,6 @@ def parse_args():
             "snum",
             "sbase",
         ],
-    )
-    # Tokenizer arguments
-    parser.add_argument(
-        "--tokenizer_type",
-        type=str,
-        default="word",
-        help="Type of tokenizer to use for processing text.",
-        choices=["char", "word"],
-    )
-    # Misc arguments
-    parser.add_argument(
-        "--seed", type=int, default=42, help="Random seed for reproducibility"
     )
 
     # ------------------
@@ -268,7 +246,7 @@ def parse_args():
     parser.add_argument(
         "--max_num_samples",
         type=int,
-        default=68000,
+        default=10000,
         help="Maximum number of samples to load from the dataset.",
     )
 
@@ -294,6 +272,23 @@ def parse_args():
         type=str,
         default=None,
         help="Wandb ID for resuming runs",
+    )
+
+    # ---
+    # EXCLUDED FROM EXP NAME
+    # ---
+
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default=None,
+        help="Directory to cache the model.",
+    )
+    parser.add_argument(
+        "--disable_wandb",
+        action="store_true",
+        help="Whether to disable wandb logging.",
+        default=False,
     )
 
     args = parser.parse_args()
@@ -350,7 +345,7 @@ def validate_args(args):
         {
             "message": "Model does not support batch_size > 1",
             "condition": lambda: not (
-                args.model_type in ["gpt2"] and args.acc_batch_size > 1
+                args.model in ["gpt2"] and args.acc_batch_size > 1
             ),
         }
     ]
@@ -367,7 +362,6 @@ def get_test_samples(
     max_new_tokens=128,
     top_k=50,
     do_sample=True,
-    num_beams=1,
     num_samples=1,
     print_output=False,
     horizon=1,
@@ -385,7 +379,6 @@ def get_test_samples(
             do_sample=do_sample,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
-            num_beams=num_beams,
             horizon=horizon,
             early_stopping=True,  # For hf models this causes stopping when end token is reached (gpt2r)
             stop_token=tokenizer.eos_token_id,  # For tjd models this causes stopping when end token is reached
@@ -430,24 +423,30 @@ def load_args(ckpt_dir):
     return args
 
 
-def get_model_and_tokenizer(args):
-    hf_model_name = {
-        "llama7b": "meta-llama/Llama-2-7b-chat-hf",
-        "llama13b": "meta-llama/Llama-2-13b-chat-hf",
-        "llama70b": "meta-llama/Llama-2-70b-chat-hf",
-        "gpt2": "gpt2",
-        "llama3-8b-i": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "llama3-8b": "meta-llama/Meta-Llama-3.1-8B",
-    }[args.model_type]
+def get_auto_tokenizer(model_name):
+    """Get the tokenizer for a given model name."""
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+    except Exception as e:
+        print(f"Error loading tokenizer for {model_name}: {e}")
+        raise
 
-    if args.tokenizer_type == "word":
-        tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
-        # Note: cant simply add pad token -- unless we retrain a model embedding layer
-        tokenizer.pad_token = "$"
-        tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
-        tokenizer.padding_side = "left"
-    else:
-        raise NotImplementedError("CharTokenizer removed for now.")
+    # Set padding token
+    tokenizer.pad_token = "$"
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+    tokenizer.padding_side = "left"
+
+    return tokenizer
+
+
+def get_model_and_tokenizer(args):
+
+    # tokenizer = AutoTokenizer.from_pretrained(args.model)
+    # # Note: cant simply add pad token -- unless we retrain a model embedding layer
+    # tokenizer.pad_token = "$"
+    # tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+    # tokenizer.padding_side = "left"
+    tokenizer = get_auto_tokenizer(args.model)
 
     model_config = TJDConfig(
         base_dist=BaseDistConfig(
@@ -463,52 +462,23 @@ def get_model_and_tokenizer(args):
         init_method=args.init_method,
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
+        auto_model_kwargs=dict(
+            # NOTE: this will save hf models to `HF_CACHE_DIR` instead of `~/.cache/huggingface`
+            # cache_dir=HF_CACHE_DIR,
+            pretrained_model_name_or_path=args.model,
+            low_cpu_mem_usage=True,
+        ),
+        loss_mode=args.loss_mode,
         use_memory_efficient_loss=args.use_memory_efficient_loss,
-        use_attn_layer=(
-            args.use_attn_layer if hasattr(args, "use_attn_layer") else False
-        ),  # Backward compatibility
-        model_kwargs={"hf_model_name": hf_model_name},
-        # TODO: remove gen_version
-        gen_version=(
-            args.gen_version if hasattr(args, "gen_version") else 2
-        ),  # Backward compatibility
+        use_speculative_sampling=args.use_speculative_sampling,
+        # use_attn_layer=(
+        #     args.use_attn_layer if hasattr(args, "use_attn_layer") else False
+        # ),  # Backward compatibility
+        # gen_version=(
+        #     args.gen_version if hasattr(args, "gen_version") else 2
+        # ),  # Backward compatibility
+        # fw_version=args.fw_version if hasattr(args, "fw_version") else 1,
     )
-
-    model = {
-        "llama7b": TJDLLAMA,
-        "llama13b": TJDLLAMA,
-        "llama70b": TJDLLAMA,
-        "llama3-8b-i": TJDLLAMA,
-        "llama3-8b": TJDLLAMA,
-        "gpt2": TJDGPT2,
-        "gpt2r": GPT2,
-        "llamar": LLAMA,
-    }[args.model_type](model_config)
+    model = TJDHuggingFace(model_config)
 
     return model, tokenizer
-
-
-# TODO: just take in args.dataset
-def get_chat_template(args):
-    chat_templates = {
-        "gsm8k": ChatTemplateGSM8k,
-        "gsm8k::few": ChatTemplateGSM8kFewShot,
-        "shakespeare": ChatTemplateShakespeare,
-        "sharegpt": ChatTemplateShareGPT,
-        "snum": ChatTemplateSynNum,
-        "sbase": ChatTemplateSynNumBase,
-        "stemp": ChatTemplateSynTemp,
-    }
-    return chat_templates[args.dataset]
-
-
-# # Tokenizer
-# if args.model_type.startswith("gpt2"):
-#     tokenizer = (
-#         AutoTokenizer.from_pretrained("gpt2")
-#         if args.tokenizer_type == "word"
-#         else CharTokenizer(args.seq_len)
-#     )
-
-#     if args.tokenizer_type == "word":
-#         tokenizer.add_special_tokens({"pad_token": "<|pad|>"})

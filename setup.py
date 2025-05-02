@@ -1,9 +1,16 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
-    name="tjdnet",
-    version="1.0",
-    packages=["tjdnet", "dataloaders", "utils"],
+    name="tjdnet",  # or whatever your project is called
+    version="0.1.0",
+    packages=find_packages(
+        include=[
+            "tjdnet*",  # your main library
+            "jobrunner*",  # CLI package
+            "utils*",  # etc.
+            "dataloaders*",
+        ]
+    ),
     install_requires=[
         "torch>=2.0.0",
         "tqdm>=4.66.4",
@@ -15,4 +22,9 @@ setup(
         "datasets>=1.14.0",
         "tensorboard>=2.6.0",
     ],
+    entry_points={
+        "console_scripts": [
+            "jobrunner = jobrunner.main:main",  # command → package.module:function
+        ],
+    },
 )

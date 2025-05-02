@@ -23,18 +23,10 @@ from typing import List
 import torch
 from tqdm import tqdm
 
+from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
+from utils.accpetance_rates import compute_acceptance_rate
 from utils.accuracy import compute_accuracy
-from utils.helpers import (
-    get_model_and_tokenizer,
-    get_chat_template,
-)
-from dataloaders.gsm8k import load_gsm8k_data
-from dataloaders.shakespeare import load_shakespeare_data
-from dataloaders.sharegpt import load_sharegpt
-from dataloaders.syn_number_bases import load_syn_num_base_data
-from dataloaders.syn_numbers import load_syn_num_data
-from dataloaders.syn_temp import load_syn_temp_data
-from dataloaders.wikitext import load_wikitext_data
+from utils.helpers import get_model_and_tokenizer
 
 
 def load_weights(model, checkpoint_path):
@@ -56,7 +48,7 @@ def save_results_checkpoint(results, file_path):
         json.dump(results, f)
 
 
-def main():
+def parse_args():
     # Parse just our evaluation-specific arguments
     parser = argparse.ArgumentParser(description="Evaluate model checkpoints")
     parser.add_argument(
@@ -80,14 +72,14 @@ def main():
         help="Batch size for evaluation",
     )
     parser.add_argument(
-        "-s",
-        "--max_num_samples",
-        type=int,
-        default=None,
-        help="Maximum number of samples to evaluate",
+        "--metric",
+        type=str,
+        choices=["accuracy", "acceptance_rate"],
+        default="accuracy",
+        help="Metric to compute during evaluation",
     )
+    # ===== Generation kwargs =====
     parser.add_argument(
-        "-t",
         "--max_new_tokens",
         type=int,
         default=128,
@@ -100,14 +92,22 @@ def main():
         help="Top-k value for sampling",
     )
     parser.add_argument(
-        "--dataset",
-        choices=[
-            "gsm8k",
-            "gsm8k::few",
-        ],
-        default=None,
+        "--top_p",
+        type=float,
+        default=0.95,
+        help="Top-p value for sampling",
     )
     args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_args()
+
+    metric_fn = {
+        "accuracy": compute_accuracy,
+        "acceptance_rate": compute_acceptance_rate,
+    }[args.metric]
 
     checkpoints: List[str] = [
         osp.join(args.checkpoint, c)
@@ -118,53 +118,52 @@ def main():
 
     # 1. Setup
     exp_args = argparse.Namespace(**exp_args_dict)
+    if args.metric == "acceptance_rate":
+        exp_args.use_speculative_sampling = True
     model, tokenizer = get_model_and_tokenizer(exp_args)
-    chat_template = get_chat_template(args if args.dataset else exp_args)
-    lm_dataset = {
-        "shakespeare": load_shakespeare_data,
-        "wikitext": load_wikitext_data,
-        "sharegpt": load_sharegpt,
-        "gsm8k": load_gsm8k_data,
-        "stemp": load_syn_temp_data,
-        "snum": load_syn_num_data,
-        "sbase": load_syn_num_base_data,
-    }[args.dataset.split("::")[0] if args.dataset else exp_args.dataset](
-        tokenizer, exp_args.seq_len, max_num_samples=exp_args.max_num_samples
-    )
+    chat_template = CHAT_TEMPLATES[exp_args.dataset]
+    lm_dataset = DATASET_LOADERS[exp_args.dataset](tokenizer, exp_args.seq_len)
 
     results = {}
     results_file = osp.join(
         args.checkpoint,
-        f"eval_results_b{args.batch_size}_s{args.max_num_samples}_t{args.max_new_tokens}.json",
+        f"eval_results_{args.metric}_b{args.batch_size}_t{args.max_new_tokens}.json",
     )
     if osp.exists(results_file):
         print(f"Initalizing results from {results_file}")
         with open(results_file) as f:
             results = json.load(f)
 
+    print(f"Evaluating metric: {args.metric}")
     print("Using device:", args.device)
     for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
         model = load_weights(model, checkpoint)
         model.to(args.device)
         average_meter_kwargs = results.get(checkpoint, {"sum": 0, "count": 0})
-        acc, avg_meter_kwargs = compute_accuracy(
+        metric_ds_val, metric_avg_meter_kwargs = metric_fn(
             model,
             tokenizer=tokenizer,
             test_dataset=lm_dataset["test"],
             chat_template=chat_template,
-            horizon=exp_args.horizon,
-            top_k=args.top_k,
-            max_new_tokens=args.max_new_tokens,
             batch_size=args.batch_size,
-            max_num_samples=args.max_num_samples,
             avg_meter_kwargs=average_meter_kwargs,
             on_batch_end=lambda avg_meter_kwargs: save_results_checkpoint(
                 {**results, checkpoint: avg_meter_kwargs}, results_file
             ),
             log_samples=True,
+            # max_num_samples=args.max_num_samples,
+            # horizon=exp_args.horizon,
+            # top_k=args.top_k,
+            # max_new_tokens=args.max_new_tokens,
+            generate_kwargs=dict(
+                do_sample=True,
+                max_new_tokens=args.max_new_tokens,
+                top_k=args.top_k,
+                horizon=exp_args.horizon,
+            ),
         )
-        results[checkpoint] = avg_meter_kwargs
-        print(f"Eval accuracy: {acc} for checkpoint: {checkpoint}")
+        results[checkpoint] = metric_avg_meter_kwargs
+        print(f"Eval {args.metric}: {metric_ds_val} for checkpoint: {checkpoint}")
 
     save_results_checkpoint(results, results_file)
     print(f"Results saved to {results_file}")

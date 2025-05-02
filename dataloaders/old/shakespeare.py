@@ -20,7 +20,7 @@ Given a dataset of sequences of different length {s1, s2, ..., s2}, we have two 
 
 import os
 from datasets import load_dataset
-from dataloaders.common import BaseChatTemplate, group_texts
+from dataloaders._base import BaseChatTemplate, group_texts
 
 
 class ChatTemplateShakespeare(BaseChatTemplate):

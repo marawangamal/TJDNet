@@ -1,5 +1,7 @@
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 import torch
+
+from tjdnet.distributions._base import BaseDistribution
 
 
 def sample_topk(p: torch.Tensor, top_k: int, num_samples: int = 1) -> torch.Tensor:
@@ -56,6 +58,112 @@ def spec_sample(
 
     y_hat[should_reject] = sample_fn(p_adj[should_reject])
     return y_hat, should_reject
+
+
+# ----------------------------- runner ------------------------------------
+def run_checks(spec: list[dict]):
+    failures = [
+        (i, item["msg"]() if callable(item["msg"]) else item["msg"])
+        for i, item in enumerate(spec, 1)  # start index at 1
+        if not item["test"]()
+    ]
+    if failures:
+        msgs = "\n".join(f"  {idx}. {m}" for idx, m in failures)
+        raise ValueError(f"{len(failures)} check(s) failed:\n{msgs}")
+
+
+def spec_sample_v2(
+    model_p: Callable[[torch.Tensor], torch.Tensor],
+    model_q: Callable[[], Tuple[torch.Tensor, torch.Tensor]],
+    sample_fn: Callable[[torch.Tensor], torch.Tensor],
+):
+    """Batched speculative sampling for faster text generation.
+
+    Uses draft model guesses q_hat and dist q(y|x) to sample from the target model p(y|x).
+
+    Args:
+        model_p (Callable): Target model. Signature: y -> p(y|x)
+        model_q (Callable): Draft model. Signature: {} -> y_hat, q(y|x).
+        sample_fn (Callable): Sampling function. Mapping: (B, V) -> (B,).
+
+    Note:
+        Key variables and typical shapes:
+        (B = Batch size, H = Draft length, V = Vocabulary size)
+        - y (torch.Tensor): Predicted token sequence. Shape (B, H).
+        - y_hat (torch.Tensor): Draft tokens from model_q. Shape: (B, H).
+        - q(y|x) (torch.Tensor): Draft probabilities from model_q. Shape: (B, H, V).
+        - p(y|x) (torch.Tensor): Target probabilities from model_p. Shape: (B, H, V).
+
+    Returns:
+        torch.Tensor: Accepted tokens. Shape: (B, H'), where H' is the number of
+            accepted tokens per sequence (can be > 1 and vary).
+    """
+    # Get draft preds and probs
+    q_hat, qy = model_q()  # (B, H), (B, H, V)
+    py = model_p(q_hat)  # (B, H, V)
+
+    batch_size, horizon, vocab_size = py.size()
+
+    # ============= Input validation ========================================
+    checks = [
+        # ---- shape checks ----
+        {
+            "test": lambda: q_hat.shape == (batch_size, horizon),
+            "msg": f"y_hat shape mismatch expected {(batch_size, horizon)}, got {q_hat.size()}",
+        },
+        {
+            "test": lambda: py.shape == (batch_size, horizon, vocab_size),
+            "msg": f"py shape mismatch expected {(batch_size, horizon)}, got {py.size()}",
+        },
+        {
+            "test": lambda: sample_fn(
+                torch.zeros((batch_size, vocab_size), device=py.device)
+            ).shape
+            == (batch_size,),
+            "msg": f"sample_fn output shape mismatch expected {(batch_size,)}",
+        },
+        # ---- probability checks ----
+        {"test": lambda: (py >= 0).all(), "msg": f"Negative probs in py: {py.min()}"},
+        {"test": lambda: (qy >= 0).all(), "msg": f"Negative probs in qy: {qy.min()}"},
+        {
+            "test": lambda: torch.isclose(
+                py.sum(dim=-1), torch.ones((batch_size, horizon), device=py.device)
+            ).all(),
+            "msg": f"invalid probs in py: {py.sum(-1)}",
+        },
+        # ----- only bs=1 supported currently -----
+        {
+            "test": lambda: batch_size == 1,
+            "msg": f"batch_size > 1 not yet supported: {batch_size}",
+        },
+    ]
+    for check in checks:
+        if not check["test"]():
+            raise ValueError(check["msg"])
+    # =====================================================================
+
+    # Reduce prob tensors. Shape: (B, H, V) -> (B,)
+    qy_select = torch.gather(qy, dim=-1, index=q_hat.unsqueeze(-1)).squeeze(-1).prod(-1)
+    py_select = torch.gather(py, dim=-1, index=q_hat.unsqueeze(-1)).squeeze(-1).prod(-1)
+    y_out = []
+
+    h = 0
+    while h < horizon:
+        r = torch.rand((batch_size,), device=q_hat.device)
+        accept_mask = r < torch.minimum(
+            torch.ones_like(py_select, device=py_select.device), (py_select / qy_select)
+        )  # (B,)
+        if accept_mask.all():
+            # all samples accepted
+            y_out.append(q_hat[:, h : h + 1])  # (B, 1)
+            h += 1
+        else:
+            # some samples rejected
+            y_adj = sample_fn(py[:, h] - qy[:, h])  # (B, V) => (B,)
+            y_out.append(y_adj.unsqueeze(1))  # (B, 1)
+            break
+
+    return torch.cat(y_out, dim=1)  # (B, H)
 
 
 def pad_seqs(
@@ -126,3 +234,7 @@ def diagnose(tens: torch.Tensor, tens_name: str = "tensor"):
     assert not torch.isinf(
         tens
     ).any(), f"Inf found in {tens_name} -- (min: {tens.min()}, max: {tens.max()})"
+
+
+def mem_check(msg: str = "unknown"):
+    print(f"MEM [{msg}]: {torch.cuda.memory_allocated()/1e9:.2f} GB")

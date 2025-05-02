@@ -17,7 +17,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
-from utils.models import create_model_gpt_fn, create_model_llama_fn
+from utils.models import create_model_gpt_fn, create_model
 
 
 def get_params(model):
@@ -66,7 +66,7 @@ def main(args):
         "gpt2": lambda r, h, m: create_model_gpt_fn(
             r, h, m, param_net_config={"hidden_dim": 768, "use_decoder": True}
         ),
-        "llama": lambda r, h, m: create_model_llama_fn(
+        "llama": lambda r, h, m: create_model(
             r, h, m, param_net_config={"hidden_dim": 32000, "use_decoder": True}
         ),
     }[args.model_family]

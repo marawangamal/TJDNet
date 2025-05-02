@@ -3,19 +3,18 @@
 This script trains and evaluates TJDNet models using the Hugging Face Transformers library.
 
 Example:
-    accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py \
-        --epochs 20 \
-        --batch_size 32 \
-        --seq_len 128 \
+    accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_2gpus.yaml train.py \
+        --model meta-llama/Llama-3.2-3B-Instruct \
         --dataset gsm8k \
-        --model_type llama7b \
+        --epochs 50 \
+        --batch_size 8 \
+        --seq_len 128 \
         --lr 1e-5 \
         --model_head cp \
-        --num_layers 2 \
-        --hidden_dim 768 \
+        --hidden_dim 5120 \
         --horizon 2 \
         --horizon_eval 2 \
-        --rank 2
+        --rank 16
 
 Hardware requirements:
     - LLAMA 7B model: 4x GPUs w/ 80GB VRAM (FSDP)
@@ -23,13 +22,15 @@ Hardware requirements:
 
 """
 
+from argparse import Namespace
+import copy
 import json
 import os
 import os.path as osp
 from re import L
 import shutil
 import time
-from typing import Union
+from typing import Literal, Union
 import uuid
 
 import torch
@@ -43,28 +44,22 @@ from transformers import (
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
-from dataloaders.common import BaseChatTemplate
+from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
+from dataloaders._base import BaseChatTemplate
+from utils.accpetance_rates import compute_acceptance_rate
 from utils.accuracy import compute_accuracy
-from utils.generation import GenerationCallback
-from dataloaders.gsm8k import load_gsm8k_data
-from dataloaders.shakespeare import load_shakespeare_data
-from dataloaders.sharegpt import load_sharegpt
-from dataloaders.syn_number_bases import load_syn_num_base_data
-from dataloaders.syn_numbers import load_syn_num_data
-from dataloaders.syn_temp import load_syn_temp_data
-from dataloaders.wikitext import load_wikitext_data
 from utils.utils import get_experiment_name
 from utils.helpers import (
-    get_chat_template,
     get_git_info,
     get_model_and_tokenizer,
-    get_test_samples,
     parse_args,
     save_args,
     set_seed,
 )
 
 CHECKPOINT_DIR = "checkpoints"
+
+EXP_NAME_EXCLUSIONS = ["cache_dir", "disable_wandb"]
 
 
 class TJDTrainer(Trainer):
@@ -73,23 +68,31 @@ class TJDTrainer(Trainer):
         test_dataset: torch.utils.data.Dataset,
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
         chat_template: BaseChatTemplate,
-        horizon: int,
-        top_k: int,
-        num_beams: int,
-        eos_token: str,
+        generate_kwargs: dict,
+        # horizon: int,
+        # top_k: int,
+        # eos_token: str,
         acc_batch_size: int = 1,
+        on_converge_callback_cs=None,
+        metric: Literal["accuracy", "acceptance_rate"] = "accuracy",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.test_dataset = test_dataset
         self.chat_template = chat_template
 
-        self.horizon = horizon
-        self.top_k = top_k
-        self.num_beams = num_beams
-        self.eos_token = eos_token
+        # self.horizon = horizon
+        # self.top_k = top_k
+        # self.eos_token = eos_token
         self.tokenizer = tokenizer
         self.acc_batch_size = acc_batch_size
+        self.generate_kwargs = generate_kwargs
+        self.on_converge_callback_cs = on_converge_callback_cs
+        self.metric_name = metric
+        self.metric_fn = {
+            "accuracy": compute_accuracy,
+            "acceptance_rate": compute_acceptance_rate,
+        }[metric]
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
@@ -101,19 +104,34 @@ class TJDTrainer(Trainer):
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
         if self.test_dataset:
-            acc, _ = compute_accuracy(
+            acc, _ = self.metric_fn(
                 self.model,
                 tokenizer=self.tokenizer,  # type: ignore
-                test_dataset=self.test_dataset,
+                test_dataset=self.test_dataset,  # type: ignore
                 chat_template=self.chat_template,
-                horizon=self.horizon,
-                top_k=self.top_k,
-                batch_size=self.acc_batch_size,
+                # horizon=self.horizon,
+                # top_k=self.top_k,
                 # eos_token=self.eos_token,
+                batch_size=self.acc_batch_size,
+                generate_kwargs=self.generate_kwargs,
             )
-            print("Eval accuracy:", acc)
+
             if output and output.metrics:
                 output.metrics[f"eval_acc"] = acc
+
+            print(f"Eval {self.metric_name}:", acc)
+            if abs(acc - 1.0) < 1e-3:
+                print(f"Eval {self.metric_name} is 1.0, ending training.")
+                if (
+                    self.on_converge_callback_cs is not None
+                    and output
+                    and output.metrics
+                ):
+                    self.on_converge_callback_cs(
+                        {**output.metrics, "epoch": self.state.epoch}
+                    )
+                exit(0)
+
         return output
 
 
@@ -207,6 +225,8 @@ def setup(args, local_rank: int):
         has_checkpoint = len(checkpoint_files) > 0
         if has_checkpoint:
             print(f"Resuming from checkpoint: {ckpt_dir}")
+        else:
+            print(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
 
     return args, exp_name, ckpt_dir, has_checkpoint
 
@@ -214,13 +234,16 @@ def setup(args, local_rank: int):
 def main():
     # Configuration
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    args = parse_args()
-    args, exp_name, ckpt_dir, has_checkpoint = setup(args, local_rank)
-    set_seed(args.seed)
+    args_raw = parse_args()
+    filtered_args = Namespace(
+        **{k: v for k, v in vars(args_raw).items() if k not in EXP_NAME_EXCLUSIONS}
+    )
+    args, exp_name, ckpt_dir, has_checkpoint = setup(filtered_args, local_rank)
+    set_seed(42)
 
     # Model and tokenizer
     model, tokenizer = get_model_and_tokenizer(args)
-    chat_template = get_chat_template(args)
+    chat_template = CHAT_TEMPLATES[args.dataset]
 
     params_dict = model.param_dict
     # Print dict key value pairs
@@ -228,22 +251,36 @@ def main():
     print("\n".join([f"{k}: {v}" for k, v in params_dict.items()]))
 
     # Datasets
-    lm_dataset = {
-        "shakespeare": load_shakespeare_data,
-        "wikitext": load_wikitext_data,
-        "sharegpt": load_sharegpt,
-        "gsm8k": load_gsm8k_data,
-        "stemp": load_syn_temp_data,
-        "snum": load_syn_num_data,
-        "sbase": load_syn_num_base_data,
-    }[args.dataset](
-        tokenizer,
-        args.seq_len,
+    lm_dataset = DATASET_LOADERS[args.dataset](
+        tokenizer=tokenizer,
+        input_seq_len=args.seq_len,
         max_num_samples=args.max_num_samples,
         print_stats=local_rank == 0,
     )
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    # data_collator = CustomDataCollator(tokenizer=tokenizer, mlm=False)
+
+    def on_converge_callback_cs(metrics):
+        # save metrics to to accuracy.json
+        accuracy_file = os.path.join(ckpt_dir, "eval_converged_metrics.json")
+        with open(accuracy_file, "w") as f:
+            json.dump(metrics, f)
+        print(f"Accuracy saved to {accuracy_file}")
+
+    # Check if exp previously ran and converged
+    if has_checkpoint:
+        # Check if accuracy.json exists
+        accuracy_file = os.path.join(ckpt_dir, "eval_converged_metrics.json")
+        if os.path.exists(accuracy_file):
+            with open(accuracy_file, "r") as f:
+                metrics = json.load(f)
+            print(f"Converged metrics: {metrics}")
+            if (
+                "eval_acc" in metrics
+                and abs(metrics["eval_acc"] - 1.0) < 1e-3
+                and local_rank == 0
+            ):
+                print("Accuracy is 1.0, ending training.")
+                exit(0)
 
     training_args = TrainingArguments(
         output_dir=ckpt_dir,
@@ -263,12 +300,16 @@ def main():
         eval_steps=args.eval_steps,
         # Reporting
         # report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
-        report_to="wandb",
+        report_to="wandb" if not args_raw.disable_wandb else "none",
         # Checkpoints
-        save_strategy=args.eval_strategy,
-        save_steps=args.eval_steps,
-        save_total_limit=2,  # Save only 3 checkpoints
-        load_best_model_at_end=True,
+        # prev save_strategy ===>
+        # save_strategy=args.eval_strategy,
+        # save_steps=args.eval_steps,
+        # save_total_limit=2,  # Save only 3 checkpoints
+        # load_best_model_at_end=True,
+        # ====
+        save_strategy="best",
+        # <=== new save_strategy
         save_safetensors=False,
         metric_for_best_model="eval_nll",
         greater_is_better=False,
@@ -287,26 +328,27 @@ def main():
         project_name = (
             "tjdnet-prod" if git_info.get("branch") == "main" else "tjdnet-dev"
         )
-        wandb.init(
-            project=project_name,
-            name=exp_name,
-            id=args.wandb_id,
-            config={**vars(args), **git_info},
-            resume="allow",
-        )
+        if not args_raw.disable_wandb:
+            wandb.init(
+                project=project_name,
+                name=exp_name,
+                id=args.wandb_id,
+                config={**vars(args), **git_info},
+                resume="allow",
+            )
 
     # In your main function, add this before initializing the trainer:
-    generation_callback = GenerationCallback(
-        model=model,
-        tokenizer=tokenizer,
-        generate_strategy=args.generate_strategy,
-        generate_steps=args.generate_steps,  # or any other frequency you want
-        max_new_tokens=args.max_new_tokens,
-        horizon=args.horizon_eval,
-        chat_template=chat_template,
-        top_k=args.top_k,
-        num_beams=args.num_beams,
-    )
+    # generation_callback = GenerationCallback(
+    #     model=model,
+    #     tokenizer=tokenizer,
+    #     generate_strategy=args.generate_strategy,
+    #     generate_steps=args.generate_steps,  # or any other frequency you want
+    #     max_new_tokens=args.max_new_tokens,
+    #     horizon=args.horizon_eval,
+    #     chat_template=chat_template,
+    #     top_k=args.top_k,
+    #     disable_wandb=args_raw.disable_wandb,
+    # )
 
     # Initialize the trainer
     trainer = TJDTrainer(
@@ -316,20 +358,22 @@ def main():
         eval_dataset=lm_dataset["eval"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[generation_callback] if args.compute_acc else None,
+        # callbacks=[generation_callback] if args.compute_acc else None,
         # Evaluation
         tokenizer=tokenizer,
-        test_dataset=lm_dataset["test"] if args.compute_acc else None,
+        test_dataset=lm_dataset["test"] if args.compute_acc else None,  # type: ignore
         chat_template=chat_template,
-        horizon=args.horizon_eval,
-        top_k=args.top_k,
-        num_beams=args.num_beams,
-        eos_token=(
-            tokenizer.eos_token  # type: ignore
-            if args.tokenizer_type == "word"
-            else tokenizer.sep_token
+        generate_kwargs=dict(
+            horizon=args.horizon_eval,
+            top_k=args.top_k,
+            top_p=0.95,
+            do_sample=True,
+            max_new_tokens=args.max_new_tokens,
+            stop_token=tokenizer.eos_token_id,
         ),
         acc_batch_size=args.acc_batch_size,
+        on_converge_callback_cs=on_converge_callback_cs,
+        metric="acceptance_rate" if args.use_speculative_sampling else "accuracy",
     )
 
     if args.eval_only:

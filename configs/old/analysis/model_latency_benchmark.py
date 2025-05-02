@@ -78,7 +78,7 @@ def parse_args():
     # ----------------------
 
     parser.add_argument(
-        "--model_type",
+        "--model",
         type=str,
         default="gpt2",
         help="Type of base model to use",

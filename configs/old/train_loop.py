@@ -147,7 +147,7 @@ def main():
     has_checkpoint = osp.exists(ckpt_dir)
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    set_seed(args.seed)
+    set_seed(42)
     save_args(args, ckpt_dir)
 
     # Model and tokenizer
@@ -188,7 +188,7 @@ def main():
         "stemp": load_syn_temp_data,
         "snum": load_syn_num_data,
         "sbase": load_syn_num_base_data,
-    }[args.dataset](tokenizer, args.seq_len, max_num_samples=args.max_num_samples)
+    }[args.dataset](tokenizer, args.seq_len)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     train_dataloader = DataLoader(

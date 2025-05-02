@@ -1,20 +1,17 @@
-from typing import List, Optional, Tuple
+from typing import Optional
 import torch
-import line_profiler
 
-from tjdnet.distributions._base import BaseDistribution, BaseDistConfig
-from tjdnet.tensorops.common import sample_from_tensor_dist
+from tjdnet.distributions._base import (
+    BaseDistFromLinearConfig,
+    BaseDistribution,
+    BaseDistConfig,
+)
+from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.utils import sample_topk
 
 
 class BaseDist(BaseDistribution):
     def __init__(
-        # self,
-        # n_embd: int,
-        # vocab_size,
-        # positivity_func: str = "exp",
-        # horizon: int = 1,
-        # **kwargs,
         self,
         config: BaseDistConfig,
         **kwargs,
@@ -36,61 +33,37 @@ class BaseDist(BaseDistribution):
         self.rank = config.rank
         self.horizon = config.horizon
 
-    def init_params(
-        self, pt_weight: torch.Tensor, pt_bias: Optional[torch.Tensor]
-    ) -> None:
-        """
-        Initialize the weights (and optionally the bias) of a single-layer
-        TensorParamNet with a given parameter tensor.
-
-        Args:
-            params (torch.Tensor): A tensor of shape matching the linear layer's
-                weight shape, i.e. (out_dim, in_dim).
-        """
-        # Identify the linear layer (it's the last item in self.param_func.network)
-        linear_layer = self.param_func.network[-1]
-        if not isinstance(linear_layer, torch.nn.Linear):
-            raise ValueError(
-                f"Expected the last layer to be nn.Linear, but got {type(linear_layer)}"
-            )
-
-        # Shape check
-        expected_shape = linear_layer.weight.shape  # (out_dim, in_dim)
-        if pt_weight.shape != expected_shape:
-            raise ValueError(
-                f"Expected params of shape {expected_shape}, but got {pt_weight.shape}"
-            )
-
-        if pt_bias is not None and pt_bias.shape != linear_layer.bias.shape:
-            raise ValueError(
-                f"Expected bias of shape {linear_layer.bias.shape}, but got {pt_bias.shape}"
-            )
-
-        # Copy parameters
-        with torch.no_grad():
-            linear_layer.weight.copy_(pt_weight)
-            if pt_bias is not None:
-                linear_layer.bias.copy_(pt_bias)
-            else:
-                linear_layer.bias.zero_()
-
     def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         p_tilde = self.param_func(last_hidden_state)  # (B, T, 1, V)
         return p_tilde.squeeze(-1)  # (B, T, V)
 
-    def get_dist(
-        self,
-        hidden_state: torch.Tensor,
-        ops: torch.Tensor,
-        use_cache: bool,
-        save_cache: bool,
-        **kwargs,
+    @classmethod
+    def from_linear(
+        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
     ):
-        """Get distribution specified by ops."""
-        assert ops.size(-1) == 1, "Only 1D points are supported"
-        p_tilde = self._get_params(hidden_state)  # (B, 1, V)
-        p_tilde = p_tilde.reshape(-1)  # (B, V)
-        return p_tilde, []
+        """Create a CP distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        n_emb, vocab_size = linear.weight.shape
+        if linear.bias is not None:
+            raise Warning("BaseDist: Skiping bias initialization.")
+
+        return cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                param_net=config.param_net,
+            ),
+            **kwargs,
+        )
 
     def sample(
         self,
@@ -103,59 +76,11 @@ class BaseDist(BaseDistribution):
         if horizon and horizon > 1:
             raise ValueError("Horizon must be 1 for base distribution")
         model_head_params = self._get_params(hidden_state[:, -1:, :])  # (B, 1, V)
-        p_tilde = sample_topk(
+        y_hat = sample_topk(
             model_head_params.squeeze(1), top_k=top_k if do_sample else 1  # topk/greedy
-        )
-        return p_tilde
-
-    def evaluate_at_points(
-        self,
-        last_hidden_state: torch.Tensor,
-        points: torch.Tensor,
-        **kwargs,
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """Evaluate the distribution at the given points.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, 1)
-            is_normalized (bool, optional): Whether the points are normalized. Defaults to False.
-
-        Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]: Evaluation of the distribution at the points of Shape (B, 1) and scale_tensors (empty list)
-        """
-        # Get indexed distribution
-        assert points.size(-1) == 1, "Only 1D points are supported"
-        p_tilde = self._get_params(last_hidden_state)  # (B, T, V)
-        batch_size, seq_len, _ = last_hidden_state.size()
-
-        # (B, T, R*H*V) => (B, T)
-        p_tilde_select = torch.gather(
-            p_tilde.reshape(batch_size * seq_len, self.vocab_size),
-            dim=1,
-            index=points.reshape(batch_size * seq_len, self.horizon),
-        )  # (B*T, 1)
-        return p_tilde_select.reshape(batch_size, seq_len), []  # (B*T)
-
-    def get_norm_consts(
-        self, last_hidden_state: torch.Tensor, horizon: int, **kwargs
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """Get the normalization constants for the BT distributions.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-
-        Returns:
-            Tuple[torch.Tensor, List[torch.Tensor]]: Norm constants and scale tensors
-        """
-        # Get indexed distribution
-        batch_size, seq_len, _ = last_hidden_state.size()
-        p_tilde = self.positivity_func(self.param_func(last_hidden_state))  # (B, T, V)
-        norm_consts = torch.sum(p_tilde, dim=-1).reshape(-1)  # (B*T)
-        return (
-            norm_consts.reshape(batch_size, seq_len),
-            [],
-        )
+        )  # (B, 1)
+        py = model_head_params
+        return y_hat, py  # (B, 1), (B, 1, V)
 
     def evaluate_at_points_and_get_norm_consts(
         self,

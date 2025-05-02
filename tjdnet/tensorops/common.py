@@ -204,3 +204,12 @@ def pop_tensor(tensor: torch.Tensor, indices: torch.Tensor):
     remaining_tensor = tensor[keep_mask]
 
     return remaining_tensor, popped_tensors
+
+
+if __name__ == "__main__":
+    tens = torch.arange(0, 5).reshape(1, -1)
+    orig = tens.clone()
+    windowed = get_windowed_input_ids(tens, horizon=2)
+
+    print("Original tensor:", orig.tolist())
+    print("Windowed tensor:", windowed.tolist())

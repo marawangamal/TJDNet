@@ -6,49 +6,51 @@ from git import Optional
 import torch
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from dataloaders.common import BaseChatTemplate, group_texts
+from dataloaders._base import BaseChatTemplate, group_texts
 
 
 class ChatTemplateGSM8k(BaseChatTemplate):
     TEMPLATE = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
 
-    @classmethod
-    def format_qa(cls, question: str, answer: Optional[str] = None) -> str:
-        return cls.TEMPLATE.format(question=question, answer=answer or "")
+    TEMPLATE_FEW_SHOT = """
+        You are a mathematical reasoning assistant that solves problems step by step.
+
+        FORMAT INSTRUCTIONS:
+        1. Show all your work with clear explanations
+        2. For each calculation, use the format: <<calculation=result>>result
+        3. End every answer with: #### [numerical_answer_only]{eos_token}
+
+        EXAMPLE:
+        [QUESTION] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
+        [ANSWER]  Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72 {eos_token}
+
+        Now solve the following problem using the exact format shown above:
+        [QUESTION] {question}
+        [ANSWER] {answer}
+    """
 
     @classmethod
-    def format_prompt(cls, prompt: str):
-        return cls.TEMPLATE.format(question=prompt, answer="")
-
-    @classmethod
-    def get_sample_prompt(cls):
-        return cls.TEMPLATE.format(
-            question="Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
+    def get_sample_prompt(
+        cls, is_few_shot: bool = False, eos_token: str = "<|eot_id|>"
+    ):
+        tmp = cls.TEMPLATE if not is_few_shot else cls.TEMPLATE_FEW_SHOT
+        return tmp.format(
+            question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
             answer="",
+            eos_token=eos_token,
         )
-
-    @classmethod
-    def get_sample_prompt_few_shot(cls):
-        return """
-            You are a helpful math assistant. Solve the math problem step-by-step. End your answer with #### followed by the final numerical result.  Here is an exmaple, follow the same output format. Just give the answer directly
-
-            [QUESTION]
-            Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
-
-            [ANSWER]
-            Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72
-
-            [QUESTION]
-            Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?
-
-            [ANSWER]
-            """
 
     @classmethod
     def safe_parse(cls, generation: str, eos_token: str):
         try:
             return (
-                float(generation.split("####")[1].split(eos_token)[0].strip())
+                float(
+                    generation.split("####")[-1]
+                    .split(eos_token)[0]
+                    .strip()
+                    .split(" ")[0]
+                    .split("\n")[0]
+                )
                 if "####" in generation
                 else None
             )
@@ -56,67 +58,32 @@ class ChatTemplateGSM8k(BaseChatTemplate):
             return None
 
 
-class ChatTemplateGSM8kFewShot(ChatTemplateGSM8k):
-    @classmethod
-    def format_batch(
-        cls,
-        input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor],
-        tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
-    ) -> tuple[torch.Tensor, Union[torch.Tensor, None]]:
-        prefix = torch.tensor(
-            tokenizer.encode(
-                """
-            [QUESTION]
-            Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
-
-            [ANSWER]
-            Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. #### 72
-
-            [QUESTION]
-            Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?
-            """,
-                # special tokens disabled
-                add_special_tokens=False,
-            )
-        ).to(
-            input_ids.device
-        )  # (seq_len,)
-
-        batch_size = input_ids.shape[0]
-        prefix_size = prefix.shape[0]
-
-        # Add prefix to the input_ids
-        input_ids = torch.cat(
-            (prefix.unsqueeze(0).expand(batch_size, -1), input_ids), dim=1
-        )
-        attention_mask = (
-            torch.cat(
-                (
-                    torch.ones(batch_size, prefix_size, device=attention_mask.device),
-                    attention_mask,
-                ),
-                dim=1,
-            )
-            if attention_mask is not None
-            else None
-        )
-        return input_ids, attention_mask
-
-
-def parse_qa(example, eos_token="<|endoftext|>"):
+def prepare_example(example, eos_token="<|endoftext|>", use_few_shot=False):
+    """Process a single example into training format."""
+    prompt_template = (
+        ChatTemplateGSM8k.TEMPLATE
+        if not use_few_shot
+        else ChatTemplateGSM8k.TEMPLATE_FEW_SHOT
+    )
     return {
-        "text": ChatTemplateGSM8k.format_qa(example["question"], example["answer"])
+        # Used for train/eval
+        "text": ChatTemplateGSM8k.TEMPLATE.format(
+            question=example["question"], answer=example["answer"]
+        )
         + eos_token,
-        "prompt": ChatTemplateGSM8k.format_prompt(example["question"]),
+        # Used for test
+        "prompt": prompt_template.format(
+            question=(example["question"]), answer="", eos_token=eos_token
+        ),
     }
 
 
-def process_gsm8k_dataset(dataset, tokenizer, input_seq_len=512):
-    # Process the selected samples
+def process_train_dataset(dataset, tokenizer, input_seq_len=512):
+    # Process dataset for training
+    # example => dict(text, prompt) => dict(input_ids, attention_mask) => grouped
 
     dataset = dataset.map(
-        lambda x: parse_qa(x, tokenizer.eos_token),
+        lambda x: prepare_example(x, tokenizer.eos_token),
         remove_columns=dataset.column_names,
     )
 
@@ -133,11 +100,12 @@ def process_gsm8k_dataset(dataset, tokenizer, input_seq_len=512):
     return dataset
 
 
-def process_gsm8k_test_dataset(dataset, tokenizer):
-    # Process the selected samples
+def process_test_dataset(dataset, tokenizer, use_few_shot=False):
+    # Process dataset for testing (prompt_ids -- no grouping)
+    # example => dict(text, prompt) => dict(input_ids, prompt_ids, attention_mask)
 
     dataset = dataset.map(
-        lambda x: parse_qa(x, tokenizer.eos_token),
+        lambda x: prepare_example(x, tokenizer.eos_token, use_few_shot=use_few_shot),
         remove_columns=dataset.column_names,
     )
 
@@ -171,19 +139,22 @@ def is_valid_seq(x, max_seq_len):
 
 def load_gsm8k_data(
     tokenizer,
-    input_seq_len,
+    input_seq_len=128,
     test_size=0.01,
     max_num_samples=68000,
     print_stats=False,
+    use_few_shot=False,
     **kwargs,
 ):
     train_dataset = load_dataset("openai/gsm8k", "main", split="train")
     val_dataset = load_dataset("openai/gsm8k", "main", split="test")
     test_dataset = load_dataset("openai/gsm8k", "main", split="test")
 
-    train_dataset = process_gsm8k_dataset(train_dataset, tokenizer, input_seq_len)
-    val_dataset = process_gsm8k_dataset(val_dataset, tokenizer, input_seq_len)
-    test_dataset = process_gsm8k_test_dataset(test_dataset, tokenizer)
+    train_dataset = process_train_dataset(train_dataset, tokenizer, input_seq_len)
+    val_dataset = process_train_dataset(val_dataset, tokenizer, input_seq_len)
+    test_dataset = process_test_dataset(
+        test_dataset, tokenizer, use_few_shot=use_few_shot
+    )
 
     # Get original sizes
     orig_train_size = len(train_dataset)
