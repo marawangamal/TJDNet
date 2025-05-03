@@ -57,6 +57,55 @@ class CPBDist(BaseDistribution):
             "from_linear method must be implemented in the subclass"
         )
 
+    def log_prob_unstable(
+        self,
+        x: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
+        return_dist: bool = False,
+    ):
+        """Computes log P(y1,y2,...,yh|x) for CPB distribution (unstable version).
+
+        Args:
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+            y (Optional[torch.Tensor], optional): Target labels. Shape (B, H'). Defaults to None.
+
+        Note:
+            - H' is in the range [0, H].
+        """
+        # Get cp params
+
+        alpha = torch.softmax(self.alpha_unnorm_func(x), dim=-1)  # (B, R)
+        p_dists = torch.softmax(self.param_func(x), dim=-1).reshape(
+            -1, self.horizon, self.rank, self.vocab_size
+        )  # (B, H, R, V)
+
+        py = alpha.unsqueeze(-1)  # (B, R, 1)
+        h_prime = 0
+        if y is not None:
+            h_prime = y.size(1)
+            # (B, H', R, V) -> (B, R)
+            py = py * p_dists[:, : h_prime - 1].gather(  # (B, H', R, V)
+                -1,
+                y[:, : h_prime - 1]
+                .reshape(-1, h_prime - 1, 1, 1)
+                .expand(-1, -1, self.rank, -1),
+            ).squeeze(-1).prod(1)
+
+        if return_dist:
+            py = py * p_dists[:, h_prime - 1]  # (B, R, V) -> (B, V)
+
+        else:
+            # y cannot be None
+            assert y is not None, "y must be provided if return_dist is False"
+            py = py * p_dists[:, h_prime - 1].gather(
+                -1,
+                y[:, h_prime - 1].reshape(-1, 1, 1).expand(-1, self.rank, -1),
+            ).squeeze(
+                -1
+            )  # (B, R, V) -> (B, R)
+
+        return torch.log(py.sum(1))  # (B, R) -> (B,)
+
     def log_prob(
         self,
         x: torch.Tensor,
@@ -75,36 +124,49 @@ class CPBDist(BaseDistribution):
             torch.Tensor: Computed logP(y|x). Shape (B,) if return_logit is False, else (B, H, V).
 
         """
+
+        # Get cp params
         lsm_alpha = torch.log_softmax(self.alpha_unnorm_func(x), dim=-1)  # (B, R)
-        p_tilde = self.param_func(x)  # (B, HR, V)
+        p_dists_tilde = self.param_func(x)  # Unnorm cond probs. Shape: (B, HR, V)
 
         # Referred to as `a_tilde` in notes
-        log_p_dists = torch.log_softmax(p_tilde, dim=-1).reshape(
+        log_p_dists = torch.log_softmax(p_dists_tilde, dim=-1).reshape(
             -1, self.horizon, self.rank, self.vocab_size
         )
         # (B, H, R, V) -> (B, H, R, 1) -> (B, H, R)
 
         history = lsm_alpha.unsqueeze(-1)  # (B, R, 1)
-        h_idx = 0
+        h_prime = 0
         if y is not None:
-            h_idx = y.size(1)
+            h_prime = y.size(1)
             history = history + (
                 # (B, H, R, V) -> (B, H, R, 1) -> (B, R, 1)
-                log_p_dists[:, :h_idx]
+                log_p_dists[:, : h_prime - 1]
                 .gather(  # (B, H', R, V)
                     -1,
-                    y.reshape(-1, h_idx, 1, 1).expand(-1, -1, self.rank, -1),
+                    y[:, : h_prime - 1]
+                    .reshape(-1, h_prime - 1, 1, 1)
+                    .expand(-1, -1, self.rank, -1),
                 )
                 .sum(dim=1)
             )
 
         if return_dist:
             # (B, R, 1) -> (B, R, V) -> (B, V)
-            history = history + log_p_dists[:, h_idx]
+            history = history + log_p_dists[:, h_prime - 1]
             return torch.logsumexp(history, dim=1)
 
         else:
             # (B, R, 1) -> (B, 1) -> (B,)
+            # BUG: should add the last
+            # y cannot be None
+            assert y is not None, "y must be provided if return_dist is False"
+            history = history + log_p_dists[:, h_prime - 1].gather(
+                -1,
+                y[:, h_prime - 1].reshape(-1, 1, 1).expand(-1, self.rank, -1),
+            ).squeeze(
+                -1
+            )  # (B, R, V) -> (B, R)
             return torch.logsumexp(history, dim=1).squeeze(-1)
 
     def compute_loss(self, x: torch.Tensor, y: torch.Tensor):

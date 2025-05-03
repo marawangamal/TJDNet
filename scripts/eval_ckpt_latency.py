@@ -183,9 +183,6 @@ def main():
 
     save_results_checkpoint(results, results_file)
     print(f"Results saved to {results_file}")
-    # Print best eval metric achieved
-    best_acc = max([v["avg"] for k, v in results["modes"].items()])
-    print(f"Eval {args.metric} (best): {best_acc} for exp: {args.experiment}")
 
 
 if __name__ == "__main__":

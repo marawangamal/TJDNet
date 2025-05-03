@@ -380,7 +380,7 @@ def generate_output_distribution_spectrum_batched(
         p_y1_y2[: saved_mat.shape[0], : saved_mat.shape[1]] = saved_mat
         start_idx = saved_idx
         # Check if completed
-        if start_idx >= vocab_size:
+        if start_idx >= vocab_size - batch_size:
             print(f"Checkpoint {checkpoint_path} already completed.")
             return p_y1_y2
         print(f"Resuming from {checkpoint_path} at token index {start_idx}.")
@@ -390,7 +390,8 @@ def generate_output_distribution_spectrum_batched(
     x = torch.tensor(tokenizer.encode(start_str, return_tensors="pt")).to(
         device
     )  # Shape: (1, seq_len)
-    model_fn().to(device)
+    model = model_fn()
+    model.to(device)
 
     # Use 'total' and 'initial' in tqdm, then manually call pbar.update(1)
     with tqdm(
@@ -410,7 +411,7 @@ def generate_output_distribution_spectrum_batched(
                     .reshape(-1, 1)
                     .to(device)
                 )  # Shape: (batch_size, 1)
-                outputs = model_fn(torch.cat([x.repeat(y1.size(0), 1), y1], dim=-1))
+                outputs = model(torch.cat([x.repeat(y1.size(0), 1), y1], dim=-1))
             logits = outputs.logits  # Shape: (batch_size, 2, vocab_size)
             p_y1 = torch.nn.functional.softmax(
                 logits[:, -2], dim=-1
