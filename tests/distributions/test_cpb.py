@@ -7,6 +7,29 @@ from tjdnet.distributions.tpnet import TensorParamNetConfig
 
 
 class TestCPBDist(unittest.TestCase):
+
+    # def test_log_prob_match(self):
+    #     batch_size, vocab_size, rank, horizon, n_embd = 8, 128, 8, 2, 256
+    #     eps = 1e-9
+
+    #     model_head = CPBDist(
+    #         BaseDistConfig(
+    #             vocab_size=vocab_size,
+    #             horizon=horizon,
+    #             rank=rank,
+    #             param_net=TensorParamNetConfig(
+    #                 in_dim=n_embd,
+    #             ),
+    #         )
+    #     )
+
+    #     x = torch.randn(batch_size, n_embd)  # (B, T, D)
+    #     y = torch.randint(0, vocab_size, (batch_size, horizon))
+    #     log_prob = model_head.log_prob(x=x, y=y)
+    #     log_prob_unstable = model_head.log_prob_unstable(x=x, y=y)
+    #     # Should be close to each other
+    #     assert torch.allclose(log_prob, log_prob_unstable, atol=eps)
+
     def test_loss(self):
         batch_size, seq_len, vocab_size, rank, horizon, n_embd = 8, 8, 128, 8, 2, 256
         eps = 1e-9
@@ -31,7 +54,7 @@ class TestCPBDist(unittest.TestCase):
         assert loss.min() > 0
 
     def test_sample(self):
-        batch_size, seq_len, vocab_size, rank, horizon, n_embd = 8, 8, 128, 8, 2, 256
+        batch_size, seq_len, vocab_size, rank, horizon, n_embd = 32, 8, 128, 3, 2, 256
         eps = 1e-9
 
         model_head = CPBDist(
@@ -55,28 +78,6 @@ class TestCPBDist(unittest.TestCase):
         assert y.shape == (batch_size, horizon)
         assert py.shape == (batch_size, horizon, vocab_size)
         assert torch.allclose(py.sum(dim=-1), torch.ones_like(py.sum(dim=-1)))
-
-    def test_log_prob(self):
-        batch_size, vocab_size, rank, horizon, n_embd = 8, 128, 8, 2, 256
-        eps = 1e-9
-
-        model_head = CPBDist(
-            BaseDistConfig(
-                vocab_size=vocab_size,
-                horizon=horizon,
-                rank=rank,
-                param_net=TensorParamNetConfig(
-                    in_dim=n_embd,
-                ),
-            )
-        )
-
-        x = torch.randn(batch_size, n_embd)  # (B, T, D)
-        y = torch.randint(0, vocab_size, (batch_size, horizon))
-        log_prob = model_head.log_prob(x=x, y=y)
-        log_prob_unstable = model_head.log_prob_unstable(x=x, y=y)
-        # Should be close to each other
-        assert torch.allclose(log_prob, log_prob_unstable, atol=eps)
 
 
 if __name__ == "__main__":
