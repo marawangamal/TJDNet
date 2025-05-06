@@ -199,7 +199,7 @@ class CPBDist(BaseDistribution):
         """
         return -self.log_prob(x, y)
 
-    def sample(
+    def sample_v1(
         self,
         hidden_state: torch.Tensor,
         horizon: Optional[int],
@@ -223,6 +223,38 @@ class CPBDist(BaseDistribution):
             y = y_h if y is None else torch.cat([y, y_h], dim=-1)
             # (B, V) -> (B, 1)
             z = z + log_pyh_bar_y.gather(-1, y_h)
+
+            # Save dist
+            pys.append(pyh_bar_y)
+
+        if y is None:
+            raise ValueError("Failed to sample from CPB distribution.")
+
+        return y, torch.stack(pys, dim=1)  # (B, H), (B, H, V)
+
+    def sample(
+        self,
+        hidden_state: torch.Tensor,
+        horizon: Optional[int],
+        do_sample: bool,
+        top_k: int,
+        **kwargs,
+    ):
+        y = None
+        x = hidden_state[:, -1]  # (B, D)
+        pys = []
+        for h in range(self.horizon):
+            log_pyh_bar_y_tilde = self.log_prob_unstable(
+                x, y, return_dist_slice=True
+            )  # (B, V)
+            pyh_bar_y_tilde = torch.exp(log_pyh_bar_y_tilde)
+            pyh_bar_y = pyh_bar_y_tilde / pyh_bar_y_tilde.sum(-1, keepdim=True)
+            y_h = (
+                sample_topk(pyh_bar_y, top_k=top_k)
+                if do_sample
+                else sample_topk(pyh_bar_y, top_k=1)
+            )  # (B, 1)
+            y = y_h if y is None else torch.cat([y, y_h], dim=-1)
 
             # Save dist
             pys.append(pyh_bar_y)
