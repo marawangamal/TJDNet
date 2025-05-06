@@ -255,17 +255,7 @@ def parse_args():
     # ---
 
     parser.add_argument(
-        "--eval_only", action="store_true", help="Whether to only evaluate the model"
-    )
-    parser.add_argument(
         "--compute_acc", action="store_true", help="Whether to compute accuracy"
-    )
-    parser.add_argument(
-        "--acc_batch_size",
-        type=int,
-        default=1,
-        # GPT2 does not support batch_size > 1
-        help="Batch size for computing accuracy. (NOTE: only models that support attention_mask can use batch_size > 1)",
     )
     parser.add_argument(
         "--wandb_id",

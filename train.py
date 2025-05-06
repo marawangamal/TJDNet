@@ -60,6 +60,7 @@ from utils.helpers import (
 CHECKPOINT_DIR = "checkpoints"
 
 EXP_NAME_EXCLUSIONS = ["cache_dir", "disable_wandb"]
+SILENT_ARGS = ["slurm_job_id", "cache_dir", "disable_wandb"]
 
 
 class TJDTrainer(Trainer):
@@ -109,10 +110,6 @@ class TJDTrainer(Trainer):
                 tokenizer=self.tokenizer,  # type: ignore
                 test_dataset=self.test_dataset,  # type: ignore
                 chat_template=self.chat_template,
-                # horizon=self.horizon,
-                # top_k=self.top_k,
-                # eos_token=self.eos_token,
-                batch_size=self.acc_batch_size,
                 generate_kwargs=self.generate_kwargs,
             )
 
@@ -202,57 +199,96 @@ def generate_wandb_id():
     return random_id
 
 
-def get_exp_config(exp_path):
-    """Load the experiment configuration from a file."""
-    if not osp.exists(osp.join(exp_path, "args.json")):
-        return None
-    with open(osp.join(exp_path, "args.json"), "r") as f:
-        return json.load(f)
-
-
-def lookup_wandb_id(args):
+def lookup_wandb_id(exp_name):
     exps = os.listdir(CHECKPOINT_DIR)
-    args_cp = vars(args).copy()
-    if "wandb_id" in args_cp:
-        del args_cp["wandb_id"]
-    matches = [exp for exp in exps if exp.startswith(get_experiment_name(args_cp))]
-    exp_args = (
-        get_exp_config(osp.join(CHECKPOINT_DIR, matches[0]))
-        if len(matches) == 1
-        else None
-    )
-    return exp_args["wandb_id"] if exp_args else None
+    matches = [exp for exp in exps if exp.startswith(exp_name)]
+    if len(matches) == 1:
+        with open(
+            osp.join(osp.join(CHECKPOINT_DIR, matches[0]), "args.json"), "r"
+        ) as f:
+            return json.load(f)["wandb_id"]
+    else:
+        return None
 
 
-def setup(args, local_rank: int):
-    # mkdir for checkpoints if not exists
-    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-    wandb_id = None
-    iterations = 0
-    while wandb_id is None:
-        wandb_id = lookup_wandb_id(args)
-        if local_rank == 0 and wandb_id is None:
-            wandb_id = generate_wandb_id()
-            args.wandb_id = wandb_id
-            exp_name = get_experiment_name(vars(args))
-            ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
-            os.makedirs(ckpt_dir, exist_ok=True)
-            save_args(args, ckpt_dir)
-            print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
-            print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
-        elif wandb_id is None:
-            time.sleep(1)  # Sleep for a few seconds
-        iterations += 1
+# def setup(args, local_rank: int):
+#     # mkdir for checkpoints if not exists
+#     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+#     wandb_id = None
+#     iterations = 0
+#     while wandb_id is None:
+#         wandb_id = lookup_wandb_id(args)
+#         if local_rank == 0 and wandb_id is None:
+#             wandb_id = generate_wandb_id()
+#             args.wandb_id = wandb_id
+#             exp_name = get_experiment_name(vars(args))
+#             ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
+#             os.makedirs(ckpt_dir, exist_ok=True)
+#             save_args(args, ckpt_dir)
+#             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
+#             print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
+#         elif wandb_id is None:
+#             time.sleep(1)  # Sleep for a few seconds
+#         iterations += 1
 
-        if iterations > 10:
-            raise ValueError("Failed to find or generate a wandb_id")
+#         if iterations > 10:
+#             raise ValueError("Failed to find or generate a wandb_id")
 
-        print(f"[{local_rank}] wandb_id: {wandb_id}")
+#         print(f"[{local_rank}] wandb_id: {wandb_id}")
 
-    args.wandb_id = wandb_id
-    exp_name = get_experiment_name(vars(args))
-    ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
+#     args.wandb_id = wandb_id
+#     exp_name = get_experiment_name(vars(args))
+#     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
 
+#     has_checkpoint = False
+#     if osp.exists(ckpt_dir):
+#         # Look for actual checkpoint files (like pytorch_model.bin or similar)
+#         checkpoint_files = [
+#             f for f in os.listdir(ckpt_dir) if f.startswith("checkpoint-")
+#         ]
+
+#         # Fix files - delete if checkpoint is empty
+#         for f in checkpoint_files:
+#             if not "trainer_state.json" in os.listdir(osp.join(ckpt_dir, f)):
+#                 try:
+#                     print(f"Deleting corrupt checkpoint: {f}")
+#                     shutil.rmtree(osp.join(ckpt_dir, f))
+#                     checkpoint_files.remove(f)
+#                 except Exception as e:
+#                     print(f"Error deleting checkpoint {f}: {e}")
+
+#         # Check if there are any checkpoint files
+#         has_checkpoint = len(checkpoint_files) > 0
+#         if has_checkpoint:
+#             print(f"Resuming from checkpoint: {ckpt_dir}")
+#         else:
+#             print(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
+
+#     return args, exp_name, ckpt_dir, has_checkpoint
+
+
+# def get_wandb_id(args, local_rank: int):
+#     wandb_id = None
+#     iterations = 0
+#     while wandb_id is None:
+#         wandb_id = lookup_wandb_id(args)
+#         if local_rank == 0 and wandb_id is None:
+#             wandb_id = generate_wandb_id()
+#             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
+#             print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
+#         elif wandb_id is None:
+#             time.sleep(1)  # Sleep for a few seconds
+#         iterations += 1
+
+#         if iterations > 10:
+#             raise ValueError("Failed to find or generate a wandb_id")
+
+#         print(f"[{local_rank}] wandb_id: {wandb_id}")
+#     return wandb_id
+
+
+def has_valid_checkpoint(ckpt_dir):
+    # Remove faulty checkpoints
     has_checkpoint = False
     if osp.exists(ckpt_dir):
         # Look for actual checkpoint files (like pytorch_model.bin or similar)
@@ -277,27 +313,38 @@ def setup(args, local_rank: int):
         else:
             print(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
 
-    return args, exp_name, ckpt_dir, has_checkpoint
+    return has_checkpoint
 
 
 def main():
-    # Configuration
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    args_raw = parse_args()
-    filtered_args = Namespace(
-        **{k: v for k, v in vars(args_raw).items() if k not in EXP_NAME_EXCLUSIONS}
-    )
-    args, exp_name, ckpt_dir, has_checkpoint = setup(filtered_args, local_rank)
+    # ==== Setup
     set_seed(42)
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    args = parse_args()
+    filtered_args = Namespace(
+        **{k: v for k, v in vars(args).items() if k not in SILENT_ARGS}
+    )
+    # exp name does not include silent args
+    exp_name = get_experiment_name(vars(filtered_args))
+    ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
+    os.makedirs(ckpt_dir, exist_ok=True)
+
+    # Generate a new wandb_id if not found
+    if local_rank == 0:
+        wandb_id = lookup_wandb_id(filtered_args)
+        if wandb_id is None:
+            wandb_id = generate_wandb_id()
+            args.wandb_id = wandb_id
+            print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
+            print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
+
+    save_args(args, ckpt_dir)  # Args saved/updated in the checkpoint dir
+    has_checkpoint = has_valid_checkpoint(ckpt_dir)
+    # ====
 
     # Model and tokenizer
     model, tokenizer = get_model_and_tokenizer(args)
     chat_template = CHAT_TEMPLATES[args.dataset]
-
-    params_dict = model.param_dict
-    # Print dict key value pairs
-    print("Model parameters:")
-    print("\n".join([f"{k}: {v}" for k, v in params_dict.items()]))
 
     # Datasets
     lm_dataset = DATASET_LOADERS[args.dataset](
@@ -348,8 +395,7 @@ def main():
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
-        # report_to="none" if args.eval_only else "wandb",  # Disable wandb for eval only
-        report_to="wandb" if not args_raw.disable_wandb else "none",
+        report_to="wandb" if not args.disable_wandb else "none",
         # Checkpoints
         # prev save_strategy ===>
         # save_strategy=args.eval_strategy,
@@ -377,7 +423,7 @@ def main():
         project_name = (
             "tjdnet-prod" if git_info.get("branch") == "main" else "tjdnet-dev"
         )
-        if not args_raw.disable_wandb:
+        if not args.disable_wandb:
             wandb.init(
                 project=project_name,
                 name=exp_name,
@@ -385,19 +431,6 @@ def main():
                 config={**vars(args), **git_info},
                 resume="allow",
             )
-
-    # In your main function, add this before initializing the trainer:
-    # generation_callback = GenerationCallback(
-    #     model=model,
-    #     tokenizer=tokenizer,
-    #     generate_strategy=args.generate_strategy,
-    #     generate_steps=args.generate_steps,  # or any other frequency you want
-    #     max_new_tokens=args.max_new_tokens,
-    #     horizon=args.horizon_eval,
-    #     chat_template=chat_template,
-    #     top_k=args.top_k,
-    #     disable_wandb=args_raw.disable_wandb,
-    # )
 
     # Add this line here:
     setup_dist_class_fsdp_wrapping(model, training_args)
@@ -428,15 +461,8 @@ def main():
         metric="acceptance_rate" if args.use_speculative_sampling else "accuracy",
     )
 
-    if args.eval_only:
-        # Run evaluation only
-        metrics = trainer.evaluate()
-        print("Evaluation metrics:", metrics)
-    else:
-        trainer.train(resume_from_checkpoint=has_checkpoint)
-
-        # Save the model
-        trainer.save_model(ckpt_dir)
+    trainer.train(resume_from_checkpoint=has_checkpoint)
+    trainer.save_model(ckpt_dir)
 
 
 if __name__ == "__main__":
