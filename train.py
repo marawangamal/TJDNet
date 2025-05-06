@@ -58,9 +58,18 @@ from utils.helpers import (
 )
 
 CHECKPOINT_DIR = "checkpoints"
-
-EXP_NAME_EXCLUSIONS = ["cache_dir", "disable_wandb"]
-SILENT_ARGS = ["slurm_job_id", "cache_dir", "disable_wandb"]
+SILENT_ARGS = [
+    "slurm_job_id",
+    "cache_dir",
+    "disable_wandb",
+    "compute_acc",
+    "generate_strategy",
+    "generate_steps",
+    "logging_strategy",
+    "logging_steps",
+    "eval_strategy",
+    "eval_steps",
+]
 
 
 class TJDTrainer(Trainer):
@@ -331,12 +340,11 @@ def main():
 
     # Generate a new wandb_id if not found
     if local_rank == 0:
-        wandb_id = lookup_wandb_id(filtered_args)
+        wandb_id = lookup_wandb_id(exp_name)
         if wandb_id is None:
             wandb_id = generate_wandb_id()
             args.wandb_id = wandb_id
             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
-            print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
 
     save_args(args, ckpt_dir)  # Args saved/updated in the checkpoint dir
     has_checkpoint = has_valid_checkpoint(ckpt_dir)

@@ -139,7 +139,7 @@ def main():
     results = {}
     results_file = osp.join(
         args.checkpoint,
-        f"eval_results_{args.metric}_b{args.batch_size}_t{args.max_new_tokens}.json",
+        f"eval_results_{args.metric}.json",
     )
     if osp.exists(results_file):
         print(f"Initalizing results from {results_file}")

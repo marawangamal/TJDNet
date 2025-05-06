@@ -251,22 +251,12 @@ def parse_args():
     )
 
     # ---
-    # MISC
+    # MISC (EXCLUDED FROM EXP NAME)
     # ---
 
     parser.add_argument(
         "--compute_acc", action="store_true", help="Whether to compute accuracy"
     )
-    parser.add_argument(
-        "--wandb_id",
-        type=str,
-        default=None,
-        help="Wandb ID for resuming runs",
-    )
-
-    # ---
-    # EXCLUDED FROM EXP NAME
-    # ---
 
     parser.add_argument(
         "--cache_dir",
