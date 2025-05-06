@@ -237,10 +237,12 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 
 
 
+
+
 <!-- New with lr=5e-5, epochs=5 -->
 <!-- HASH: c8092fce214595f4401a7fb60f067357fcc83075 -->
 
-| Model                                                    Latency [s]   | GSM8k    |  
+<!-- | Model                                                    Latency [s]   | GSM8k    |  
 |:--------------------------------------------------------|:--------------|:---------|
 | base-fs                                                 |               | 0.6527   |  # few shot
 | base                                                    |               | 0.4352   |  # retrained last layer
@@ -250,10 +252,25 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 | cpo::hd2048::h3::r8                                     |               |          |
 | cpo::hd2048::h2::r8                                     |               |          |
 | cp::hd8192::h3::r4                                      |               |          |
-| cp::hd8192::h2::r8                                      |               |          |  
+| cp::hd8192::h2::r8                                      |               |          |   -->
 
 <!-- 
 | cp::hd8192::h3::r8                                      |               |  OOM     | 
 | mps::hd5120::h3::r8                                     |               |  OOM     | 
 | mps::hd5120::h2::r8                                     |               |  OOM     | 
   -->
+
+
+| experiment                                            | train_progress   |    accuracy | accuracy_progress   |   latency |
+|:------------------------------------------------------|:-----------------|------------:|:--------------------|----------:|
+| e5::mmeta::mhbase::umelFalse::r1::h1::hd5120::lr5e_05 | 100% (5.0/5)     |   0.435178  | 100% 1319/1319      |  nan      |
+|-------------------------------------------------------|------------------|-------------|---------------------|-----------|
+| e5::mmeta::mhcpo::umelTrue::r1::h3::hd5120::lr5e_05   | 100% (5.0/5)     |   0.0784314 | 4% 51/1319          |  nan      |
+| e5::mmeta::mhcpo::umelTrue::r1::h2::hd5120::lr5e_05   | 100% (5.0/5)     |   0.215686  | 4% 51/1319          |  nan      |
+| e5::mmeta::mhcp::umelTrue::r8::h4::hd8192::lr5e_05    |                  | nan         |                     |  nan      |
+| e5::mmeta::mhcp::umelTrue::r8::h3::hd8192::lr5e_05    |                  | nan         |                     |  nan      |
+| e5::mmeta::mhcp::umelTrue::r8::h2::hd8192::lr5e_05    | 100% (5.0/5)     |   0.266111  | 100% 1319/1319      |  nan      |
+| e5::mmeta::mhcp::umelTrue::r2::h3::hd5120::lr5e_05    | 100% (5.0/5)     |   0.0784314 | 4% 51/1319          |  nan      |
+| e5::mmeta::mhcp::umelTrue::r2::h3::hd2048::lr5e_05    | 100% (5.0/5)     |   0.0588235 | 4% 51/1319          |  nan      |
+| e5::mmeta::mhcp::umelTrue::r1::h3::hd5120::lr5e_05    | 100% (5.0/5)     |   0.100076  | 100% 1319/1319      |  nan      |
+| e5::mmeta::mhcp::umelTrue::r1::h2::hd5120::lr5e_05    | 100% (5.0/5)     |   0.221028  | 99% 1303/1319       |  nan      |

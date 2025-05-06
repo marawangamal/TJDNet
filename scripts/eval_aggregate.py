@@ -50,6 +50,7 @@ def main(args):
         accuracy = None
         accuracy_progress = None
         latency = None
+        params = None
         epoch = None
         epochs = None
         progress = None
@@ -83,6 +84,7 @@ def main(args):
             with open(lat_file) as f:
                 lat_results = json.load(f)
                 latency = lat_results["modes"]["eval"]["Latency [s]"]["mean"]
+                params = lat_results["modes"]["eval"]["Params [M]"]
 
         # Find latest checkpoint file
         ckpts = [f for f in os.listdir(exp_path) if f.startswith("checkpoint-")]
@@ -104,7 +106,7 @@ def main(args):
                         progress = f"{prog_percent:.0f}% ({epoch}/{epochs})"
 
         name = get_friendly_name(exp) if args.friendly_name else exp
-        results.append([name, progress, accuracy, accuracy_progress, latency])
+        results.append([name, progress, accuracy, accuracy_progress, latency, params])
 
     # Create and print dataframe
     df = pd.DataFrame(
@@ -115,6 +117,7 @@ def main(args):
             "accuracy",
             "accuracy_progress",
             "latency",
+            "params [M]",
         ],
     )
 
@@ -123,6 +126,8 @@ def main(args):
     ascending = not args.desc
     df = df.sort_values(sort_col, ascending=ascending)
 
+    # print markdown table
+    print(df.to_markdown(index=False))
     print(df)
 
 
