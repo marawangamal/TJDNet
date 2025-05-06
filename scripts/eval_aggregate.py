@@ -11,6 +11,7 @@ patterns = {
     "e": r"e(\d{1,2})_",  # e followed by 1-2 digits then underscore
     "m": r"(?:^|_)m([a-zA-Z0-9]+)",
     "mh": r"(?:^|_)mh([a-zA-Z0-9]+)",
+    "umel": r"(?:^|_)umel(True|False)",
     "r": r"(?:^|_)r(\d+)",
     "h": r"(?:^|_)h(\d+)(?:_|$)",
     "hd": r"(?:^|_)hd(\d+)",
@@ -39,6 +40,10 @@ def main(args):
     for exp in os.listdir(args.dir):
         exp_path = os.path.join(args.dir, exp)
         if not os.path.isdir(exp_path):
+            continue
+
+        # Apply filter if provided
+        if args.filter and args.filter not in exp:
             continue
 
         # Get accuracy and latency
@@ -112,7 +117,12 @@ def main(args):
             "latency",
         ],
     )
-    df = df.sort_values("accuracy", ascending=False)
+
+    # Sort by specified column if provided, otherwise sort by accuracy
+    sort_col = args.sort if args.sort in df.columns else "experiment"
+    ascending = not args.desc
+    df = df.sort_values(sort_col, ascending=ascending)
+
     print(df)
 
 
@@ -124,4 +134,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "-f", "--friendly_name", action="store_true", help="Use friendly names"
     )
+    # Add new filter and sort arguments
+    parser.add_argument(
+        "--filter", type=str, help="Filter experiments containing this string"
+    )
+    parser.add_argument(
+        "--sort",
+        type=str,
+        default="experiment",
+        help="Column to sort by (experiment, train_progress, accuracy, accuracy_progress, latency)",
+    )
+    parser.add_argument("--desc", action="store_true", help="Sort in descending order")
     main(parser.parse_args())
