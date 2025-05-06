@@ -322,12 +322,12 @@ def get_git_info():
 
 def validate_args(args):
     rules = [
-        {
-            "message": "Model does not support batch_size > 1",
-            "condition": lambda: not (
-                args.model in ["gpt2"] and args.acc_batch_size > 1
-            ),
-        }
+        # {
+        #     "message": "Model does not support batch_size > 1",
+        #     "condition": lambda: not (
+        #         args.model in ["gpt2"] and args.acc_batch_size > 1
+        #     ),
+        # }
     ]
 
     for rule in rules:

@@ -23,13 +23,11 @@ Hardware requirements:
 """
 
 from argparse import Namespace
-import copy
 import json
 import os
 import os.path as osp
 from re import L
 import shutil
-import time
 from typing import Literal, Union
 import uuid
 
@@ -79,10 +77,6 @@ class TJDTrainer(Trainer):
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
         chat_template: BaseChatTemplate,
         generate_kwargs: dict,
-        # horizon: int,
-        # top_k: int,
-        # eos_token: str,
-        acc_batch_size: int = 1,
         on_converge_callback_cs=None,
         metric: Literal["accuracy", "acceptance_rate"] = "accuracy",
         **kwargs,
@@ -90,12 +84,7 @@ class TJDTrainer(Trainer):
         super().__init__(**kwargs)
         self.test_dataset = test_dataset
         self.chat_template = chat_template
-
-        # self.horizon = horizon
-        # self.top_k = top_k
-        # self.eos_token = eos_token
         self.tokenizer = tokenizer
-        self.acc_batch_size = acc_batch_size
         self.generate_kwargs = generate_kwargs
         self.on_converge_callback_cs = on_converge_callback_cs
         self.metric_name = metric
@@ -208,92 +197,19 @@ def generate_wandb_id():
     return random_id
 
 
-def lookup_wandb_id(exp_name):
+def get_wandb_id(exp_name):
     exps = os.listdir(CHECKPOINT_DIR)
     matches = [exp for exp in exps if exp.startswith(exp_name)]
     if len(matches) == 1:
-        with open(
-            osp.join(osp.join(CHECKPOINT_DIR, matches[0]), "args.json"), "r"
-        ) as f:
-            return json.load(f)["wandb_id"]
+        args_file = os.path.join(CHECKPOINT_DIR, matches[0], "args.json")
+        if osp.exists(args_file):
+            with open(osp.join(args_file), "r") as f:
+                return json.load(f)["wandb_id"]
+        else:
+            wandb_id = generate_wandb_id()
+            printr(f"Generated new wandb_id: {wandb_id}")
     else:
         return None
-
-
-# def setup(args, local_rank: int):
-#     # mkdir for checkpoints if not exists
-#     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-#     wandb_id = None
-#     iterations = 0
-#     while wandb_id is None:
-#         wandb_id = lookup_wandb_id(args)
-#         if local_rank == 0 and wandb_id is None:
-#             wandb_id = generate_wandb_id()
-#             args.wandb_id = wandb_id
-#             exp_name = get_experiment_name(vars(args))
-#             ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
-#             os.makedirs(ckpt_dir, exist_ok=True)
-#             save_args(args, ckpt_dir)
-#             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
-#             print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
-#         elif wandb_id is None:
-#             time.sleep(1)  # Sleep for a few seconds
-#         iterations += 1
-
-#         if iterations > 10:
-#             raise ValueError("Failed to find or generate a wandb_id")
-
-#         print(f"[{local_rank}] wandb_id: {wandb_id}")
-
-#     args.wandb_id = wandb_id
-#     exp_name = get_experiment_name(vars(args))
-#     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
-
-#     has_checkpoint = False
-#     if osp.exists(ckpt_dir):
-#         # Look for actual checkpoint files (like pytorch_model.bin or similar)
-#         checkpoint_files = [
-#             f for f in os.listdir(ckpt_dir) if f.startswith("checkpoint-")
-#         ]
-
-#         # Fix files - delete if checkpoint is empty
-#         for f in checkpoint_files:
-#             if not "trainer_state.json" in os.listdir(osp.join(ckpt_dir, f)):
-#                 try:
-#                     print(f"Deleting corrupt checkpoint: {f}")
-#                     shutil.rmtree(osp.join(ckpt_dir, f))
-#                     checkpoint_files.remove(f)
-#                 except Exception as e:
-#                     print(f"Error deleting checkpoint {f}: {e}")
-
-#         # Check if there are any checkpoint files
-#         has_checkpoint = len(checkpoint_files) > 0
-#         if has_checkpoint:
-#             print(f"Resuming from checkpoint: {ckpt_dir}")
-#         else:
-#             print(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
-
-#     return args, exp_name, ckpt_dir, has_checkpoint
-
-
-# def get_wandb_id(args, local_rank: int):
-#     wandb_id = None
-#     iterations = 0
-#     while wandb_id is None:
-#         wandb_id = lookup_wandb_id(args)
-#         if local_rank == 0 and wandb_id is None:
-#             wandb_id = generate_wandb_id()
-#             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
-#             print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
-#         elif wandb_id is None:
-#             time.sleep(1)  # Sleep for a few seconds
-#         iterations += 1
-
-#         if iterations > 10:
-#             raise ValueError("Failed to find or generate a wandb_id")
-
-#         print(f"[{local_rank}] wandb_id: {wandb_id}")
-#     return wandb_id
 
 
 def has_valid_checkpoint(ckpt_dir):
@@ -325,6 +241,11 @@ def has_valid_checkpoint(ckpt_dir):
     return has_checkpoint
 
 
+def printr(msg):
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    print(f"[RANK {local_rank}] {msg}")
+
+
 def main():
     # ==== Setup
     set_seed(42)
@@ -340,11 +261,8 @@ def main():
 
     # Generate a new wandb_id if not found
     if local_rank == 0:
-        wandb_id = lookup_wandb_id(exp_name)
-        if wandb_id is None:
-            wandb_id = generate_wandb_id()
-            args.wandb_id = wandb_id
-            print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
+        wandb_id = get_wandb_id(exp_name)
+        args.wandb_id = wandb_id
 
     save_args(args, ckpt_dir)  # Args saved/updated in the checkpoint dir
     has_checkpoint = has_valid_checkpoint(ckpt_dir)
@@ -464,7 +382,6 @@ def main():
             max_new_tokens=args.max_new_tokens,
             stop_token=tokenizer.eos_token_id,
         ),
-        acc_batch_size=args.acc_batch_size,
         on_converge_callback_cs=on_converge_callback_cs,
         metric="acceptance_rate" if args.use_speculative_sampling else "accuracy",
     )
@@ -475,3 +392,79 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# def setup(args, local_rank: int):
+#     # mkdir for checkpoints if not exists
+#     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+#     wandb_id = None
+#     iterations = 0
+#     while wandb_id is None:
+#         wandb_id = lookup_wandb_id(args)
+#         if local_rank == 0 and wandb_id is None:
+#             wandb_id = generate_wandb_id()
+#             args.wandb_id = wandb_id
+#             exp_name = get_experiment_name(vars(args))
+#             ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
+#             os.makedirs(ckpt_dir, exist_ok=True)
+#             save_args(args, ckpt_dir)
+#             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
+#             print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
+#         elif wandb_id is None:
+#             time.sleep(1)  # Sleep for a few seconds
+#         iterations += 1
+
+#         if iterations > 10:
+#             raise ValueError("Failed to find or generate a wandb_id")
+
+#         print(f"[{local_rank}] wandb_id: {wandb_id}")
+
+#     args.wandb_id = wandb_id
+#     exp_name = get_experiment_name(vars(args))
+#     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
+
+#     has_checkpoint = False
+#     if osp.exists(ckpt_dir):
+#         # Look for actual checkpoint files (like pytorch_model.bin or similar)
+#         checkpoint_files = [
+#             f for f in os.listdir(ckpt_dir) if f.startswith("checkpoint-")
+#         ]
+
+#         # Fix files - delete if checkpoint is empty
+#         for f in checkpoint_files:
+#             if not "trainer_state.json" in os.listdir(osp.join(ckpt_dir, f)):
+#                 try:
+#                     print(f"Deleting corrupt checkpoint: {f}")
+#                     shutil.rmtree(osp.join(ckpt_dir, f))
+#                     checkpoint_files.remove(f)
+#                 except Exception as e:
+#                     print(f"Error deleting checkpoint {f}: {e}")
+
+#         # Check if there are any checkpoint files
+#         has_checkpoint = len(checkpoint_files) > 0
+#         if has_checkpoint:
+#             print(f"Resuming from checkpoint: {ckpt_dir}")
+#         else:
+#             print(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
+
+#     return args, exp_name, ckpt_dir, has_checkpoint
+
+
+# def get_wandb_id(args, local_rank: int):
+#     wandb_id = None
+#     iterations = 0
+#     while wandb_id is None:
+#         wandb_id = lookup_wandb_id(args)
+#         if local_rank == 0 and wandb_id is None:
+#             wandb_id = generate_wandb_id()
+#             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
+#             print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
+#         elif wandb_id is None:
+#             time.sleep(1)  # Sleep for a few seconds
+#         iterations += 1
+
+#         if iterations > 10:
+#             raise ValueError("Failed to find or generate a wandb_id")
+
+#         print(f"[{local_rank}] wandb_id: {wandb_id}")
+#     return wandb_id
