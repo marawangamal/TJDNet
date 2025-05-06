@@ -90,7 +90,9 @@ def main(args):
         ckpts = [f for f in os.listdir(exp_path) if f.startswith("checkpoint-")]
         if len(ckpts) > 0:
             latest_ckpt_file = os.path.join(
-                exp_path, sorted(ckpts)[-1], "trainer_state.json"
+                exp_path,
+                sorted(ckpts, key=lambda x: int(x.replace("checkpoint-", "")))[-1],
+                "trainer_state.json",
             )
             if os.path.exists(latest_ckpt_file):
                 with open(latest_ckpt_file) as f:

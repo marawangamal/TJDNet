@@ -290,6 +290,12 @@ def parse_args():
         help="Whether to disable wandb logging.",
         default=False,
     )
+    parser.add_argument(
+        "--slurm_job_id",
+        type=str,
+        default=None,
+        help="Slurm job ID for tracking jobs.",
+    )
 
     args = parser.parse_args()
     validate_args(args)
