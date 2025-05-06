@@ -59,7 +59,7 @@ from utils.helpers import (
 
 CHECKPOINT_DIR = "checkpoints"
 
-EXP_NAME_EXCLUSIONS = ["cache_dir", "disable_wandb", "slurm_job_id"]
+EXP_NAME_EXCLUSIONS = ["cache_dir", "disable_wandb"]
 
 
 class TJDTrainer(Trainer):
