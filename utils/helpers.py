@@ -257,18 +257,17 @@ def parse_args():
     parser.add_argument(
         "--compute_acc", action="store_true", help="Whether to compute accuracy"
     )
-
-    parser.add_argument(
-        "--cache_dir",
-        type=str,
-        default=None,
-        help="Directory to cache the model.",
-    )
     parser.add_argument(
         "--disable_wandb",
         action="store_true",
         help="Whether to disable wandb logging.",
         default=False,
+    )
+    parser.add_argument(
+        "--wandb_project",
+        type=str,
+        default="tjdnet",
+        help="Wandb project prefix name.",
     )
 
     args = parser.parse_args()
@@ -444,13 +443,14 @@ def get_model_and_tokenizer(args):
         lora_rank=args.lora_rank,
         auto_model_kwargs=dict(
             # NOTE: this will save hf models to `HF_CACHE_DIR` instead of `~/.cache/huggingface`
-            # cache_dir=HF_CACHE_DIR,
+            # cache_dir=args.cache_dir,
             pretrained_model_name_or_path=args.model,
             low_cpu_mem_usage=True,
         ),
         loss_mode=args.loss_mode if hasattr(args, "loss_mode") else "draft",
         use_memory_efficient_loss=args.use_memory_efficient_loss,
         use_speculative_sampling=args.use_speculative_sampling,
+        # cache_dir=args.cache_dir,
         # use_attn_layer=(
         #     args.use_attn_layer if hasattr(args, "use_attn_layer") else False
         # ),  # Backward compatibility

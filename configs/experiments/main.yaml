@@ -22,6 +22,114 @@ common_preamble_runs:
 # - jobs within a group are run in parallel
 groups:
 
+  # ====== Verification: memory usage of umps is stable
+  - name: verify-umel_umps_mem_usage
+    # Question: "Does umps with use_memory_efficient_loss=true have stable memory usage?"
+    # Answer: ...
+
+    preamble:
+      - "#SBATCH --partition=short-unkillable"
+      - "#SBATCH --gres=gpu:a100l:4"
+      - "#SBATCH --cpus-per-task=12"
+      - "#SBATCH --mem=128G"
+      - "#SBATCH --nodes=1"
+      - "#SBATCH --time=3:00:00"
+
+    paralleljobs:
+      - python scripts/eval_latency_grid --exp grid --model gpt2  --use_memory_efficient_loss --mode train --exp_grid_model_head umps  --exp_gird_horizons 2 4 8 16 32 --exp_grid_ranks 2 4 8 16 32 --exp_grid_hidden_dims 768
+      - python scripts/eval_latency_grid --exp grid --model gpt2  --use_memory_efficient_loss --mode train --exp_grid_model_head cp    --exp_gird_horizons 2 4 8       --exp_grid_ranks 2 4 8 16 32 --exp_grid_hidden_dims 768
+
+
+  - name: verify-umel_cp_performance
+    # Question: "Does umel=true match umel=false performance?"
+    # Answer: ...
+
+    preamble:
+      - "#SBATCH --partition=short-unkillable"
+      - "#SBATCH --gres=gpu:a100l:4"
+      - "#SBATCH --cpus-per-task=12"
+      - "#SBATCH --mem=128G"
+      - "#SBATCH --nodes=1"
+      - "#SBATCH --time=3:00:00"
+
+    paralleljobs:
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+
+
+  - name: tuning-hidden_dim
+    # Question: "Does the hidden_dim affect the performance of the model?"
+    # Answer: ...
+
+    # Question: "Does the lr need re-tuning when changing the hidden_dim?"
+    # Answer: ...
+    preamble:
+      - "#SBATCH --partition=short-unkillable"
+      - "#SBATCH --gres=gpu:a100l:4"
+      - "#SBATCH --cpus-per-task=12"
+      - "#SBATCH --mem=128G"
+      - "#SBATCH --nodes=1"
+      - "#SBATCH --time=3:00:00"
+
+    paralleljobs:
+      #  hidden_dim
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 2048 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 4096 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      # hidden_dim with diff lr
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim 2048 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim 4096 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+
+
+  - name: tuning-rank
+    # Question: "Does the rank affect the performance of the model?"
+    # Answer: ...
+
+    # Question: "Does the lr need retuning when changing the rank?"
+    # Answer: ...
+    preamble:
+      - "#SBATCH --partition=short-unkillable"
+      - "#SBATCH --gres=gpu:a100l:4"
+      - "#SBATCH --cpus-per-task=12"
+      - "#SBATCH --mem=128G"
+      - "#SBATCH --nodes=1"
+      - "#SBATCH --time=3:00:00"
+
+    paralleljobs:
+      #  hidden_dim
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim <chosen_from_last> --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim <chosen_from_last> --horizon 2 --horizon_eval 2 --rank 16 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim <chosen_from_last> --horizon 2 --horizon_eval 2 --rank 32 --use_memory_efficient_loss
+      # hidden_dim with diff lr
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim <chosen_from_last> --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim <chosen_from_last> --horizon 2 --horizon_eval 2 --rank 16 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim <chosen_from_last> --horizon 2 --horizon_eval 2 --rank 32 --use_memory_efficient_loss
+
+
+
+  - name: tuning-horizon
+    preamble:
+      - "#SBATCH --partition=short-unkillable"
+      - "#SBATCH --gres=gpu:a100l:4"
+      - "#SBATCH --cpus-per-task=12"
+      - "#SBATCH --mem=128G"
+      - "#SBATCH --nodes=1"
+      - "#SBATCH --time=3:00:00"
+
+    paralleljobs:
+      #  hidden_dim
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim <from_above> --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim <from_above> --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim <from_above> --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      # hidden_dim with diff lr
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim <from_above> --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim <from_above> --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim <from_above> --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+
+
+
+
   # ====== Main experiments 
   - name: gsm8k
     preamble:

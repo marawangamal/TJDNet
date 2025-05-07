@@ -148,6 +148,20 @@ def main():
 
     results = {
         "config": vars(args),
+        # "compute": {
+        #     # desc of current compute
+        #     "name": os.uname()[1],
+        #     "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU",
+        #     "gpu_mem": torch.cuda.get_device_properties(0).total_memory
+        #     if torch.cuda.is_available()
+        #     else "N/A",
+        #     "cpu_mem": os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"),
+        #     "cpu_cores": os.cpu_count(),
+        #     "cpu_freq": os.sysconf("SC_CLK_TCK"),
+        #     "cpu_model": os.uname()[4],
+        #     "cpu_model_name": os.uname()[0],
+        #     "cpu_model_cores": os.sysconf("SC_NPROCESSORS_ONLN"),
+        # },
         "modes": {},
     }
     results_file = osp.join(

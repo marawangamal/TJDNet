@@ -214,8 +214,8 @@ def main(args):
             **common_kwargs,
         }
         for (r, h, hd) in itertools.product(
-            [1, 2, 4, 8, 16],
-            [2, 4, 8, 16, 32],
+            args.exp_grid_ranks,
+            args.exp_grid_horizons,
             [MODEL_HIDDEN_DIMS.get(args.exp_grid_model_head, 768)],
         )
     ]
@@ -306,19 +306,6 @@ if __name__ == "__main__":
         help="Experiment to run",
     )
     parser.add_argument(
-        "--exp_grid_model_head",
-        type=str,
-        choices=["cp", "cpo", "mps", "umps"],
-        default="cp",
-        help="Model head to use for the grid search",
-    )
-    parser.add_argument(
-        "--exp_grid_hidden_dim",
-        type=int,
-        default=768,
-        help="Hidden dimension to use for the grid search",
-    )
-    parser.add_argument(
         "--use_memory_efficient_loss",
         action="store_true",
         default=False,
@@ -358,5 +345,34 @@ if __name__ == "__main__":
         action="store_true",
         help="Use data parallelism",
     )
+    # === Grid exp args
+    parser.add_argument(
+        "--exp_grid_model_head",
+        type=str,
+        choices=["cp", "cpo", "mps", "umps"],
+        default="cp",
+        help="Model head to use for the grid search",
+    )
+    parser.add_argument(
+        "--exp_grid_hidden_dims",
+        type=int,
+        nargs="+",
+        default=[768],
+        help="Hidden dimensions to use for the grid search",
+    )
+    parser.add_argument(
+        "--exp_grid_ranks",
+        nargs="+",
+        type=int,
+        default=[1, 2, 4, 8, 16],
+        help="Ranks to use for the grid search",
+    )
+    parser.add_argument(
+        "--exp_grid_horizons",
+        nargs="+",
+        type=int,
+        default=[2, 4, 8, 16, 32],
+    )
+    # ===
     args = parser.parse_args()
     main(args)

@@ -28,6 +28,7 @@ import os
 import os.path as osp
 from re import L
 import shutil
+import time
 from typing import Literal, Union
 import uuid
 
@@ -67,6 +68,7 @@ SILENT_ARGS = [
     "logging_steps",
     "eval_strategy",
     "eval_steps",
+    "wandb_project",
 ]
 
 
@@ -204,10 +206,12 @@ def get_wandb_id(exp_name):
         args_file = os.path.join(CHECKPOINT_DIR, matches[0], "args.json")
         if osp.exists(args_file):
             with open(osp.join(args_file), "r") as f:
+                printr(f"Found args file: {args_file}")
                 return json.load(f)["wandb_id"]
         else:
             wandb_id = generate_wandb_id()
             printr(f"Generated new wandb_id: {wandb_id}")
+            return wandb_id
     else:
         return None
 
@@ -234,9 +238,9 @@ def has_valid_checkpoint(ckpt_dir):
         # Check if there are any checkpoint files
         has_checkpoint = len(checkpoint_files) > 0
         if has_checkpoint:
-            print(f"Resuming from checkpoint: {ckpt_dir}")
+            printr(f"Resuming from checkpoint: {ckpt_dir}")
         else:
-            print(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
+            printr(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
 
     return has_checkpoint
 
@@ -244,6 +248,12 @@ def has_valid_checkpoint(ckpt_dir):
 def printr(msg):
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     print(f"[RANK {local_rank}] {msg}")
+
+
+def printo(msg):
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    if local_rank == 0:
+        printr(msg)
 
 
 def main():
@@ -259,18 +269,54 @@ def main():
     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    # Generate a new wandb_id if not found
+    # Sync file path
+    sync_file = os.path.join(ckpt_dir, ".rank0_done")
+
+    # Rank 0 does initialization
     if local_rank == 0:
+        # Clean up old flag if it exists
+        if os.path.exists(sync_file):
+            os.remove(sync_file)
+
         wandb_id = get_wandb_id(exp_name)
         args.wandb_id = wandb_id
+        save_args(args, ckpt_dir)
+        has_checkpoint = has_valid_checkpoint(ckpt_dir)
 
-    save_args(args, ckpt_dir)  # Args saved/updated in the checkpoint dir
-    has_checkpoint = has_valid_checkpoint(ckpt_dir)
+        # Signal completion by creating an empty file
+        with open(sync_file, "w") as f:
+            pass  # Create empty file
+
+    # Other ranks wait for the file to appear
+    else:
+        wait_time = 0
+        while not os.path.exists(sync_file):
+            if wait_time > 10:
+                raise ValueError("Setup failed")
+            time.sleep(1)
+            printr("Waiting for rank 0...")
+
+        # Load the args file
+        with open(os.path.join(ckpt_dir, "args.json"), "r") as f:
+            saved_args = json.load(f)
+            args.wandb_id = saved_args.get("wandb_id")
+
+        has_checkpoint = has_valid_checkpoint(ckpt_dir)
+
+        # Optional: Clean up the sync file when all processes are past the setup
+        # Use a distributed barrier if available (preferred method)
+        if os.path.exists(sync_file) and local_rank == 1:
+            printo("Cleaning up...")
+            os.remove(sync_file)
+        printr("Setup complete.")
     # ====
 
     # Model and tokenizer
+    printr("Initializing model...")
     model, tokenizer = get_model_and_tokenizer(args)
     chat_template = CHAT_TEMPLATES[args.dataset]
+    printo(f"Model: {model.__class__.__name__}")
+    printo(f"Tokenizer: {tokenizer.__class__.__name__}")
 
     # Datasets
     lm_dataset = DATASET_LOADERS[args.dataset](
@@ -302,7 +348,8 @@ def main():
                 and local_rank == 0
             ):
                 print("Accuracy is 1.0, ending training.")
-                exit(0)
+                print(f"Experiment: {ckpt_dir})")
+                return
 
     training_args = TrainingArguments(
         output_dir=ckpt_dir,
@@ -339,16 +386,15 @@ def main():
         # fp16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
-        optim="adafactor",  # Use Adafactor optimizer
+        # optim="adafactor",  # Use Adafactor optimizer
         # torch_empty_cache_steps=1,
         # no_cuda=True,  # Force CPU usage
     )
 
     if training_args.local_rank == 0:  # main process
         git_info = get_git_info()
-        project_name = (
-            "tjdnet-prod" if git_info.get("branch") == "main" else "tjdnet-dev"
-        )
+        suffix = "main" if git_info.get("branch") == "main" else "dev"
+        project_name = f"{args.wandb_project}-{suffix}"
         if not args.disable_wandb:
             wandb.init(
                 project=project_name,
@@ -359,7 +405,7 @@ def main():
             )
 
     # Add this line here:
-    setup_dist_class_fsdp_wrapping(model, training_args)
+    # setup_dist_class_fsdp_wrapping(model, training_args)
 
     # Initialize the trainer
     trainer = TJDTrainer(
@@ -385,9 +431,9 @@ def main():
         on_converge_callback_cs=on_converge_callback_cs,
         metric="acceptance_rate" if args.use_speculative_sampling else "accuracy",
     )
-
+    printr(f"Trainer initialized with {len(lm_dataset['train'])} training samples")
     trainer.train(resume_from_checkpoint=has_checkpoint)
-    trainer.save_model(ckpt_dir)
+    print(f"Experiment: {ckpt_dir})")
 
 
 if __name__ == "__main__":
