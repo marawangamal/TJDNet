@@ -22,11 +22,12 @@ import argparse
 from typing import List
 import torch
 from tqdm import tqdm
+import wandb
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from utils.accpetance_rates import compute_acceptance_rate
 from utils.accuracy import compute_accuracy
-from utils.helpers import get_model_and_tokenizer
+from utils.helpers import get_git_info, get_model_and_tokenizer
 
 
 def load_weights(model, checkpoint_path):
@@ -52,11 +53,11 @@ def parse_args():
     # Parse just our evaluation-specific arguments
     parser = argparse.ArgumentParser(description="Evaluate model checkpoints")
     parser.add_argument(
-        "-c",
-        "--checkpoint",
+        "-e",
+        "--experiment",
         type=str,
         required=True,
-        help="Directory containing the model checkpoint and args.json",
+        help="Directory containing experiment checkpoints",
     )
     parser.add_argument(
         "--device",
@@ -118,15 +119,15 @@ def main():
     }[args.metric]
 
     checkpoints: List[str] = [
-        osp.join(args.checkpoint, c)
-        for c in os.listdir(args.checkpoint)
+        osp.join(args.experiment, c)
+        for c in os.listdir(args.experiment)
         if c.startswith("checkpoint")
     ]
     if len(checkpoints) == 0:
-        print(f"No checkpoints found in {args.checkpoint}.")
+        print(f"No checkpoints found in {args.experiment}.")
         return
 
-    exp_args_dict = json.load(open(os.path.join(args.checkpoint, "args.json")))
+    exp_args_dict = json.load(open(os.path.join(args.experiment, "args.json")))
 
     # 1. Setup
     exp_args = argparse.Namespace(**exp_args_dict)
@@ -138,8 +139,8 @@ def main():
 
     results = {}
     results_file = osp.join(
-        args.checkpoint,
-        f"eval_results_{args.metric}_b{args.batch_size}_t{args.max_new_tokens}.json",
+        args.experiment,
+        f"eval_results_{args.metric}.json",
     )
     if osp.exists(results_file):
         print(f"Initalizing results from {results_file}")
@@ -180,9 +181,25 @@ def main():
 
     save_results_checkpoint(results, results_file)
     print(f"Results saved to {results_file}")
-    # Print best eval metric achieved
-    best_acc = max([r["avg"] for r in results.values()])
-    print(f"Eval {args.metric} (best): {best_acc} for exp: {args.checkpoint}")
+    best_acc = max([(k, v["avg"]) for k, v in results.items()], key=lambda x: x[1])
+    print(f"Eval {args.metric} (best): {best_acc} for exp: {args.experiment}")
+
+    # ==== Log to wandb
+    git_info = get_git_info()
+    suffix = "main" if git_info.get("branch") == "main" else "dev"
+    project_name = f"{args.wandb_project}-{suffix}"
+    wandb.init(
+        project=project_name,
+        name=os.path.basename(args.experiment),
+        id=exp_args.wandb_id,
+        resume="allow",
+    )
+    wandb.log(
+        {
+            f"eval/{args.metric}": best_acc,
+        },
+        step=int(best_acc[0].replace("checkpoint-", "")),
+    )
 
 
 if __name__ == "__main__":
