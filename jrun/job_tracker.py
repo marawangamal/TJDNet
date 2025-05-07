@@ -11,14 +11,16 @@ from .job_spec import JobSpec
 class JobTracker:
     """Track SLURM job status with support for complex job hierarchies."""
 
-    def __init__(self, db_path: str = "~/.jobrunner/jobs.db"):
+    def __init__(self, db_path: str = "~/.cache/jobrunner/jobs.db"):
         """Initialize the job tracker.
 
         Args:
             db_path: Path to SQLite database for job tracking
         """
         self.db_path = os.path.expanduser(db_path)
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        dir = os.path.dirname(self.db_path)
+        if dir:
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
 
     def _init_db(self) -> None:

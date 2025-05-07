@@ -66,54 +66,87 @@ class ConfigManager:
         Returns:
             List of JobSequence objects
         """
-        sequences = []
-
         # Generate a sequence experiment ID if not provided
         if parent_exp_id is None:
             parent_exp_id = str(uuid.uuid4())[:8]
 
+        # Create one JobSequence to hold all simple "job" entries
+        simple_jobs = []
+
+        # Create a list to hold all job sequences (both simple and complex)
+        all_sequences = []
+
         for seq_idx, seq_item in enumerate(sequential_config):
-            # Generate a unique ID for this sequence
-            sequence_id = f"{parent_exp_id}-{seq_idx}"
+            # Generate a unique ID for this item
+            item_id = f"{parent_exp_id}-{seq_idx}"
 
             if "job" in seq_item:
-                # Single job
-                job_specs = [
-                    self._create_job_spec(seq_item["job"], group_name, sequence_id)
-                ]
-                sequences.append(
-                    JobSequence(id=sequence_id, job_specs=job_specs, is_parallel=False)
-                )
+                # Simple job - add to the collection of simple jobs
+                job_spec = self._create_job_spec(seq_item["job"], group_name, item_id)
+                simple_jobs.append(job_spec)
 
             elif "paralleljobs" in seq_item:
-                # Parallel jobs
+                # If we have accumulated simple jobs, create a sequence for them
+                if simple_jobs:
+                    simple_seq_id = f"{parent_exp_id}-simple-{len(all_sequences)}"
+                    all_sequences.append(
+                        JobSequence(
+                            id=simple_seq_id,
+                            job_specs=list(simple_jobs),
+                            is_parallel=False,
+                        )
+                    )
+                    simple_jobs = []  # Reset the list
+
+                # Parallel jobs - create a parallel sequence
                 parallel_sequences = self._process_parallel_jobs(
-                    seq_item["paralleljobs"], group_name, sequence_id
+                    seq_item["paralleljobs"], group_name, item_id
                 )
-                sequences.append(
+                all_sequences.append(
                     JobSequence(
-                        id=sequence_id,
+                        id=item_id,
                         sub_sequences=parallel_sequences,
                         is_parallel=True,
                     )
                 )
 
             elif "parallellsweep" in seq_item:
-                # Parameter sweep with parallel jobs
+                # If we have accumulated simple jobs, create a sequence for them
+                if simple_jobs:
+                    simple_seq_id = f"{parent_exp_id}-simple-{len(all_sequences)}"
+                    all_sequences.append(
+                        JobSequence(
+                            id=simple_seq_id,
+                            job_specs=list(simple_jobs),
+                            is_parallel=False,
+                        )
+                    )
+                    simple_jobs = []  # Reset the list
+
+                # Parameter sweep - create a sweep sequence
                 sweep_config = seq_item["parallellsweep"]
                 sweep_sequences = self._process_parameter_sweep(
-                    sweep_config, group_name, sequence_id
+                    sweep_config, group_name, item_id
                 )
-                sequences.append(
+                all_sequences.append(
                     JobSequence(
-                        id=sequence_id,
+                        id=item_id,
                         sub_sequences=sweep_sequences,
                         is_parallel=True,
                         is_sweep=True,
                     )
                 )
 
-        return sequences
+        # If we have any remaining simple jobs, create a sequence for them
+        if simple_jobs:
+            simple_seq_id = f"{parent_exp_id}-simple-{len(all_sequences)}"
+            all_sequences.append(
+                JobSequence(
+                    id=simple_seq_id, job_specs=list(simple_jobs), is_parallel=False
+                )
+            )
+
+        return all_sequences
 
     def _process_parallel_jobs(
         self, parallel_config: List[Dict], group_name: str, parent_exp_id: str
