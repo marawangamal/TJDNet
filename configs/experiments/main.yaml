@@ -42,7 +42,7 @@ groups:
 
   - name: verify-umel_cp_performance
     # Question: "Does umel=true match umel=false performance?"
-    # Answer: ...
+    # Answer: No. 0.2079 (True) vs 0.2772 (False) r2::h2::hd8192
 
     preamble:
       - "#SBATCH --partition=short-unkillable"
@@ -55,6 +55,8 @@ groups:
     paralleljobs:
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2
       - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+      - accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 1e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss
+
 
 
   - name: tuning-hidden_dim

@@ -9,6 +9,7 @@ setup(
             "jobrunner*",  # CLI package
             "utils*",  # etc.
             "dataloaders*",
+            "jrun*",  # Add the new jrun package
         ]
     ),
     install_requires=[
@@ -21,10 +22,16 @@ setup(
         "pydantic>=2.7.1",
         "datasets>=1.14.0",
         "tensorboard>=2.6.0",
+        "pyyaml>=6.0",  # For YAML configuration
+        "pandas>=1.5.0",  # For data handling
+        "matplotlib>=3.5.0",  # For visualization
+        "networkx>=2.8.0",  # For dependency graphs
+        "sqlite3>=2.6.0",  # For database (if not in standard library)
     ],
     entry_points={
         "console_scripts": [
-            "jobrunner = jobrunner.main:main",  # command → package.module:function
+            "jobrunner = jobrunner.main:main",  # Original entry point
+            "jrun = jrun.cli:main",  # New entry point for the renamed package
         ],
     },
 )
