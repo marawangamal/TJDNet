@@ -375,9 +375,10 @@ def main():
         # save_steps=args.eval_steps,
         # save_total_limit=2,  # Save only 3 checkpoints
         # load_best_model_at_end=True,
-        # ====
+        # == new save_strategy ==>
         save_strategy="best",
-        # <=== new save_strategy
+        save_total_limit=1,
+        # <====
         save_safetensors=False,
         metric_for_best_model="eval_nll",
         greater_is_better=False,

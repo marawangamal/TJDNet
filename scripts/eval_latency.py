@@ -21,16 +21,10 @@ import os.path as osp
 import json
 import argparse
 import traceback
-from typing import List
 import torch
-from tqdm import tqdm
 
-from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
-from utils.accpetance_rates import compute_acceptance_rate
-from utils.accuracy import compute_accuracy
 from utils.helpers import get_model_and_tokenizer
 from utils.latency import benchmark_model_v2, get_params
-from utils.models import train_forward
 
 
 def load_weights(model, checkpoint_path):
@@ -69,13 +63,6 @@ def parse_args():
         help="Device to use for evaluation",
     )
     parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["train", "eval"],
-        default="eval",
-        help="Mode to run the script in",
-    )
-    parser.add_argument(
         "-b",
         "--batch_size",
         type=int,
@@ -86,25 +73,13 @@ def parse_args():
         "-i",
         "--inp_seq_len",
         type=int,
-        default=256,
+        default=8,
     )
     parser.add_argument(
         "-o",
         "--out_seq_len",
         type=int,
-        default=128,
-    )
-    parser.add_argument(
-        "--top_k",
-        type=int,
-        default=200,
-        help="Top-k value for sampling",
-    )
-    parser.add_argument(
-        "--top_p",
-        type=float,
-        default=0.95,
-        help="Top-p value for sampling",
+        default=32,
     )
     args = parser.parse_args()
     return args
@@ -124,7 +99,7 @@ def main():
 
     gen_kwargs = {
         "max_new_tokens": args.out_seq_len,
-        "top_k": args.top_k,
+        "top_k": 200,
         "do_sample": False,
     }
     exps = [
@@ -148,20 +123,6 @@ def main():
 
     results = {
         "config": vars(args),
-        # "compute": {
-        #     # desc of current compute
-        #     "name": os.uname()[1],
-        #     "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU",
-        #     "gpu_mem": torch.cuda.get_device_properties(0).total_memory
-        #     if torch.cuda.is_available()
-        #     else "N/A",
-        #     "cpu_mem": os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"),
-        #     "cpu_cores": os.cpu_count(),
-        #     "cpu_freq": os.sysconf("SC_CLK_TCK"),
-        #     "cpu_model": os.uname()[4],
-        #     "cpu_model_name": os.uname()[0],
-        #     "cpu_model_cores": os.sysconf("SC_NPROCESSORS_ONLN"),
-        # },
         "modes": {},
     }
     results_file = osp.join(
