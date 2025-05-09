@@ -1,8 +1,6 @@
 from typing import Callable, List, Optional, Tuple
 import torch
 
-from tjdnet.distributions._base import BaseDistribution
-
 
 def sample_topk(p: torch.Tensor, top_k: int, num_samples: int = 1) -> torch.Tensor:
     """Sample from the top-k tokens in distribution `p`.
@@ -95,8 +93,7 @@ def spec_sample_v2(
         - p(y|x) (torch.Tensor): Target probabilities from model_p. Shape: (B, H, V).
 
     Returns:
-        torch.Tensor: Accepted tokens. Shape: (B, H'), where H' is the number of
-            accepted tokens per sequence (can be > 1 and vary).
+        torch.Tensor: Sampled token sequence. Shape: (B, H') where H" \\in [1, H].
     """
     # Get draft preds and probs
     q_hat, qy = model_q()  # (B, H), (B, H, V)
