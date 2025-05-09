@@ -63,7 +63,7 @@ class GenerationCallback(TrainerCallback):
                     self.model.device
                 )
                 outputs, _ = self.model.generate(
-                    input_ids=inputs,  # (batch_size, max_seq_len)
+                    x=inputs,  # (batch_size, max_seq_len)
                     max_new_tokens=self.max_new_tokens,
                     top_k=self.top_k,
                     do_sample=True,

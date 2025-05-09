@@ -124,7 +124,7 @@ def main(args):
                 "model_fn": create_model(
                     rank=1,
                     horizon=1,
-                    model_head="cp",
+                    model_head="base",
                     hidden_dim=5120,
                 ),
                 **common_kwargs,
@@ -142,9 +142,9 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h, hd) in zip([8, 8], [2, 3], [5120, 5120])
+            for (r, h, hd) in zip([8], [2], [8192])
         ]
-        # TMTP
+        # MoE
         + [
             {
                 "name": f"{replace_spec_chars(args.model)}::cpo::rank{r}::horizon{h}::hd{hd}",
@@ -156,7 +156,7 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h, hd) in zip([8, 8], [2, 3], [2048, 2048])
+            for (r, h, hd) in zip([8], [2], [5120])
         ]
         # MTP
         + [
@@ -170,34 +170,7 @@ def main(args):
                 ),
                 **common_kwargs,
             }
-            for (r, h, hd) in zip([1, 1], [2, 3], [5120, 5120])
-        ]
-        # MPS
-        + [
-            {
-                "name": f"{replace_spec_chars(args.model)}::mps::rank{r}::horizon{h}::hd{hd}",
-                "model_fn": create_model(
-                    rank=r,
-                    horizon=h,
-                    model_head="mps",
-                    hidden_dim=hd,
-                ),
-                **common_kwargs,
-            }
-            for (r, h, hd) in zip([2, 2], [2, 3], [2048, 2048])
-        ]  # uMPS
-        + [
-            {
-                "name": f"{replace_spec_chars(args.model)}::mps::rank{r}::horizon{h}::hd{hd}",
-                "model_fn": create_model(
-                    rank=r,
-                    horizon=h,
-                    model_head="umps",
-                    hidden_dim=hd,
-                ),
-                **common_kwargs,
-            }
-            for (r, h, hd) in zip([2, 2], [2, 3, 4], [5120, 5120])
+            for (r, h, hd) in zip([1], [2], [5120])
         ]
     )
 
@@ -216,7 +189,7 @@ def main(args):
         for (r, h, hd) in itertools.product(
             args.exp_grid_ranks,
             args.exp_grid_horizons,
-            [MODEL_HIDDEN_DIMS.get(args.exp_grid_model_head, 768)],
+            args.exp_grid_hidden_dims,
         )
     ]
 
@@ -252,7 +225,7 @@ def main(args):
                 # Save results
                 results[exp_name] = benchmark_results
                 results[exp_name]["Accuracy"] = {"mean": 0, "std": 0}
-                results[exp_name]["Params [M]"] = get_params(model)
+                results[exp_name]["Params [B]"] = get_params(model)
 
                 # Clean up
                 del model
@@ -266,12 +239,12 @@ def main(args):
 
     log_results(
         results,
-        cols=["Model", "Latency [s]", "Params [M]", "Accuracy"],
+        cols=["Model", "Latency [s]", "Params [B]", "Accuracy"],
         output_format="latex",
     )
     print("\n\n")
     # Print results
-    log_results(results, cols=["Model", "Latency [s]", "Params [M]", "Accuracy"])
+    log_results(results, cols=["Model", "Latency [s]", "Params [B]", "Accuracy"])
     # Print results (detailed)
     print("\n\n")
     log_results(results)

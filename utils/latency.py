@@ -148,4 +148,4 @@ def benchmark_model_v2(
 def get_params(model):
     # Get the number of parameters in the model head
     param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return param_count / 1e6  # Convert to millions
+    return param_count / 1e9  # Convert to billions

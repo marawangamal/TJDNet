@@ -269,8 +269,8 @@ class TJD(ABC, torch.nn.Module):
     # TODO: use x instead of active_seqs
     def generate(
         self,
-        input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        x: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
         stop_token: Optional[int] = None,
         max_new_tokens: int = 8,
         do_sample: bool = True,
@@ -282,7 +282,7 @@ class TJD(ABC, torch.nn.Module):
         """Generate sequences given an input tensor.
 
         Args:
-            input_ids (torch.Tensor): Previous tokens of shape (B, T)
+            x (torch.Tensor): Previous tokens of shape (B, T)
             attention_mask (Optional[torch.Tensor], optional): Attention mask of shape (B, T). Defaults to None.
             stop_token (Optional[int], optional): Stop token for generation. Defaults to None.
             max_new_tokens (int, optional): Maximum number of tokens to generate. Defaults to 8.
@@ -295,27 +295,27 @@ class TJD(ABC, torch.nn.Module):
             torch.Tensor: Generated tokens of shape (B, T_out). T_out <= T + max_new_tokens if stop_token is used. Otherwise, T_out = T + max_new_tokens.
         """
 
-        assert torch.all(input_ids >= 0), "Input tokens must be positive"
+        assert torch.all(x >= 0), "Input tokens must be positive"
         assert stop_token is None or stop_token > 0, "Stop token must be positive"
-        if attention_mask is not None:
+        if attn_mask is not None:
             assert torch.all(
-                torch.tensor(input_ids.shape == attention_mask.shape)
+                torch.tensor(x.shape == attn_mask.shape)
             ), "Shape mismatch between input_ids and attention_mask"
 
         horizon = self._get_horizon(horizon)
-        batch_size = input_ids.size(0)
-        device = input_ids.device
+        batch_size = x.size(0)
+        device = x.device
 
         temp_token = -100  # Temporary token for padding
 
         # Initialize output with input_ids
-        output_seqs = torch.full(
-            (batch_size, input_ids.size(1) + max_new_tokens),
+        y_out = torch.full(
+            (batch_size, x.size(1) + max_new_tokens),
             fill_value=temp_token,
             dtype=torch.long,
             device=device,
-        )  # (B, T_in + T_out)
-        output_seqs[:, : input_ids.size(1)] = input_ids
+        )  # (B, T + N)
+        y_out[:, : x.size(1)] = x
 
         accept_rate_metrics = {
             "tokens_proposed": 0,
@@ -326,74 +326,74 @@ class TJD(ABC, torch.nn.Module):
 
         with torch.no_grad():
             time_step = 0
-            # for time_step in range(0, max_new_tokens, horizon):
             while time_step < max_new_tokens:
-                time_step_prime = input_ids.size(1) + time_step
-                # Exit if all sequences are done
-                active_mask = (
-                    ~torch.any(output_seqs[:, input_ids.size(1) :] == stop_token, dim=1)
+                time_step_prime = x.size(1) + time_step
+                # Mask out completed seqs (i.e., seqs that encountered stop_token)
+                mask_active = (
+                    ~torch.any(y_out[:, x.size(1) :] == stop_token, dim=1)
                     if stop_token is not None
                     else torch.ones(batch_size, device=device).bool()
                 )  # (B,)
-                if not active_mask.any():
+                # Exit if all sequences are done
+                if not mask_active.any():
                     break
 
                 # Get currently active sequences
-                active_seqs = output_seqs[
-                    active_mask, :time_step_prime
-                ]  # (B_active, T_in + time_step)
-                current_attention = (
-                    extend_attn(attention_mask[active_mask], time_step)
-                    if attention_mask is not None
+                y_prime = y_out[mask_active, :time_step_prime]  # (B', T + time_step)
+                attn_mask_prime = (
+                    extend_attn(attn_mask[mask_active], time_step)
+                    if attn_mask is not None
                     else None
-                )  # (B_active, T_in + time_step)
+                )  # (B', T + time_step)
 
                 # Generate next tokens
-                hidden_state = self.get_attn_last_hidden_state(
-                    input_ids=active_seqs, attention_mask=current_attention
-                )
+                h = self.get_attn_last_hidden_state(
+                    input_ids=y_prime, attention_mask=attn_mask_prime
+                )  # (B', T + time_step, D)
 
                 horizon_target = min(
                     horizon, max_new_tokens - time_step
-                )  # speculative heads may not reach target horizon
+                )  # Handle case when < horizon tokens are left
 
                 def model_p(y: torch.Tensor):
+                    """Target model p(y|x)."""
                     # Signature: model_p: y -> p(y|x)
-                    # Shape of y: (B_active, H')
-                    x = active_seqs  # (B_active, T_in + time_step)
+                    # Shape of y: (B', H')
+                    # Shape of p(y|x): (B', H', V)
+                    x = y_prime  # (B', T + time_step)
                     h = self.get_attn_last_hidden_state(
                         input_ids=torch.cat((x, y), dim=1),
-                        attention_mask=current_attention,
-                    )  # (B_active, T_in + time_step + H', D)
-                    py_x = self.tgt_model_head(h)  # (B_active, t' + H', V)
-                    # TODO: maybe should abasorb this into the tgt_model_head
-                    return torch.softmax(py_x[:, time_step_prime:], dim=-1)
+                        attention_mask=attn_mask_prime,
+                    )  # (B', T + time_step + H', D)
+                    py_bar_x_prime = self.tgt_model_head(h)  # (B', t' + H', V)
+                    return torch.softmax(py_bar_x_prime[:, time_step_prime:], dim=-1)
 
                 if self.use_speculative_sampling:
                     y_hat = spec_sample_v2(
-                        # model_p: y -> p(y|x)
+                        # model_p: y -> p(y|x). Shape: (B', H') -> (B', H', V)
                         model_p=model_p,
-                        # {} -> y_hat, q(y|x)
+                        # {} -> y_hat, q(y|x). Shape: None -> (B', H'), (B', H', V)
                         model_q=lambda: self.model_head.sample(
-                            hidden_state,
+                            h,
                             horizon_target,
                             do_sample=do_sample,
                             top_k=top_k,
                         ),
                         sample_fn=lambda p: sample_topk(p, top_k=top_k).squeeze(-1),
-                    )  # (B', H') -- H' <= H_tgt
+                    )  # (B', H') -- H' <= H_tgt if not all tokens are accepted
 
                     accept_rate_metrics["tokens_proposed"] += horizon_target
                     accept_rate_metrics["tokens_accepted"] += y_hat.size(1)
 
                 else:
                     y_hat, _ = self.model_head.sample(
-                        hidden_state,
+                        h,
                         horizon_target,
                         do_sample=do_sample,
                         top_k=top_k,
-                    )  # (B_active, horizon_actual)
-                horizon_actual = y_hat.size(1)
+                    )  # (B', H_tgt)
+
+                horizon_prime = y_hat.size(1)
 
                 accept_rate_metrics["num_tokens_generated"] += y_hat.size(1)
                 accept_rate_metrics["num_speculative_tokens_accepted"] += (
@@ -401,25 +401,25 @@ class TJD(ABC, torch.nn.Module):
                 )
 
                 # Append new tokens
-                time_step_abs = input_ids.size(1) + time_step
-                output_seqs[
-                    active_mask,
-                    time_step_abs : time_step_abs + horizon_actual,
+                time_step_abs = x.size(1) + time_step
+                y_out[
+                    mask_active,
+                    time_step_abs : time_step_abs + horizon_prime,
                 ] = y_hat
 
-                time_step += horizon_actual
+                time_step += horizon_prime
 
         # Keep only the new tokens if requested
         if return_new_tokens:
-            output_seqs = output_seqs[:, input_ids.size(1) :]
+            y_out = y_out[:, x.size(1) :]
 
         # Replace stop tokens with padding
         if stop_token is not None:
-            output_seqs[output_seqs == temp_token] = stop_token
-            stop_mask = (output_seqs == stop_token).float()  # (B, T_out)
-            output_seqs[torch.cumsum(stop_mask, dim=1) >= 1] = stop_token
+            y_out[y_out == temp_token] = stop_token
+            stop_mask = (y_out == stop_token).float()  # (B, T_out)
+            y_out[torch.cumsum(stop_mask, dim=1) >= 1] = stop_token
 
-        return output_seqs, accept_rate_metrics
+        return y_out, accept_rate_metrics
 
     def _get_tgt_loss(
         self,
