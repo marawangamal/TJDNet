@@ -3,19 +3,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import argparse
+import numpy as np
 
 
-def plot_memory_by_params(csv_file, output_path="results/plots/mhcp_profile.png"):
-    """Generate three plots showing memory usage vs. rank, horizon, and hidden dimension."""
+def plot_memory_by_params(csv_file, output_path="results/plots/memory_analysis.png"):
+    """Generate plots showing memory usage vs. parameters using SQL-like approach."""
     # Read the CSV file
     df = pd.read_csv(csv_file)
 
-    # Clean column names (they have spaces and |)
+    # Clean column names
     df.columns = [col.strip() for col in df.columns]
-
-    # Drop empty first and last columns if they exist
-    if "" in df.columns:
-        df = df.drop("", axis=1)
 
     # Extract parameters from model name
     def extract_param(model_str, pattern):
@@ -28,70 +25,135 @@ def plot_memory_by_params(csv_file, output_path="results/plots/mhcp_profile.png"
     df["HiddenDim"] = df["Model"].apply(lambda x: extract_param(x, r"hd(\d+)"))
 
     # Clean memory column - extract value before ±
-    memory_col = (
-        "GPU Memory (allocated)[MB]"
-        if "GPU Memory (allocated)[MB]" in df.columns
-        else "GPU Memory (allocated)[MB]  "
-    )
-    df["Memory"] = df[memory_col].apply(lambda x: float(x.split("±")[0].strip()))
+    memory_col = "GPU Memory (allocated)[MB]"
+    if memory_col not in df.columns:
+        # Try to find column with GPU Memory and allocated in the name
+        for col in df.columns:
+            if "GPU Memory" in col and "allocated" in col:
+                memory_col = col
+                break
 
-    # Create the plots
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    df["Memory"] = df[memory_col].apply(lambda x: float(x.split("±")[0].strip()))
 
     # Calculate min and max memory values for consistent y-axis
     min_memory = df["Memory"].min() * 0.98  # Add a small margin
     max_memory = df["Memory"].max() * 1.02  # Add a small margin
 
-    # Plot 1: Memory vs Rank
-    rank_data = df.groupby("Rank")["Memory"].mean().reset_index()
-    axes[0].plot(
-        rank_data["Rank"], rank_data["Memory"], marker="o", linewidth=2, color="#8884d8"
+    # SQL-like approach: Let's create "pivoted" views for each parameter
+    # These will show how memory changes with one parameter while controlling for others
+
+    # Create the figure
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    # 1. Memory vs. Rank: Control for HiddenDim and Horizon
+    # Group by all parameters, find combinations with varying rank
+    ctrl_for_rank = df.pivot_table(
+        index=["HiddenDim", "Horizon"], columns="Rank", values="Memory", aggfunc="mean"
     )
-    axes[0].set_title("Memory vs. Rank")
+
+    # Only keep combinations where we have multiple rank values (can draw a line)
+    ctrl_for_rank = ctrl_for_rank.dropna(thresh=2)
+
+    # For each combination of HiddenDim and Horizon, plot a line across ranks
+    for idx, row in ctrl_for_rank.iterrows():
+        hd, horizon = idx
+        # Plot a line with rank as x-axis and memory as y-axis
+        axes[0].plot(row.index, row.values, marker="o", label=f"hd={hd}, h={horizon}")
+
+    axes[0].set_title("Memory vs. Rank\n(Controlling for Hidden Dim & Horizon)")
     axes[0].set_xlabel("Rank")
     axes[0].set_ylabel("GPU Memory (MB)")
     axes[0].set_ylim(min_memory, max_memory)
     axes[0].grid(True, linestyle="--", alpha=0.7)
 
-    # Plot 2: Memory vs Horizon
-    horizon_data = df.groupby("Horizon")["Memory"].mean().reset_index()
-    axes[1].plot(
-        horizon_data["Horizon"],
-        horizon_data["Memory"],
-        marker="o",
-        linewidth=2,
-        color="#82ca9d",
+    # 2. Memory vs. Horizon: Control for Rank and HiddenDim
+    ctrl_for_horizon = df.pivot_table(
+        index=["Rank", "HiddenDim"], columns="Horizon", values="Memory", aggfunc="mean"
     )
-    axes[1].set_title("Memory vs. Horizon")
+
+    # Only keep combinations where we have multiple horizon values
+    ctrl_for_horizon = ctrl_for_horizon.dropna(thresh=2)
+
+    # For each combination of Rank and HiddenDim, plot a line across horizons
+    for idx, row in ctrl_for_horizon.iterrows():
+        rank, hd = idx
+        # Plot a line with horizon as x-axis and memory as y-axis
+        axes[1].plot(row.index, row.values, marker="o", label=f"r={rank}, hd={hd}")
+
+    axes[1].set_title("Memory vs. Horizon\n(Controlling for Rank & Hidden Dim)")
     axes[1].set_xlabel("Horizon")
     axes[1].set_ylabel("GPU Memory (MB)")
     axes[1].set_ylim(min_memory, max_memory)
     axes[1].grid(True, linestyle="--", alpha=0.7)
 
-    # Plot 3: Memory vs Hidden Dimension
-    hd_data = df.groupby("HiddenDim")["Memory"].mean().reset_index()
-    axes[2].plot(
-        hd_data["HiddenDim"],
-        hd_data["Memory"],
-        marker="o",
-        linewidth=2,
-        color="#ffc658",
+    # 3. Memory vs. Hidden Dimension: Control for Rank and Horizon
+    ctrl_for_hd = df.pivot_table(
+        index=["Rank", "Horizon"], columns="HiddenDim", values="Memory", aggfunc="mean"
     )
-    axes[2].set_title("Memory vs. Hidden Dimension")
+
+    # Only keep combinations where we have multiple hidden dimension values
+    ctrl_for_hd = ctrl_for_hd.dropna(thresh=2)
+
+    # For each combination of Rank and Horizon, plot a line across hidden dimensions
+    for idx, row in ctrl_for_hd.iterrows():
+        rank, horizon = idx
+        # Plot a line with hidden dimension as x-axis and memory as y-axis
+        axes[2].plot(row.index, row.values, marker="o", label=f"r={rank}, h={horizon}")
+
+    axes[2].set_title("Memory vs. Hidden Dimension\n(Controlling for Rank & Horizon)")
     axes[2].set_xlabel("Hidden Dimension")
     axes[2].set_ylabel("GPU Memory (MB)")
     axes[2].set_ylim(min_memory, max_memory)
     axes[2].grid(True, linestyle="--", alpha=0.7)
 
-    # Adjust layout
-    plt.tight_layout()
+    # Add compact legends to each plot
+    for ax in axes:
+        if len(ax.get_lines()) > 0:  # Only add legend if we have lines
+            ax.legend(fontsize="x-small", loc="best", framealpha=0.7)
 
-    # Save figure
+    plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Plots saved to {output_path}")
 
-    # Show figure
-    plt.show()
+    # Create a simple swarmplot to show the overall distribution
+    plt.figure(figsize=(15, 5))
+
+    # Plot 1: Memory vs Rank with swarmplot
+    plt.subplot(1, 3, 1)
+    sns.boxplot(x="Rank", y="Memory", data=df, width=0.5, color="lightgray")
+    sns.swarmplot(x="Rank", y="Memory", data=df, size=7, palette="viridis")
+    plt.title("Memory vs. Rank\n(All Data Points)")
+    plt.xlabel("Rank")
+    plt.ylabel("GPU Memory (MB)")
+    plt.ylim(min_memory, max_memory)
+    plt.grid(True, linestyle="--", alpha=0.7)
+
+    # Plot 2: Memory vs Horizon with swarmplot
+    plt.subplot(1, 3, 2)
+    sns.boxplot(x="Horizon", y="Memory", data=df, width=0.5, color="lightgray")
+    sns.swarmplot(x="Horizon", y="Memory", data=df, size=7, palette="plasma")
+    plt.title("Memory vs. Horizon\n(All Data Points)")
+    plt.xlabel("Horizon")
+    plt.ylabel("GPU Memory (MB)")
+    plt.ylim(min_memory, max_memory)
+    plt.grid(True, linestyle="--", alpha=0.7)
+
+    # Plot 3: Memory vs Hidden Dimension with swarmplot
+    plt.subplot(1, 3, 3)
+    sns.boxplot(x="HiddenDim", y="Memory", data=df, width=0.5, color="lightgray")
+    sns.swarmplot(x="HiddenDim", y="Memory", data=df, size=7, palette="cividis")
+    plt.title("Memory vs. Hidden Dimension\n(All Data Points)")
+    plt.xlabel("Hidden Dimension")
+    plt.ylabel("GPU Memory (MB)")
+    plt.ylim(min_memory, max_memory)
+    plt.grid(True, linestyle="--", alpha=0.7)
+
+    plt.tight_layout()
+
+    # Save swarmplot figure
+    swarmplot_path = output_path.replace(".png", "_swarmplot.png")
+    plt.savefig(swarmplot_path, dpi=300, bbox_inches="tight")
+    print(f"Swarmplots saved to {swarmplot_path}")
 
 
 if __name__ == "__main__":
@@ -107,8 +169,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output",
         type=str,
-        default="results/plots/mhcp_profile.png",
-        help="Directory to save the output plots",
+        default="results/plots/memory_analysis.png",
+        help="Path to save the output plots",
     )
     args = parser.parse_args()
 

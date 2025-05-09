@@ -1,3 +1,4 @@
+from typing import Optional
 import unittest
 
 import torch
@@ -10,36 +11,55 @@ class MockModel:
         self.batch_size = batch_size
         self.horizon = horizon
         self.vocab_size = vocab_size
-        self.embd = torch.nn.Embedding(vocab_size, embd_dim)  # (V, D)
-        self.w = torch.nn.Linear(embd_dim, vocab_size)  # (D, V)
-        self.x = torch.randint(0, vocab_size, (batch_size, horizon))
+        self.encoder = torch.nn.Embedding(vocab_size, embd_dim)  # (V, D)
+        self.decoder = torch.nn.Sequential(
+            torch.nn.Linear(embd_dim, embd_dim),  # (D, D)
+            torch.nn.ReLU(),
+            torch.nn.Linear(embd_dim, vocab_size),  # (D, V)
+        )
+        self.x = torch.randint(0, vocab_size, (batch_size, 1))
 
-    def prob(self, y: torch.Tensor) -> torch.Tensor:
-        """
+    def prob_y_bar_x(self, y: Optional[torch.Tensor]) -> torch.Tensor:
+        """Computes sequence likelihood P(yh|x, y1:h-1) for each h.
+
         Args:
             y (torch.Tensor): Input tensor of shape (B, H).
         Returns:
-            torch.Tensor: Probability distribution of shape (B, H, V).
+            torch.Tensor: Sequence likelihood. Shape (B, H, V).
+
         """
         # Mock probability distribution
-        x = self.embd(y)  # (B, H, D)
-        pys = torch.nn.functional.softmax(self.w(x), dim=-1)  # (B, H, V)
-        return pys
+        y_prime = torch.cat((self.x, y), dim=1) if y is not None else self.x  # (B, H)
+        emb_y = self.encoder(y_prime)  # (B, H, D)
+        pys = torch.nn.functional.softmax(self.decoder(emb_y), dim=-1)  # (B, H, V)
+        return pys  # (B, H+1, V)
 
     def sample(self):
-        """
+        """Samples tokens from P(yk|x, y1:k-1) for k in [1, H].
+
         Args:
-            p (torch.Tensor): Input tensor of shape (B, H, V).
+            None
         Returns:
-            torch.Tensor: Sampled tensor of shape (B, H).
+            tuple[torch.Tensor, torch.Tensor]: Tuple of tensors (y_hat, qy).
+             - y_hat (torch.Tensor): Draft tokens from model_q. Shape: (B, H).
+             - qy (torch.Tensor): Draft probabilities from model_q. Shape: (B, H, V).
+
         """
         # Mock sampling
-        x = self.embd(self.x)  # (B, H, D)
-        pys = torch.nn.functional.softmax(self.w(x), dim=-1)  # (B, H, V)
-        ys = torch.multinomial(pys.view(-1, self.vocab_size), 1).view(
-            self.batch_size, self.horizon
-        )
-        return ys, pys
+        y_out = None
+        pys = []
+        for h in range(self.horizon):
+            py_bar_xy = self.prob_y_bar_x(y_out)  # (B, h'+1, V) h' in [1, H]
+            pyh_bar_xy = py_bar_xy[:, -1, :]  # (B, V)
+            pys.append(pyh_bar_xy)  # (B, V)
+            # Sample from the model
+            y = sample_topk(pyh_bar_xy, top_k=1)  # (B, 1)
+            y_out = y if y_out is None else torch.cat((y_out, y), dim=1)  # (B, h')
+
+        if y_out is None:
+            raise ValueError("y_out is None, check the model sampling logic.")
+
+        return y_out, torch.stack(pys, dim=1)  # (B, H), (B, H, V)
 
 
 class TestSpecSample(unittest.TestCase):
@@ -54,7 +74,7 @@ class TestSpecSample(unittest.TestCase):
             # Test grouping by only model_head
             y = spec_sample_v2(
                 # model_p: y -> p(y1|x), p(y2|x, y1), ..., p(yh|x, y1:H-1). Shape: (B, H) -> (B, H, V)
-                model_p=model.prob,
+                model_p=lambda y: model.prob_y_bar_x(y)[:, :-1, :],  # (B, H, V)
                 # {} -> y_hat, q(y1|x), q(y2|x, y1), ..., q(yh|x, y1:H-1). Shape: None -> (B, H), (B, H, V)
                 model_q=model.sample,
                 sample_fn=lambda p: sample_topk(p, top_k=1).squeeze(-1),
@@ -65,8 +85,9 @@ class TestSpecSample(unittest.TestCase):
 
         # Expect acceptance rate > 0.5
         acceptance_rate = tokens_accepted / tokens_proposed
-        print(f"Acceptance rate: {acceptance_rate:.2f}")
-        self.assertGreater(acceptance_rate, 0.5)
+        self.assertEqual(
+            acceptance_rate, 1.0, msg=f"Acceptance rate: {acceptance_rate:.2f} < 1.0"
+        )
 
 
 if __name__ == "__main__":

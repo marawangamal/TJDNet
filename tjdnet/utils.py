@@ -145,6 +145,7 @@ def spec_sample_v2(
     y_out = []
 
     h = 0
+    all_tokens_accepted = True
     while h < horizon:
         r = torch.rand((batch_size,), device=q_hat.device)
         accept_mask = r < torch.minimum(
@@ -158,6 +159,7 @@ def spec_sample_v2(
             # some samples rejected
             y_adj = sample_fn(py[:, h] - qy[:, h])  # (B, V) => (B,)
             y_out.append(y_adj.unsqueeze(1))  # (B, 1)
+            all_tokens_accepted = False
             break
 
     return torch.cat(y_out, dim=1)  # (B, H)
