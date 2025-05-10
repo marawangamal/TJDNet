@@ -1,7 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from math import e
-from typing import Dict, Literal, Tuple
+from typing import Dict, Literal, Optional, Tuple
 
 
 import torch
@@ -9,7 +9,7 @@ from wandb import config
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig, BaseDistFromLinearConfig
-from utils.spec_sample import speculative_sampling
+from tjdnet.spec_sample import speculative_sampling
 from tjdnet.tensorops.common import get_windowed_input_ids_v2
 from tjdnet.utils import sample_topk
 
@@ -18,9 +18,13 @@ from transformers import GenerationConfig
 
 #  extend the GenerationConfig class to add the new parameters
 @dataclass
-class TJDGenerationConfig(GenerationConfig):
+class TJDGenerationConfig:
     horizon: int = 1  # Number of parallel tokens
     gen_mode: Literal["draft", "base", "speculative"] = "draft"  # Generation mode
+    do_sample: bool = False
+    top_k: int = 1  # Top-k sampling
+    max_new_tokens: int = 32  # Maximum number of new tokens to generate
+    eos_token_id: Optional[int] = None  # End of sequence token ID
 
 
 @dataclass

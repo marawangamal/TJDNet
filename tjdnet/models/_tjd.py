@@ -9,7 +9,7 @@ import torch
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig, BaseDistFromLinearConfig
-from utils.spec_sample import spec_sample
+from tjdnet.spec_sample import spec_sample
 from tjdnet.tensorops.common import get_windowed_input_ids
 from tjdnet.utils import sample_topk
 

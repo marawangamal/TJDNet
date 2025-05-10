@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Optional, Any, Dict, List, Sequence, Tuple, Union
 from collections.abc import Mapping
+import uuid
 
 import numpy as np
 import torch
@@ -342,3 +343,71 @@ def run_checks(spec: list[dict]):
     if failures:
         msgs = "\n".join(f"  {idx}. {m}" for idx, m in failures)
         raise ValueError(f"{len(failures)} check(s) failed:\n{msgs}")
+
+
+def printr(msg):
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    print(f"[RANK {local_rank}] {msg}")
+
+
+def printo(msg):
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    if local_rank == 0:
+        printr(msg)
+
+
+def generate_wandb_id():
+    """Generate a random wandb_id that's compatible with W&B requirements."""
+    # Generate a random UUID and take the first 8 characters
+    # This gives us plenty of uniqueness while keeping the ID short
+    random_id = str(uuid.uuid4()).replace("-", "")[:8]
+    return random_id
+
+
+def setup_dist_class_fsdp_wrapping(model, training_args):
+    """Modify FSDP wrapping to include distribution classes."""
+    import importlib
+    from functools import partial
+
+    # Find all distribution classes in the model
+    dist_classes = set()
+
+    def find_dist_classes_in_model(module):
+        for name, child in module.named_children():
+            if "Dist" in child.__class__.__name__:
+                dist_classes.add(child.__class__)
+                print(f"Found distribution class: {child.__class__.__name__}")
+            find_dist_classes_in_model(child)
+
+    # Find classes in the model
+    find_dist_classes_in_model(model)
+
+    # Only proceed if we found distribution classes and have FSDP
+    if (
+        dist_classes
+        and hasattr(training_args, "_fsdp_plugin")
+        and training_args._fsdp_plugin is not None
+    ):
+        # Get existing auto wrap policy
+        fsdp_plugin = training_args._fsdp_plugin
+        existing_policy = getattr(fsdp_plugin, "auto_wrap_policy", None)
+
+        # Create a combined policy
+        def combined_wrap_policy(module, recurse=True, **kwargs):
+            # Check if module is one of our distribution classes
+            if module.__class__ in dist_classes:
+                return True
+
+            # Otherwise, use the existing policy
+            if callable(existing_policy):
+                return existing_policy(module, recurse=recurse, **kwargs)
+
+            return False
+
+        # Apply the combined policy
+        fsdp_plugin.auto_wrap_policy = combined_wrap_policy
+        print(
+            f"Applied custom FSDP wrapping for {len(dist_classes)} distribution classes"
+        )
+    else:
+        print("No distribution classes found or FSDP not active")

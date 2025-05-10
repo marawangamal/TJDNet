@@ -3,7 +3,7 @@ import unittest
 
 import torch
 
-from utils.spec_sample import spec_sample
+from tjdnet.spec_sample import spec_sample
 from tjdnet.utils import sample_topk
 
 

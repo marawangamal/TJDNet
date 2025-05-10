@@ -39,6 +39,12 @@ class CPDist(BaseDistribution):
             return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
         return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
 
+    def _get_params_v2(self, x: torch.Tensor, **kwargs):
+        B = x.size()
+        params = self.param_func(x)  # (B, R * H, V)
+        params_reshaped = params.reshape(B, self.rank, self.horizon, self.vocab_size)
+        return params_reshaped  # (B, R, H, V)  // H* is model level horizon
+
     @classmethod
     def from_linear(
         cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
@@ -161,6 +167,31 @@ class CPDist(BaseDistribution):
             norm_consts.reshape(batch_size, seq_len),
             [s.reshape(batch_size, seq_len) for s in norm_consts_scale_factors],
         )
+
+    def evaluate(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        **kwargs,
+    ):
+        # Get indexed distribution
+        horizon = self.horizon
+        B = x.size(0)
+        params = self._get_params_v2(x)  # (B, T, R, H, V)
+        p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched(
+            cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
+            ops=y.reshape(B, horizon),
+        )  # (B,), (B, H)
+        norm_consts, norm_consts_scale_factors = select_margin_cp_tensor_batched(
+            cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
+            ops=torch.full(
+                (B, horizon),
+                -2,
+                dtype=torch.long,
+                device=x.device,
+            ),
+        )
+        return (p_tilde, p_tilde_scale_factors, norm_consts, norm_consts_scale_factors)
 
 
 # if __name__ == "__main__":
