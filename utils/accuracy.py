@@ -3,6 +3,7 @@ import torch
 from tqdm import tqdm
 
 from dataloaders._base import BaseChatTemplate
+from tjdnet.models._tjd import TJD
 from utils.utils import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -25,7 +26,7 @@ def collate_fn(batch, tokenizer):
 
 
 def compute_accuracy(
-    model: torch.nn.Module,
+    model: TJD,
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     test_dataset: DatasetDict,
     chat_template: BaseChatTemplate,
@@ -40,7 +41,7 @@ def compute_accuracy(
     # horizon: int = 1,
     avg_meter_kwargs={},
     generate_kwargs={},
-    verbose=False,
+    verbose=True,
     max_num_samples: Optional[int] = None,
     # **kwargs,
 ):
@@ -68,6 +69,9 @@ def compute_accuracy(
 
     printv = print if verbose else lambda *args, **kwargs: None
 
+    tokens_proposed = 0
+    tokens_accepted = 0
+
     printv("Total number of samples:", total_samples)
     with torch.no_grad():
         for i, batch in enumerate(pbar):
@@ -79,16 +83,13 @@ def compute_accuracy(
                 attention_mask=batch["attention_mask"],
                 tokenizer=tokenizer,
             )
-            outputs, _ = model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                # max_new_tokens=max_new_tokens,
-                # top_k=top_k,
-                # do_sample=do_sample,
-                # horizon=horizon,
-                # stop_token=tokenizer.eos_token_id,  # For tjd models this causes stopping when end token is reached
+            outputs, acceptance_metrics = model.generate(
+                x=input_ids,
+                attn_mask=attention_mask,
                 **generate_kwargs,
             )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
+            tokens_proposed += acceptance_metrics["tokens_proposed"]
+            tokens_accepted += acceptance_metrics["tokens_accepted"]
 
             # Batched decoding
             y_pred = tokenizer.batch_decode(outputs)
@@ -99,8 +100,6 @@ def compute_accuracy(
                 for b in range(len(y_pred))
             ]
             batch_correct = sum(correct_mask)
-            # correct += batch_correct
-            # total += batch_size_actual
             acc_meter.update(
                 batch_correct / len(batch["input_ids"]), len(batch["input_ids"])
             )
@@ -140,4 +139,5 @@ def compute_accuracy(
         printv("Example:")
         printv(f"y_true:\n {y_true[0]}")
         printv(f"y_pred:\n {y_pred[0]}")
+    print("Acceptance rate:", tokens_accepted / tokens_proposed)
     return acc_meter.avg, {**acc_meter.dump(), "total_samples": total_samples}

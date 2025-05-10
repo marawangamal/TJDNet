@@ -331,3 +331,14 @@ def plot_conf_bands(
     print(f"Confidence band plot saved to {save_path}")
 
     return save_path
+
+
+def run_checks(spec: list[dict]):
+    failures = [
+        (i, item["msg"]() if callable(item["msg"]) else item["msg"])
+        for i, item in enumerate(spec, 1)  # start index at 1
+        if not item["test"]()
+    ]
+    if failures:
+        msgs = "\n".join(f"  {idx}. {m}" for idx, m in failures)
+        raise ValueError(f"{len(failures)} check(s) failed:\n{msgs}")

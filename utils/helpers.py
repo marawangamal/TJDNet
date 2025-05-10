@@ -129,7 +129,7 @@ def parse_args():
     parser.add_argument(
         "--joint_loss_lambda",
         type=float,
-        default=0.2,
+        default=1,
         help="Weight for target model loss in joint loss.",
     )
 
@@ -450,6 +450,7 @@ def get_model_and_tokenizer(args):
         loss_mode=args.loss_mode if hasattr(args, "loss_mode") else "draft",
         use_memory_efficient_loss=args.use_memory_efficient_loss,
         use_speculative_sampling=args.use_speculative_sampling,
+        joint_loss_lambda=args.joint_loss_lambda,
         # cache_dir=args.cache_dir,
         # use_attn_layer=(
         #     args.use_attn_layer if hasattr(args, "use_attn_layer") else False

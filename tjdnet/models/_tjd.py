@@ -9,8 +9,9 @@ import torch
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig, BaseDistFromLinearConfig
+from utils.spec_sample import spec_sample
 from tjdnet.tensorops.common import get_windowed_input_ids
-from tjdnet.utils import mem_check, sample_topk, spec_sample_v2
+from tjdnet.utils import sample_topk
 
 
 def extend_attn(mat: torch.Tensor, horizon: int = 1):
@@ -266,7 +267,6 @@ class TJD(ABC, torch.nn.Module):
         for param in self.backbone.parameters():
             param.requires_grad = False
 
-    # TODO: use x instead of active_seqs
     def generate(
         self,
         x: torch.Tensor,
@@ -354,7 +354,14 @@ class TJD(ABC, torch.nn.Module):
                 )  # Handle case when < horizon tokens are left
 
                 def model_p(y: torch.Tensor):
-                    """Target model p(y|x)."""
+                    """Computes sequence likelihood P(yh|x, y1:h-1) for each h.
+
+                    Args:
+                        y (torch.Tensor): Input tensor of shape (B', H').
+
+                    Returns:
+                        torch.Tensor: Probability distributions. Shape: (B', H', V).
+                    """
                     # Signature: model_p: y -> p(y|x)
                     # Shape of y: (B', H')
                     # Shape of p(y|x): (B', H', V)
@@ -363,11 +370,15 @@ class TJD(ABC, torch.nn.Module):
                         input_ids=torch.cat((x, y), dim=1),
                         attention_mask=attn_mask_prime,
                     )  # (B', T + time_step + H', D)
-                    py_bar_x_prime = self.tgt_model_head(h)  # (B', t' + H', V)
-                    return torch.softmax(py_bar_x_prime[:, time_step_prime:], dim=-1)
+                    py_bar_x_prime = self.tgt_model_head(
+                        h
+                    )  # (B', T + time_step + H', V)
+                    return torch.softmax(
+                        py_bar_x_prime[:, time_step_prime - 1 : -1], dim=-1
+                    )
 
                 if self.use_speculative_sampling:
-                    y_hat = spec_sample_v2(
+                    y_hat = spec_sample(
                         # model_p: y -> p(y|x). Shape: (B', H') -> (B', H', V)
                         model_p=model_p,
                         # {} -> y_hat, q(y|x). Shape: None -> (B', H'), (B', H', V)
@@ -377,7 +388,9 @@ class TJD(ABC, torch.nn.Module):
                             do_sample=do_sample,
                             top_k=top_k,
                         ),
-                        sample_fn=lambda p: sample_topk(p, top_k=top_k).squeeze(-1),
+                        sample_fn=lambda p: sample_topk(
+                            p, top_k=top_k if do_sample else 1
+                        ).squeeze(-1),
                     )  # (B', H') -- H' <= H_tgt if not all tokens are accepted
 
                     accept_rate_metrics["tokens_proposed"] += horizon_target

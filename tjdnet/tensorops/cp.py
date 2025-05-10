@@ -9,7 +9,7 @@ tl.set_backend("pytorch")
 
 
 def select_margin_cp_tensor_batched(
-    cp_params: torch.Tensor, ops: torch.Tensor, use_scale_factors=False
+    cp_params: torch.Tensor, ops: torch.Tensor, use_scale_factors=True
 ):
     """Performs selection and marginalization operations on a CP tensor representation.
 
@@ -74,7 +74,8 @@ def select_margin_cp_tensor_batched(
                 .expand(-1, rank, -1),  # (B', R, 1)
             ).squeeze(-1)
             sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
-            sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
+            if use_scale_factors:
+                sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
             scale_factors.append(sf)
             res_left[mask_select] = (
                 res_left[mask_select] * update / sf[mask_select].unsqueeze(-1)
@@ -84,7 +85,8 @@ def select_margin_cp_tensor_batched(
         if mask_margin.any():
             update = core_margins[mask_margin, :, t]  # (B', R)
             sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
-            sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
+            if use_scale_factors:
+                sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
             scale_factors.append(sf)
             res_right[mask_margin] = (
                 res_right[mask_margin] * update / sf[mask_margin].unsqueeze(-1)
@@ -95,7 +97,8 @@ def select_margin_cp_tensor_batched(
             res_free[mask_free] = cp_params[mask_free, :, t, :]
 
     # Final result
-
+    # if not use_scale_factors:
+    #     scale_factors = []
     # Special case: pure select
     if torch.all(bp_free == horizon):
         return res_left.sum(dim=-1), scale_factors  # (B,)
