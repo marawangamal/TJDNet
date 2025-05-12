@@ -117,7 +117,7 @@ class TJD(ABC, torch.nn.Module):
         """Generate sequences given an input tensor.
 
         Args:
-            x (torch.Tensor): Previous tokens of shape (B, T)
+            inputs (torch.Tensor): Previous tokens of shape (B, T)
             generation_config (TJDGenerationConfig): Generation configuration.
 
         Returns:
@@ -134,7 +134,7 @@ class TJD(ABC, torch.nn.Module):
         self._run_checks(input_validation_checks)
         # ====
 
-        B, H, T = self.horizon, inputs.size(0), inputs.size(1)
+        B, T, H = inputs.size(0), inputs.size(1), self.horizon
         device = inputs.device
         temp_token = -100  # Temporary token for padding
 

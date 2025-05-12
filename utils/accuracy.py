@@ -142,5 +142,9 @@ def compute_accuracy(
         printv("Example:")
         printv(f"y_true:\n {y_true[0]}")
         printv(f"y_pred:\n {y_pred[0]}")
-    print("Acceptance rate:", tokens_accepted / tokens_proposed)
+    (
+        print("Acceptance rate:", tokens_accepted / tokens_proposed)
+        if tokens_proposed > 0
+        else 0
+    )
     return acc_meter.avg, {**acc_meter.dump(), "total_samples": total_samples}
