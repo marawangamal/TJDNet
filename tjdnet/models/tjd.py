@@ -8,7 +8,7 @@ import torch
 from wandb import config
 
 from tjdnet.distributions import TJD_DISTS
-from tjdnet.distributions._base import BaseDistConfig, BaseDistFromLinearConfig
+from tjdnet.distributions._tjdist import BaseDistConfig, BaseDistFromLinearConfig
 from tjdnet.spec_sample import speculative_sampling
 from tjdnet.tensorops.common import get_windowed_input_ids_v2
 from tjdnet.utils import sample_topk

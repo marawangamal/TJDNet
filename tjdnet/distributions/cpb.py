@@ -3,10 +3,10 @@ from typing import Optional
 
 import torch
 
-from tjdnet.distributions._base import (
+from tjdnet.distributions._tjdist import (
+    AbstractDist,
     BaseDistConfig,
     BaseDistFromLinearConfig,
-    BaseDistribution,
 )
 from tjdnet.utils import sample_topk
 
@@ -20,7 +20,7 @@ class CPBDistConfig:
     vocab_size: int
 
 
-class CPBDist(BaseDistribution):
+class CPBDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         self.rank = config.rank
         self.horizon = config.horizon

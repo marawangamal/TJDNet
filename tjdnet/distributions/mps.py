@@ -1,10 +1,10 @@
 from typing import Optional
 import torch
 
-from tjdnet.distributions._base import (
+from tjdnet.distributions._tjdist import (
     BaseDistConfig,
     BaseDistFromLinearConfig,
-    BaseDistribution,
+    TJDist,
 )
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.tensorops.mps import select_margin_mps_tensor_batched
@@ -12,7 +12,7 @@ from tjdnet.utils import sample_topk
 
 
 # TODO: try one-hot instead of ones for alpha and beta
-class MPSDist(BaseDistribution):
+class MPSDist(TJDist):
     def __init__(self, config: BaseDistConfig, bypass_config: bool = False, **kwargs):
         if not bypass_config:
             config.param_net.out_dim_encoder = (
@@ -106,7 +106,7 @@ class MPSDist(BaseDistribution):
         top_k: int = 200,
         **kwargs,
     ):
-        horizon = self._get_horizon(horizon)
+        horizon = self.get_horizon(horizon)
         batch_size = hidden_state.size(0)
         dvc = hidden_state.device
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
@@ -162,7 +162,7 @@ class MPSDist(BaseDistribution):
                 - list: Scale factors for `z`
         """
         batch_size, seq_len, _ = last_hidden_state.shape
-        horizon = self._get_horizon(points.size(-1))
+        horizon = self.get_horizon(points.size(-1))
         alpha, core, beta = self.get_mps_params(
             last_hidden_state,
         )  # (B, T, R), (B, T, H, R, V, R), (B, T, R)

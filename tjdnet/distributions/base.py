@@ -1,16 +1,15 @@
 from typing import Optional
 import torch
 
-from tjdnet.distributions._base import (
+from tjdnet.distributions._tjdist import (
     BaseDistFromLinearConfig,
-    BaseDistribution,
+    TJDist,
     BaseDistConfig,
 )
-from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.utils import sample_topk
 
 
-class BaseDist(BaseDistribution):
+class BaseDist(TJDist):
     def __init__(
         self,
         config: BaseDistConfig,
@@ -33,9 +32,9 @@ class BaseDist(BaseDistribution):
         self.rank = config.rank
         self.horizon = config.horizon
 
-    def forward(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
-        p_tilde = self.param_func(last_hidden_state)  # (B, T, 1, V)
-        return p_tilde.squeeze(-1)  # (B, T, V)
+    def get_params(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        p_tilde = self.param_func(x)  # (B, V, 1)
+        return p_tilde.squeeze(-1)  # (B, V)
 
     @classmethod
     def from_linear(
@@ -67,7 +66,7 @@ class BaseDist(BaseDistribution):
 
     def sample(
         self,
-        hidden_state: torch.Tensor,  # (B, T, D)
+        x: torch.Tensor,  # (B, T, D)
         horizon: Optional[int] = None,
         do_sample: bool = False,
         top_k: int = 200,
@@ -75,48 +74,34 @@ class BaseDist(BaseDistribution):
     ):
         if horizon and horizon > 1:
             raise ValueError("Horizon must be 1 for base distribution")
-        model_head_params = self.forward(hidden_state[:, -1:, :])  # (B, 1, V)
+        model_head_params = self.get_params(x)  # (B, V)
         y_hat = sample_topk(
-            model_head_params.squeeze(1), top_k=top_k if do_sample else 1  # topk/greedy
+            model_head_params, top_k=top_k if do_sample else 1
         )  # (B, 1)
-        py = model_head_params
+        py = model_head_params.unsqueeze(1)
         return y_hat, py  # (B, 1), (B, 1, V)
 
-    def evaluate_at_points_and_get_norm_consts(
+    def evaluate(
         self,
-        last_hidden_state: torch.Tensor,
-        points: torch.Tensor,
+        x: torch.Tensor,
+        y: torch.Tensor,
         **kwargs,
     ):
-        """Evaluate the distribution at the given points.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of the transformer of shape (B, T, D)
-            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, 1)
-            is_normalized (bool, optional): Whether the points are normalized. Defaults to False.
-
-        Returns:
-            tuple:
-                - torch.Tensor: Unormalized distribution `p_tilde` at the points of shape (B, T)
-                - list: Scale factors for `p_tilde`
-                - torch.Tensor: Normalization constants `z` of shape (B, T)
-                - list: Scale factors for `z`
-        """
         # Get indexed distribution
-        assert points.size(-1) == 1, "Only 1D points are supported"
-        p_tilde = self.forward(last_hidden_state)  # (B, T, V)
-        batch_size, seq_len, _ = last_hidden_state.size()
+        assert y.size(-1) == 1, "Only 1D points are supported"
+        p_tilde = self.get_params(x)  # (B, T, V)
+        batch_size, _ = x.size()
 
         # (B, T, R*H*V) => (B, T)
         p_tilde_select = torch.gather(
-            p_tilde.reshape(batch_size * seq_len, self.vocab_size),
+            p_tilde.reshape(batch_size, self.vocab_size),
             dim=1,
-            index=points.reshape(batch_size * seq_len, self.horizon),
+            index=y.reshape(batch_size, self.horizon),
         )  # (B*T, 1)
         norm_consts = torch.sum(p_tilde, dim=-1).reshape(-1)  # (B*T)
         return (
-            p_tilde_select.reshape(batch_size, seq_len),
+            p_tilde_select.reshape(batch_size),
             [],
-            norm_consts.reshape(batch_size, seq_len),
+            norm_consts.reshape(batch_size),
             [],
         )

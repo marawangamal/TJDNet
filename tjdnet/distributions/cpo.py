@@ -1,7 +1,7 @@
 from git import Optional
 import torch
 
-from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.cp import CPDist
 
 

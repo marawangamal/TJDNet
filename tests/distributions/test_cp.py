@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.tensorops.common import get_breakpoints

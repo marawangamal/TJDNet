@@ -9,7 +9,7 @@ import numpy as np
 from transformers import AutoTokenizer
 
 from tjdnet.distributions import TJD_DISTS
-from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 
 from tjdnet.models.tjdhf import TJDConfig

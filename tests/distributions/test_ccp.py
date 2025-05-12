@@ -2,7 +2,7 @@ import unittest
 import torch
 
 from tjdnet.distributions.ccp import CCPDist
-from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 
 

@@ -1,18 +1,17 @@
 from git import Optional
 import torch
 
-from tjdnet.distributions._base import (
+from tjdnet.distributions._tjdist import (
     BaseDistConfig,
     BaseDistFromLinearConfig,
-    BaseDistribution,
+    TJDist,
 )
 
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
 from tjdnet.utils import sample_topk
 
 
-# TODO: maybe we can simplify this with einsum and sparse tensors
-class CPDist(BaseDistribution):
+class CPDist(TJDist):
     def __init__(self, config: BaseDistConfig, **kwargs):
         """CP Distribution
 
@@ -74,7 +73,7 @@ class CPDist(BaseDistribution):
         top_k: int = 200,
         **kwargs,
     ):
-        horizon = self._get_horizon(horizon)
+        horizon = self.get_horizon(horizon)
         batch_size = x.size(0)
         dvc = x.device
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)

@@ -1,5 +1,5 @@
 import torch
-from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.mps import MPSDist
 
 

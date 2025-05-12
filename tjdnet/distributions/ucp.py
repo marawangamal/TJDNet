@@ -3,7 +3,7 @@ from git import Optional
 import torch
 import torch.autograd.profiler as profiler
 
-from tjdnet.distributions._base import BaseDistConfig, BaseDistribution
+from tjdnet.distributions._tjdist import BaseDistConfig, TJDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched, sum_cp_tensor
 from tjdnet.utils import get_positional_encodings, sample_topk
