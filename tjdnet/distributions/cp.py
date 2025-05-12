@@ -78,7 +78,7 @@ class CPDist(BaseDistribution):
         batch_size = x.size(0)
         dvc = x.device
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
-        model_head_params = self.forward(x)  # B, R, H, V)
+        model_head_params = self.get_params(x)  # B, R, H, V)
         py_tilde_list = []
         for h in range(horizon):
             ops_tensor = torch.cat(
@@ -116,7 +116,7 @@ class CPDist(BaseDistribution):
         # Get indexed distribution
         horizon = self.horizon
         B = x.size(0)
-        params = self.forward(x)  # (B, T, R, H, V)
+        params = self.get_params(x)  # (B, T, R, H, V)
         p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched(
             cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
             ops=y.reshape(B, horizon),

@@ -3,7 +3,7 @@ import torch
 from tqdm import tqdm
 
 from dataloaders._base import BaseChatTemplate
-from tjdnet.models.tjd_v1 import TJD
+from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.utils import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -29,10 +29,10 @@ def compute_acceptance_rate(
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     test_dataset: DatasetDict,
     chat_template: BaseChatTemplate,
+    generation_config: TJDGenerationConfig,
     batch_size: int = 1,
     on_batch_end=None,
     avg_meter_kwargs={},
-    generate_kwargs={},
     max_num_samples: Optional[int] = None,
     **kwargs,
 ):
@@ -67,9 +67,9 @@ def compute_acceptance_rate(
                 tokenizer=tokenizer,
             )
             outputs, acceptance_metrics = model.generate(
-                x=input_ids,
-                attn_mask=attention_mask,
-                **generate_kwargs,
+                inputs=input_ids,
+                attention_mask=attention_mask,
+                generation_config=generation_config,
             )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
             y_pred = tokenizer.batch_decode(outputs)
 
