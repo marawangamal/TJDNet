@@ -27,7 +27,7 @@ class CPODist(CPDist):
         config.param_net.hidden_dim = 1
         super().__init__(config, bypass_config=True, **kwargs)
 
-    def _get_params(
+    def forward(
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
     ):
         batch_size, seq_len, _ = last_hidden_state.size()  # (B, T, D)

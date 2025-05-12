@@ -44,7 +44,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
-from tjdnet.models.tjd_v2 import TJDGenerationConfig
+from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accpetance_rates import compute_acceptance_rate
 from utils.accuracy import compute_accuracy
 from utils.utils import get_experiment_name
@@ -86,7 +86,7 @@ class TJDTrainer(Trainer):
         test_dataset: torch.utils.data.Dataset,
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
         chat_template: BaseChatTemplate,
-        generate_kwargs: TJDGenerationConfig,
+        generation_config: TJDGenerationConfig,
         on_converge_callback_cs=None,
         metric: Literal["accuracy", "acceptance_rate"] = "accuracy",
         **kwargs,
@@ -95,7 +95,7 @@ class TJDTrainer(Trainer):
         self.test_dataset = test_dataset
         self.chat_template = chat_template
         self.tokenizer = tokenizer
-        self.generate_kwargs = generate_kwargs
+        self.generation_config = generation_config
         self.on_converge_callback_cs = on_converge_callback_cs
         self.metric_name = metric
         self.metric_fn = {
@@ -118,7 +118,7 @@ class TJDTrainer(Trainer):
                 tokenizer=self.tokenizer,  # type: ignore
                 test_dataset=self.test_dataset,  # type: ignore
                 chat_template=self.chat_template,
-                generate_kwargs=self.generate_kwargs,
+                generation_config=self.generation_config,
             )
 
             if output and output.metrics:
@@ -345,9 +345,6 @@ def main():
                 resume="allow",
             )
 
-    # Add this line here:
-    # setup_dist_class_fsdp_wrapping(model, training_args)
-
     # Initialize the trainer
     trainer = TJDTrainer(
         model=model,
@@ -360,7 +357,7 @@ def main():
         tokenizer=tokenizer,
         test_dataset=lm_dataset["test"] if args.compute_acc else None,  # type: ignore
         chat_template=chat_template,
-        generate_kwargs=TJDGenerationConfig(
+        generation_config=TJDGenerationConfig(
             do_sample=args.do_sample,
             horizon=args.horizon,
             max_new_tokens=args.max_new_tokens,

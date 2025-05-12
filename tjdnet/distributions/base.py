@@ -33,7 +33,7 @@ class BaseDist(BaseDistribution):
         self.rank = config.rank
         self.horizon = config.horizon
 
-    def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
+    def forward(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
         p_tilde = self.param_func(last_hidden_state)  # (B, T, 1, V)
         return p_tilde.squeeze(-1)  # (B, T, V)
 
@@ -75,7 +75,7 @@ class BaseDist(BaseDistribution):
     ):
         if horizon and horizon > 1:
             raise ValueError("Horizon must be 1 for base distribution")
-        model_head_params = self._get_params(hidden_state[:, -1:, :])  # (B, 1, V)
+        model_head_params = self.forward(hidden_state[:, -1:, :])  # (B, 1, V)
         y_hat = sample_topk(
             model_head_params.squeeze(1), top_k=top_k if do_sample else 1  # topk/greedy
         )  # (B, 1)
@@ -104,7 +104,7 @@ class BaseDist(BaseDistribution):
         """
         # Get indexed distribution
         assert points.size(-1) == 1, "Only 1D points are supported"
-        p_tilde = self._get_params(last_hidden_state)  # (B, T, V)
+        p_tilde = self.forward(last_hidden_state)  # (B, T, V)
         batch_size, seq_len, _ = last_hidden_state.size()
 
         # (B, T, R*H*V) => (B, T)

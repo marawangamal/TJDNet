@@ -7,7 +7,7 @@ import wandb
 
 from transformers import TrainerCallback
 from dataloaders._base import BaseChatTemplate
-from tjdnet.models._tjd import TJD
+from tjdnet.models.tjd_v1 import TJD
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 

@@ -26,7 +26,7 @@ class MPSDist(BaseDistribution):
         self.beta = torch.ones(config.rank) * 0.1
         self.dist_config = config
 
-    def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
+    def forward(self, last_hidden_state: torch.Tensor, **kwargs):
         return self.param_func(last_hidden_state)  # (B, T, HRR, V)
 
     def get_mps_params(

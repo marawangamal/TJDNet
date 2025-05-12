@@ -13,8 +13,6 @@ from tjdnet.spec_sample import speculative_sampling
 from tjdnet.tensorops.common import get_windowed_input_ids_v2
 from tjdnet.utils import sample_topk
 
-from transformers import GenerationConfig
-
 
 #  extend the GenerationConfig class to add the new parameters
 @dataclass
@@ -37,16 +35,17 @@ class TJDConfig:
     init_method: Literal["random", "pretrained"] = "random"
     loss_mode: Literal["joint", "draft"] = "draft"
     joint_loss_lambda: float = 1.0  # Balance between draft and target model losses
+    use_memory_efficient_loss: bool = True  # Use memory-efficient loss computation
 
 
-def extend_attn(mat: torch.Tensor, horizon: int = 1):
+def extend_attn_mask(mask: torch.Tensor, horizon: int = 1):
     """Extend attention mask to include the horizon."""
     return torch.cat(
         (
-            mat,
+            mask,
             torch.ones(
-                (mat.size(0), horizon),
-                device=mat.device,
+                (mask.size(0), horizon),
+                device=mask.device,
             ),
         ),
         dim=1,
@@ -54,12 +53,25 @@ def extend_attn(mat: torch.Tensor, horizon: int = 1):
 
 
 class TJD(ABC, torch.nn.Module):
-    """Joint Distribution Transformer model."""
+    """Base class for TJD models.
+
+    Args:
+        config (TJDConfig): Configuration object for the model.
+        **kwargs: Additional keyword arguments.
+
+    Note:
+        This class is an abstract base class and should not be instantiated directly.
+        Subclasses must implement the `get_model` method to provide the backbone model and lm_head.
+    """
 
     def __init__(self, config: TJDConfig, **kwargs):
+        super().__init__()
         self.tjd_config = config
+        self.horizon = config.model_head_config.horizon
+        self.n_embd = config.model_head_config.param_net.in_dim
         self.backbone, self.lm_head = self.get_model()
 
+        # Initialize the model head
         if config.init_method == "pretrained":
             self.mhead = TJD_DISTS[config.model_head].from_linear(
                 linear=self.lm_head,
@@ -72,15 +84,28 @@ class TJD(ABC, torch.nn.Module):
         else:
             self.mhead = TJD_DISTS[config.model_head](config=config.model_head_config)
 
-        # Trainer compatibility
-        self.gradient_checkpointing_enable = self.backbone.gradient_checkpointing_enable
-
     @property
     def device(self):
         return next(self.parameters()).device
 
+    @staticmethod
+    def _run_checks(input_validation_checks: list):
+        for check in input_validation_checks:
+            assert check["test"](), check["msg"]
+
     @abstractmethod
     def get_model(self) -> Tuple[torch.nn.Module, torch.nn.Linear]:
+        """Get the model and the linear layer.
+
+        Returns:
+            tuple: Tuple containing
+                - backbone (torch.nn.Module): Backbone model.
+                - lm_head (torch.nn.Linear): Linear layer for the model head.
+        """
+        pass
+
+    @abstractmethod
+    def forward_backbone(self, *args, **kwargs) -> torch.Tensor:
         pass
 
     def generate(
@@ -102,12 +127,11 @@ class TJD(ABC, torch.nn.Module):
         # ==== Input validation
         input_validation_checks = [
             {
-                "test": lambda: inputs > 0,
+                "test": lambda: torch.all(inputs > 0),
                 "msg": "Input tokens must be positive",
             }
         ]
-        for check in input_validation_checks:
-            assert check["test"](), check["msg"]
+        self._run_checks(input_validation_checks)
         # ====
 
         B, H, T = self.horizon, inputs.size(0), inputs.size(1)
@@ -152,7 +176,7 @@ class TJD(ABC, torch.nn.Module):
 
                 # Get hidden state
                 y_prime = y_out[mask_active, : T + t]  # (B', T + t)
-                h_last = self.backbone(input_ids=y_prime, **kwargs)[:, -1]
+                h_last = self.forward_backbone(input_ids=y_prime, **kwargs)[:, -1]
 
                 # Sample
                 if generation_config.gen_mode == "speculative":
@@ -164,14 +188,14 @@ class TJD(ABC, torch.nn.Module):
                     )
                     attn_mask = kwargs.get("attention_mask", None)
                     if attn_mask is not None:
-                        attn_mask = extend_attn(
+                        attn_mask = extend_attn_mask(
                             attn_mask[mask_active, : T + t], horizon=H
                         )
                     else:
                         raise Warning(
                             "Attention mask not provided. Generation may not work as expected."
                         )
-                    py = self.backbone(
+                    py = self.forward_backbone(
                         input_ids=torch.cat((inputs, y_cand), dim=1),  # (B', T + t + H)
                         attention_mask=attn_mask,
                         **kwargs,
@@ -237,7 +261,6 @@ class TJD(ABC, torch.nn.Module):
             labels (torch.Tensor): Tensor of shape (B, T)
             horizon (Optional[int], optional): Joint distribution size. If None, uses the model level horizon. Defaults to None.
             reduce (str, optional): Reduction method. Defaults to "mean".
-            use_memory_efficient_loss (bool, optional): Whether to use memory efficient loss computation. Defaults to False.
 
         Note:
             horizon must be less than or equal to the model horizon specified during initialization.
@@ -257,8 +280,7 @@ class TJD(ABC, torch.nn.Module):
                 "msg": "Sequence length must be greater than horizon",
             }
         ]
-        for check in input_validation_checks:
-            assert check["test"](), check["msg"]
+        self._run_checks(input_validation_checks)
         # ====
 
         reduce_fn = {
@@ -270,7 +292,7 @@ class TJD(ABC, torch.nn.Module):
         B, _ = input_ids.size()
         H = self.horizon
 
-        h = self.backbone(input_ids, attention_mask=attention_mask)
+        h = self.forward_backbone(input_ids, attention_mask=attention_mask)
 
         # 1. Create targets
         y_true = get_windowed_input_ids_v2(input_ids, horizon=self.horizon).reshape(
@@ -282,7 +304,7 @@ class TJD(ABC, torch.nn.Module):
         # with the non-downsampled version.
         h_ds = h[:, :-H]  # (B, T-H, D)
         y_true_ds = y_true  # (B, T-H, H)
-        if self.use_memory_efficient_loss:
+        if self.tjd_config.use_memory_efficient_loss:
             shift = torch.randint(0, H, (1,)).item()
             h_ds = h_ds[:, shift::H]  # (B, T-H // H, D)
             y_true_ds = y_true[:, shift::H]  # (B, T-H // H, H)
@@ -296,7 +318,7 @@ class TJD(ABC, torch.nn.Module):
         loss_tot = loss_mhead.sum(-1)
 
         # 3b. Compute lm_head loss (target model)
-        if self.loss_mode == "joint":
+        if self.tjd_config.loss_mode == "joint":
             log_probs_lm_head = self.tgt_model_head(h[:, :-1])  # (B, T-1, V)
             # (B, T) -> (B, T-1)
             y_true = get_windowed_input_ids_v2(
@@ -312,12 +334,19 @@ class TJD(ABC, torch.nn.Module):
                 .reshape(B, -1)  # (B, T-1)
                 .sum(-1)
             )
-            loss_tot = loss_tot + self.joint_loss_lambda * loss_lm_head  # (B,)
+            loss_tot = (
+                loss_tot + self.tjd_config.joint_loss_lambda * loss_lm_head
+            )  # (B,)
 
         # NLL must be computed on downsampled seq.
-        nll = loss_mhead if self.use_memory_efficient_loss else loss_mhead[:, ::H]
+        nll = (
+            loss_mhead
+            if self.tjd_config.use_memory_efficient_loss
+            else loss_mhead[:, ::H]
+        )
         return {
             "loss": reduce_fn(loss_tot),
             "nll": reduce_fn(nll.sum(dim=-1)),
-            "loss_scale": torch.tensor(1 / self.rank).to(loss_mhead.device),
+            # "loss_scale": torch.tensor(1 / self.rank).to(loss_mhead.device),
+            "loss_scale": torch.tensor(1).to(loss_mhead.device),
         }

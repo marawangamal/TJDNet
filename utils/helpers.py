@@ -12,8 +12,8 @@ from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 
-from tjdnet.models.tjdhf_v2 import TJDConfig as TJDConfigV2
-from tjdnet.models.tjdhf_v2 import TJDHuggingFace as TJDHuggingFaceV2
+from tjdnet.models.tjdhf import TJDConfig
+from tjdnet.models.tjdhf import TJDHuggingFace
 
 
 import uuid
@@ -367,7 +367,7 @@ def get_auto_tokenizer(model_name):
 
 def get_model_and_tokenizer_v2(args):
     tokenizer = get_auto_tokenizer(args.model)
-    model_config = TJDConfigV2(
+    model_config = TJDConfig(
         model_head=args.model_head,
         model_head_config=BaseDistConfig(
             vocab_size=len(tokenizer),
@@ -381,7 +381,7 @@ def get_model_and_tokenizer_v2(args):
         init_method=args.init_method,
         loss_mode=args.train_mode,
     )
-    model = TJDHuggingFaceV2(
+    model = TJDHuggingFace(
         model_config,
         auto_model_kwargs=dict(
             pretrained_model_name_or_path=args.model,

@@ -3,7 +3,7 @@ import torch
 from tqdm import tqdm
 
 from dataloaders._base import BaseChatTemplate
-from tjdnet.models._tjd import TJD
+from tjdnet.models.tjd_v1 import TJD
 from utils.utils import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast

@@ -3,7 +3,7 @@ import torch
 from tqdm import tqdm
 
 from dataloaders._base import BaseChatTemplate
-from tjdnet.models._tjd import TJD
+from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.utils import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -30,6 +30,7 @@ def compute_accuracy(
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     test_dataset: DatasetDict,
     chat_template: BaseChatTemplate,
+    generation_config: TJDGenerationConfig,
     # top_k: int = 50,
     # do_sample: bool = True,
     batch_size: int = 1,
@@ -40,7 +41,6 @@ def compute_accuracy(
     # max_new_tokens: int = 128,
     # horizon: int = 1,
     avg_meter_kwargs={},
-    generate_kwargs={},
     verbose=True,
     max_num_samples: Optional[int] = None,
     # **kwargs,
@@ -84,9 +84,12 @@ def compute_accuracy(
                 tokenizer=tokenizer,
             )
             outputs, acceptance_metrics = model.generate(
-                x=input_ids,
-                attn_mask=attention_mask,
-                **generate_kwargs,
+                inputs=input_ids,
+                attention_mask=attention_mask,
+                generation_config=generation_config,
+                # x=input_ids,
+                # attn_mask=attention_mask,
+                # **generate_kwargs,
             )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
             tokens_proposed += acceptance_metrics["tokens_proposed"]
             tokens_accepted += acceptance_metrics["tokens_accepted"]

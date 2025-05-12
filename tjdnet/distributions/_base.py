@@ -42,79 +42,20 @@ class BaseDistribution(ABC, torch.nn.Module):
             raise ValueError(f"Horizon must be less than or equal to {self.horizon}")
         return horizon
 
-    def _get_params_from_cache(
-        self,
-        last_hidden_state: torch.Tensor,
-        use_cache: bool,
-        save_cache: bool,
-        **kwargs,
-    ) -> torch.Tensor:
-        params = None
-        if use_cache and "hidden_state" in self.cache:
-            params = self.cache["hidden_state"]
-        else:
-            params = self._get_params(last_hidden_state)
-            if save_cache:
-                self.cache["hidden_state"] = params
-        return params
-
-    def init_params(
-        self, pt_weight: torch.Tensor, pt_bias: Optional[torch.Tensor]
-    ) -> None:
-        raise NotImplementedError("init_params method must be implemented")
-
     @abstractmethod
-    def _get_params(self, last_hidden_state: torch.Tensor, **kwargs) -> torch.Tensor:
-        pass
-
-    @abstractmethod
-    def sample(
-        self,
-        hidden_state: torch.Tensor,
-        horizon: Optional[int],
-        do_sample: bool,
-        top_k: int,
-        **kwargs,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Sample from the distribution.
+    def get_params(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        """Computes the parameters of the distribution.
 
         Args:
-            hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
-            horizon (int): Number of future tokens to predict.
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
 
         Returns:
-            tuple:
-                - torch.Tensor: Sampled tokens of shape (B, H).
-                - torch.Tensor: Probs of shape (B, H, V).
+            torch.Tensor: Dist parameters. Shape (B, P)
         """
         pass
 
+    @classmethod
     @abstractmethod
-    def evaluate_at_points_and_get_norm_consts(
-        self,
-        last_hidden_state: torch.Tensor,
-        points: torch.Tensor,
-        **kwargs,
-    ) -> Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
-        """Evaluate the distribution at the given points and get normalization constants.
-
-        Computes p'(y) and z(y) for the given points y.
-
-        Args:
-            last_hidden_state (torch.Tensor): Hidden states of shape (B, T, D).
-            points (torch.Tensor): Points to evaluate the distribution. Shape (B, T, H).
-
-        Returns:
-            Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
-                - Evaluation of the distribution at the points of shape (B, H).
-                - Scale tensors (empty list).
-                - Normalization constants of shape (B, T).
-                - Scale tensors for normalization constants (empty list).
-        """
-        pass
-
-    @classmethod  # <-- important
-    @abstractmethod  # <-- keep it abstract
     def from_linear(
         cls: Type[T], linear: torch.nn.Linear, config: BaseDistFromLinearConfig
     ) -> T:
@@ -128,6 +69,7 @@ class BaseDistribution(ABC, torch.nn.Module):
         """
         pass
 
+    @abstractmethod
     def evaluate(
         self,
         x: torch.Tensor,
@@ -148,6 +90,27 @@ class BaseDistribution(ABC, torch.nn.Module):
                 - Scale tensors for normalization constants (empty list).
         """
         raise NotImplementedError("evaluate method must be implemented in the subclass")
+
+    @abstractmethod
+    def sample(
+        self,
+        x: torch.Tensor,
+        horizon: Optional[int],
+        **kwargs,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Computes P(yh|x, y1:h-1) for h in [1, H].
+
+        Args:
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+
+        Returns:
+            Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
+                - Evaluation of the distribution at the points of shape (B, H).
+                - Scale tensors (empty list).
+                - Normalization constants of shape (B, T).
+                - Scale tensors for normalization constants (empty list).
+        """
+        pass
 
     def compute_loss(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Computes loss for CPB distribution.

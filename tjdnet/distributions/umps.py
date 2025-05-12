@@ -9,7 +9,7 @@ class UMPSDist(MPSDist):
         config.param_net.out_dim_decoder = config.vocab_size
         super().__init__(config, bypass_config=True, **kwargs)
 
-    def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
+    def forward(self, last_hidden_state: torch.Tensor, **kwargs):
         return self.param_func(last_hidden_state)  # (B, T, RR, V)
 
     def get_mps_params(
