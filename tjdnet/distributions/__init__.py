@@ -10,11 +10,11 @@ from tjdnet.distributions.umps import UMPSDist
 
 
 TJD_DISTS: Dict[str, Type[BaseDistribution]] = {
-    "base": BaseDist,
+    # "base": BaseDist,
     "cp": CPDist,
-    "cpo": CPDist,
-    "cpb": CPBDist,
-    "ucp": UCPDist,
-    "mps": MPSDist,
-    "umps": UMPSDist,
+    # "cpo": CPDist,
+    # "cpb": CPBDist,
+    # "ucp": UCPDist,
+    # "mps": MPSDist,
+    # "umps": UMPSDist,
 }
