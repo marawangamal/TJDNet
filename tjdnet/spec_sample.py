@@ -92,17 +92,17 @@ def spec_sample(
     y_out = []
 
     h = 0
-    all_tokens_accepted = True
+    n_accept = 0
     while h < horizon:
         r = torch.rand((batch_size,), device=q_hat.device)
         accept_mask = r < torch.minimum(
             torch.ones_like(py_select, device=py_select.device), (py_select / qy_select)
         )  # (B,)
-        # if accept_mask.all():
-        if False:
+        if accept_mask.all():
             # all samples accepted
             y_out.append(q_hat[:, h : h + 1])  # (B, 1)
             h += 1
+            n_accept += 1
         else:
             # some samples rejected
             # === Debug
@@ -110,10 +110,9 @@ def spec_sample(
             # ====
             # y_adj = sample_fn(spec_normalize(py[:, h] - qy[:, h]))  # (B, V) => (B,)
             y_out.append(y_adj.unsqueeze(1))  # (B, 1)
-            all_tokens_accepted = False
             break
 
-    return torch.cat(y_out, dim=1)  # (B, H)
+    return torch.cat(y_out, dim=1), n_accept
 
 
 def speculative_sampling(

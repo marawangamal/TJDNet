@@ -72,6 +72,7 @@ class CPDist(TJDist):
         # (B, D) -> (B,)
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int] = None,
+        return_logits: bool = False,
         **kwargs,
     ):
         horizon = self.get_horizon(horizon)
@@ -103,6 +104,8 @@ class CPDist(TJDist):
 
             y_hat = torch.cat([y_hat, next_token], dim=1)
         py_tilde = torch.stack(py_tilde_list, dim=1)  # (B, H, V)
+        if return_logits:  # don't normalize
+            return y_hat, py_tilde
         return y_hat, py_tilde / py_tilde.sum(dim=-1, keepdim=True)  # (B, H)
 
     def evaluate(

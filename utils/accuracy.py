@@ -69,7 +69,7 @@ def compute_accuracy(
 
     printv = print if verbose else lambda *args, **kwargs: None
 
-    tokens_proposed = 0
+    tokens_generated = 0
     tokens_accepted = 0
 
     printv("Total number of samples:", total_samples)
@@ -91,7 +91,7 @@ def compute_accuracy(
                 # attn_mask=attention_mask,
                 # **generate_kwargs,
             )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
-            tokens_proposed += acceptance_metrics["tokens_proposed"]
+            tokens_generated += acceptance_metrics["tokens_generated"]
             tokens_accepted += acceptance_metrics["tokens_accepted"]
 
             # Batched decoding
@@ -143,8 +143,9 @@ def compute_accuracy(
         printv(f"y_true:\n {y_true[0]}")
         printv(f"y_pred:\n {y_pred[0]}")
     (
-        print("Acceptance rate:", tokens_accepted / tokens_proposed)
-        if tokens_proposed > 0
-        else 0
+        print(
+            "Acceptance rate:",
+            tokens_accepted / tokens_generated if tokens_generated > 0 else 0,
+        )
     )
     return acc_meter.avg, {**acc_meter.dump(), "total_samples": total_samples}
