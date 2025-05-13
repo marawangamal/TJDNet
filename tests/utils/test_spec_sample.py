@@ -73,7 +73,7 @@ class TestSpecSample(unittest.TestCase):
         for _ in range(1000):
             model = MockModel(batch_size=1, horizon=3, vocab_size=5, embd_dim=4)
             # Test grouping by only model_head
-            y = spec_sample(
+            y, n_accept = spec_sample(
                 # model_p: y -> p(y1|x), p(y2|x, y1), ..., p(yh|x, y1:H-1). Shape: (B, H) -> (B, H, V)
                 model_p=lambda y: model.prob_y_bar_x(y)[:, :-1, :],  # (B, H, V)
                 # {} -> y_hat, q(y1|x), q(y2|x, y1), ..., q(yh|x, y1:H-1). Shape: None -> (B, H), (B, H, V)

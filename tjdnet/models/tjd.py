@@ -9,7 +9,7 @@ from wandb import config
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig, BaseDistFromLinearConfig
-from tjdnet.spec_sample import spec_sample, speculative_sampling
+from tjdnet.spec_sample import spec_sample
 from tjdnet.tensorops.common import get_windowed_input_ids_v2
 from tjdnet.utils import sample_topk
 
@@ -141,6 +141,7 @@ class TJD(ABC, torch.nn.Module):
         self,
         inputs: torch.Tensor,
         generation_config: TJDGenerationConfig,
+        return_full_text: bool = False,
         **kwargs,  # will be passed to the forward method
     ):
         """Generate sequences given an input tensor.
@@ -213,37 +214,6 @@ class TJD(ABC, torch.nn.Module):
 
                 # Sample
                 if generation_config.gen_mode == "speculative":
-                    # ==== Use speculative_sampling func >>>>
-                    # y_cand, qy_tilde = self.mhead.sample(
-                    #     h_last,
-                    #     horizon=H,
-                    #     sample_fn=sample_fn,
-                    #     return_logits=True,
-                    # )  # (B', H)
-                    # attn_mask = kwargs.get("attention_mask", None)
-                    # if attn_mask is not None:
-                    #     attn_mask = extend_attn_mask(
-                    #         attn_mask[mask_active, : T + t], horizon=H
-                    #     )
-                    # else:
-                    #     raise Warning(
-                    #         "Attention mask not provided. Generation may not work as expected."
-                    #     )
-                    # py_bar_x_tilde = self.prob_y_bar_x_backbone(
-                    #     x=torch.cat((inputs, y_cand), dim=1),  # (B', T + t + H)
-                    #     attn_mask=attn_mask,
-                    #     return_logits=True,
-                    # )[
-                    #     :, T - 1 : -1
-                    # ]  # (B', H, V)
-                    # y_hat, n_matches = speculative_sampling(
-                    #     candidate_input_ids=y_cand,
-                    #     candidate_logits=qy_tilde,
-                    #     candidate_length=H,
-                    #     new_logits=py_bar_x_tilde,
-                    #     is_done_candidate=False,
-                    # )  # (B', H') -- H' <= H_tgt if not all tokens are accepted
-                    # =======================================================
 
                     def model_p(y):
                         attn_mask = kwargs.get("attention_mask", None)
@@ -288,7 +258,7 @@ class TJD(ABC, torch.nn.Module):
 
                 # Append new tokens
                 H_sampled = y_hat.size(1)  # Number of tokens sampled
-                y_out[mask_active, T : T + t + H_sampled] = y_hat
+                y_out[mask_active, x.size(1) : x.size(1) + H_sampled] = y_hat
                 t += H_sampled
 
         # Replace stop tokens with padding
@@ -297,6 +267,7 @@ class TJD(ABC, torch.nn.Module):
             stop_mask = (y_out == generation_config.eos_token_id).float()  # (B, T_out)
             y_out[torch.cumsum(stop_mask, dim=1) >= 1] = generation_config.eos_token_id
 
+        y_out = y_out if return_full_text else y_out[:, inputs.size(1) :]
         return y_out, accept_rate_metrics
 
     def forward(

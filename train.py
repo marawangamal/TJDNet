@@ -46,7 +46,7 @@ from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
 from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accpetance_rates import compute_acceptance_rate
-from utils.accuracy import compute_accuracy
+from utils.accuracy import compute_accuracy, compute_accuracy_v2
 from utils.utils import get_experiment_name
 from utils.helpers import (
     get_git_info,
@@ -88,7 +88,6 @@ class TJDTrainer(Trainer):
         chat_template: BaseChatTemplate,
         generation_config: TJDGenerationConfig,
         on_converge_callback_cs=None,
-        metric: Literal["accuracy", "acceptance_rate"] = "accuracy",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -97,11 +96,11 @@ class TJDTrainer(Trainer):
         self.tokenizer = tokenizer
         self.generation_config = generation_config
         self.on_converge_callback_cs = on_converge_callback_cs
-        self.metric_name = metric
-        self.metric_fn = {
-            "accuracy": compute_accuracy,
-            "acceptance_rate": compute_acceptance_rate,
-        }[metric]
+        # self.metric_name = metric
+        # self.metric_fn = {
+        #     "accuracy": compute_accuracy,
+        #     "acceptance_rate": compute_acceptance_rate,
+        # }[metric]
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
@@ -113,29 +112,32 @@ class TJDTrainer(Trainer):
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
         if self.test_dataset:
-            acc, _ = self.metric_fn(
-                self.model,
+            metrics = compute_accuracy_v2(
+                model=self.model,  # type: ignore
                 tokenizer=self.tokenizer,  # type: ignore
-                test_dataset=self.test_dataset,  # type: ignore
+                dataset=self.test_dataset,  # type: ignore
                 chat_template=self.chat_template,
                 generation_config=self.generation_config,
+                max_iters=10,
             )
 
             if output and output.metrics:
-                output.metrics[f"eval_acc"] = acc
+                for k, v in metrics.items():
+                    output.metrics[f"eval_{k}"] = v
 
-            print(f"Eval {self.metric_name}:", acc)
-            if abs(acc - 1.0) < 1e-3:
-                print(f"Eval {self.metric_name} is 1.0, ending training.")
-                if (
-                    self.on_converge_callback_cs is not None
-                    and output
-                    and output.metrics
-                ):
-                    self.on_converge_callback_cs(
-                        {**output.metrics, "epoch": self.state.epoch}
-                    )
-                exit(0)
+            # acc = metrics.get("accuracy", 0.0)
+            # print(f"Eval {self.metric_name}:", acc)
+            # if abs(acc - 1.0) < 1e-3:
+            #     print(f"Eval {self.metric_name} is 1.0, ending training.")
+            #     if (
+            #         self.on_converge_callback_cs is not None
+            #         and output
+            #         and output.metrics
+            #     ):
+            #         self.on_converge_callback_cs(
+            #             {**output.metrics, "epoch": self.state.epoch}
+            #         )
+            #     exit(0)
 
         return output
 
@@ -306,7 +308,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        # eval_on_start=True,
+        eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
@@ -365,9 +367,9 @@ def main():
             max_new_tokens=args.max_new_tokens,
             gen_mode=args.gen_mode,
             top_k=args.top_k,
+            eos_token_id=int(tokenizer.eos_token_id),  # type: ignore
         ),
         on_converge_callback_cs=on_converge_callback_cs,
-        # metric="acceptance_rate" if args.speculative else "accuracy",
     )
     printr(f"Trainer initialized with {len(lm_dataset['train'])} training samples")
     trainer.train(resume_from_checkpoint=has_checkpoint)
