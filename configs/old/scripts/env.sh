@@ -1,1 +1,0 @@
-export HF_HOME=/home/mila/m/marawan.gamal/scratch/hf_cache

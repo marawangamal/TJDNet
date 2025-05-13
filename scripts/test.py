@@ -1,5 +1,5 @@
 # Test script with dummy data
-from utils.helpers import get_model_and_tokenizer, parse_args
+from utils.helpers import get_model_and_tokenizer_v2, parse_args
 
 import torch
 import torch.distributed as dist
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     setup_process_group()
 
     args = parse_args()
-    model, _ = get_model_and_tokenizer(args)
+    model, _ = get_model_and_tokenizer_v2(args)
 
     # Then in your main code:
     transformer_layer_cls = get_transformer_layer_cls_for_model(model)
