@@ -362,6 +362,7 @@ def main():
             horizon=args.horizon,
             max_new_tokens=args.max_new_tokens,
             gen_mode=args.gen_mode,
+            top_k=args.top_k,
         ),
         on_converge_callback_cs=on_converge_callback_cs,
         # metric="acceptance_rate" if args.use_speculative_sampling else "accuracy",

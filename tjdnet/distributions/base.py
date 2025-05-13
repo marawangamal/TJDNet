@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Callable, Optional
 import torch
 
 from tjdnet.distributions._tjdist import (
@@ -67,17 +67,14 @@ class BaseDist(TJDist):
     def sample(
         self,
         x: torch.Tensor,  # (B, T, D)
+        sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int] = None,
-        do_sample: bool = False,
-        top_k: int = 200,
         **kwargs,
     ):
         if horizon and horizon > 1:
             raise ValueError("Horizon must be 1 for base distribution")
         model_head_params = self.get_params(x)  # (B, V)
-        y_hat = sample_topk(
-            model_head_params, top_k=top_k if do_sample else 1
-        )  # (B, 1)
+        y_hat = sample_fn(model_head_params).unsqueeze(1)  # (B, 1)
         py = model_head_params.unsqueeze(1)
         return y_hat, py  # (B, 1), (B, 1, V)
 

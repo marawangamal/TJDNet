@@ -1,3 +1,4 @@
+from typing import Callable
 from git import Optional
 import torch
 
@@ -68,9 +69,9 @@ class CPDist(TJDist):
     def sample(
         self,
         x: torch.Tensor,
+        # (B, D) -> (B,)
+        sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int] = None,
-        do_sample: bool = False,
-        top_k: int = 200,
         **kwargs,
     ):
         horizon = self.get_horizon(horizon)
@@ -98,10 +99,8 @@ class CPDist(TJDist):
                 ops=ops_tensor,
             )  # (B, V), (B,) * T
             py_tilde_list.append(p_ops_tilde)
-            if do_sample:
-                next_token = sample_topk(p_ops_tilde, top_k, num_samples=1)
-            else:  # greedy sampling
-                next_token = sample_topk(p_ops_tilde, 1, num_samples=1)
+            next_token = sample_fn(p_ops_tilde).unsqueeze(1)  # (B,1)
+
             y_hat = torch.cat([y_hat, next_token], dim=1)
         py_tilde = torch.stack(py_tilde_list, dim=1)  # (B, H, V)
         return y_hat, py_tilde / py_tilde.sum(dim=-1, keepdim=True)  # (B, H)

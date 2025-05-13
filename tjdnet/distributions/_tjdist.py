@@ -2,7 +2,7 @@ from __future__ import annotations  # only needed on 3.10 and below
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, List, Type, TypeVar
+from typing import Callable, Optional, Tuple, List, Type, TypeVar
 
 import torch
 
@@ -29,7 +29,7 @@ class BaseDistConfig:
 class AbstractDist(ABC, torch.nn.Module):
     def __init__(self, config: BaseDistConfig):
         """Abstract base class for distributions compatible with TJD."""
-        super().__init__(config)
+        super().__init__()
         self.vocab_size = config.vocab_size
         self.horizon = config.horizon
         self.rank = config.rank
@@ -127,6 +127,7 @@ class TJDist(AbstractDist):
     def sample(
         self,
         x: torch.Tensor,
+        sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int],
         **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -134,6 +135,7 @@ class TJDist(AbstractDist):
 
         Args:
             x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+            sample_fn (Callable): Sampling function.
 
         Returns:
             Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:

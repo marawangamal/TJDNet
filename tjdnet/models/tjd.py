@@ -141,6 +141,7 @@ class TJD(ABC, torch.nn.Module):
         gen_kwargs = {
             "top_k": generation_config.top_k if generation_config.do_sample else 1,
         }
+        sample_fn = lambda x: sample_topk(x, **gen_kwargs).squeeze(-1)
 
         # Initialize output with input_ids
         y_out = torch.full(
@@ -183,8 +184,7 @@ class TJD(ABC, torch.nn.Module):
                     y_cand, qy = self.mhead.sample(
                         h_last,
                         horizon=H,
-                        do_sample=generation_config.do_sample,
-                        top_k=generation_config.top_k,
+                        sample_fn=sample_fn,
                     )
                     attn_mask = kwargs.get("attention_mask", None)
                     if attn_mask is not None:
@@ -215,13 +215,12 @@ class TJD(ABC, torch.nn.Module):
                     y_hat, _ = self.mhead.sample(
                         h_last,
                         horizon=H,
-                        do_sample=generation_config.do_sample,
-                        top_k=generation_config.top_k,
+                        sample_fn=sample_fn,
                     )  # (B', H_tgt)
 
                 elif generation_config.gen_mode == "base":
                     logits_y = self.lm_head(h_last)
-                    y_hat = sample_topk(logits_y, **gen_kwargs).squeeze(-1)
+                    y_hat = sample_fn(logits_y)
 
                 else:
                     raise ValueError(
