@@ -8,10 +8,11 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer
 
-from dataloaders import CHAT_TEMPLATES
-from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions import TJD_DISTS
+from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models._tjd import TJD_DISTS, TJDConfig
+
+from tjdnet.models.tjdhf import TJDConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
 
 
@@ -33,7 +34,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on the ELI5 dataset.")
 
     # ------------------
-    # Training arguments
+    # Basic arguments
     # ------------------
 
     parser.add_argument(
@@ -129,11 +130,9 @@ def parse_args():
     parser.add_argument(
         "--joint_loss_lambda",
         type=float,
-        default=0.2,
+        default=1,
         help="Weight for target model loss in joint loss.",
     )
-
-    # Training mode
     parser.add_argument(
         "--train_mode",
         default="lora",
@@ -150,40 +149,17 @@ def parse_args():
         default=32,
         help="Rank of the tensor train decomposition for LORA training.",
     )
-
     parser.add_argument(
         "--use_memory_efficient_loss",
         default=False,
         action="store_true",
         help="Whether to use a memory efficient loss function.",
     )
-    # Evaluation arguments
-    parser.add_argument(
-        "--horizon_eval",
-        type=int,
-        default=2,
-        help="Horizon for TJD models during evaluation. (Note: horizon_eval cannot be greater than horizon for some TJD dists)",
-    )
-    parser.add_argument(
-        "--max_new_tokens",
-        type=int,
-        default=128,
-        help="Maximum number of tokens to generate during evaluation.",
-    )
-    parser.add_argument(
-        "--top_k",
-        type=int,
-        default=200,
-        help="Retain only the top_k most likely tokens, clamp others to have 0 probability",
-    )
-    parser.add_argument(
-        "--use_speculative_sampling",
-        action="store_true",
-        default=False,
-        help="Whether to use speculative sampling.",
-    )
 
-    # Data Arguments
+    # ------------------
+    # Data arguments
+    # ------------------
+
     parser.add_argument(
         "--dataset",
         type=str,
@@ -201,7 +177,37 @@ def parse_args():
     )
 
     # ------------------
-    # Trainer arguments
+    # Eval arguments (EXCLUDED FROM EXP NAME)
+    # ------------------
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=128,
+        help="Maximum number of tokens to generate during evaluation.",
+    )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=200,
+        help="Retain only the top_k most likely tokens, clamp others to have 0 probability",
+    )
+    parser.add_argument(
+        "--do_sample",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--gen_mode",
+        type=str,
+        default="draft",
+        choices=["base", "draft", "speculative"],
+    )
+    parser.add_argument(
+        "--compute_acc", action="store_true", help="Whether to compute accuracy"
+    )
+
+    # ------------------
+    # Trainer arguments (EXCLUDED FROM EXP NAME)
     # ------------------
 
     parser.add_argument(
@@ -253,10 +259,6 @@ def parse_args():
     # ---
     # MISC (EXCLUDED FROM EXP NAME)
     # ---
-
-    parser.add_argument(
-        "--compute_acc", action="store_true", help="Whether to compute accuracy"
-    )
     parser.add_argument(
         "--disable_wandb",
         action="store_true",
@@ -334,60 +336,6 @@ def validate_args(args):
             raise ValueError(rule["message"])
 
 
-def get_test_samples(
-    model,
-    tokenizer,
-    prompt="\n",
-    max_new_tokens=128,
-    top_k=50,
-    do_sample=True,
-    num_samples=1,
-    print_output=False,
-    horizon=1,
-    debug=True,
-):
-    # Inference
-    model.eval()
-    samples = []
-    for i in range(num_samples):
-        inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
-        outputs = model.generate(
-            inputs,
-            max_new_tokens=max_new_tokens,
-            top_k=top_k,
-            do_sample=do_sample,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            horizon=horizon,
-            early_stopping=True,  # For hf models this causes stopping when end token is reached (gpt2r)
-            stop_token=tokenizer.eos_token_id,  # For tjd models this causes stopping when end token is reached
-            stop_strings=[
-                tokenizer.eos_token
-            ],  # For tjd models this causes stopping when end token is reached
-        )
-
-        sample = tokenizer.decode(outputs[0])
-        output_tokens = outputs[0]
-
-        # Truncate the prompt from the output
-        if sample.startswith(prompt):
-            output_tokens = output_tokens[len(inputs[0]) :]
-            sample = sample[len(prompt) :]
-
-        if num_samples == 1:
-            samples.append(sample)
-        else:
-            samples.append(f"[{i+1}] {sample}")
-
-        # if debug:
-        #     status = "Fail" if len(output_tokens) == max_new_tokens else "Pass"
-        #     print(f"[{status}] Num tokens: {len(output_tokens)}")
-
-    if print_output:
-        print("\n---\n".join(samples) + "\n")
-    return "\n".join(samples)
-
-
 def save_args(args, ckpt_dir):
     # Save args
     args_path = os.path.join(ckpt_dir, "args.json")
@@ -414,21 +362,14 @@ def get_auto_tokenizer(model_name):
     tokenizer.pad_token = "$"
     tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
     tokenizer.padding_side = "left"
-
     return tokenizer
 
 
-def get_model_and_tokenizer(args):
-
-    # tokenizer = AutoTokenizer.from_pretrained(args.model)
-    # # Note: cant simply add pad token -- unless we retrain a model embedding layer
-    # tokenizer.pad_token = "$"
-    # tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
-    # tokenizer.padding_side = "left"
+def get_model_and_tokenizer_v2(args):
     tokenizer = get_auto_tokenizer(args.model)
-
     model_config = TJDConfig(
-        base_dist=BaseDistConfig(
+        model_head=args.model_head,
+        model_head_config=BaseDistConfig(
             vocab_size=len(tokenizer),
             horizon=args.horizon,
             rank=args.rank,
@@ -437,28 +378,14 @@ def get_model_and_tokenizer(args):
                 positivity_func=args.positivity_func,
             ),
         ),
-        model_head=args.model_head,
         init_method=args.init_method,
-        train_mode=args.train_mode,
-        lora_rank=args.lora_rank,
+        loss_mode=args.train_mode,
+    )
+    model = TJDHuggingFace(
+        model_config,
         auto_model_kwargs=dict(
-            # NOTE: this will save hf models to `HF_CACHE_DIR` instead of `~/.cache/huggingface`
-            # cache_dir=args.cache_dir,
             pretrained_model_name_or_path=args.model,
             low_cpu_mem_usage=True,
         ),
-        loss_mode=args.loss_mode if hasattr(args, "loss_mode") else "draft",
-        use_memory_efficient_loss=args.use_memory_efficient_loss,
-        use_speculative_sampling=args.use_speculative_sampling,
-        # cache_dir=args.cache_dir,
-        # use_attn_layer=(
-        #     args.use_attn_layer if hasattr(args, "use_attn_layer") else False
-        # ),  # Backward compatibility
-        # gen_version=(
-        #     args.gen_version if hasattr(args, "gen_version") else 2
-        # ),  # Backward compatibility
-        # fw_version=args.fw_version if hasattr(args, "fw_version") else 1,
     )
-    model = TJDHuggingFace(model_config)
-
     return model, tokenizer

@@ -3,10 +3,10 @@ from typing import Optional
 
 import torch
 
-from tjdnet.distributions._base import (
+from tjdnet.distributions._tjdist import (
+    AbstractDist,
     BaseDistConfig,
     BaseDistFromLinearConfig,
-    BaseDistribution,
 )
 from tjdnet.utils import sample_topk
 
@@ -20,7 +20,7 @@ class CPBDistConfig:
     vocab_size: int
 
 
-class CPBDist(BaseDistribution):
+class CPBDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         self.rank = config.rank
         self.horizon = config.horizon
@@ -38,7 +38,7 @@ class CPBDist(BaseDistribution):
         # === fixed alpha
         # self.alpha_unnorm_func = lambda x: torch.ones(1, self.rank, device=x.device)
 
-    def _get_params(self, last_hidden_state: torch.Tensor, **kwargs):
+    def forward(self, last_hidden_state: torch.Tensor, **kwargs):
         raise NotImplementedError("_get_params method must be implemented")
 
     def evaluate_at_points_and_get_norm_consts(

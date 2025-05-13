@@ -156,6 +156,7 @@ Results obtained after training LLama7b on GSM8k for 50 epochs are given
 |-------------------------------------------------------|------------------|-------------|---------------------|-----------|
 | e5::mmeta::mhcpo::umelTrue::r1::h3::hd5120::lr5e_05   | 100% (5.0/5)     |   0.0784314 | 4% 51/1319          |  nan      |
 | e5::mmeta::mhcpo::umelTrue::r1::h2::hd5120::lr5e_05   | 100% (5.0/5)     |   0.215686  | 4% 51/1319          |  nan      |
+| e5::mmeta::mhcpo::umelTrue::r8::h2::hd5120::lr5e_05   | 100% (5.0/5)     |   0.21      |                     |  nan      |
 | e5::mmeta::mhcp::umelTrue::r8::h4::hd8192::lr5e_05    |                  | nan         |                     |  nan      |
 | e5::mmeta::mhcp::umelTrue::r8::h3::hd8192::lr5e_05    |                  | nan         |                     |  nan      |
 | e5::mmeta::mhcp::umelTrue::r8::h2::hd8192::lr5e_05    | 100% (5.0/5)     |   0.266111  | 100% 1319/1319      |  nan      |

@@ -66,6 +66,7 @@ def sample_from_tensor_dist(tens, num_samples=1):
     return samples
 
 
+# TODO: should have signature (*, T) -> (*, T, H). Right now flattens the first * dims.
 def get_windowed_input_ids(input_ids: torch.Tensor, horizon: int):
     # 1. Window the `input_ids` to get targets: (B, T) => (B, T, H)
     #   each position should look H steps ahead
@@ -74,6 +75,19 @@ def get_windowed_input_ids(input_ids: torch.Tensor, horizon: int):
     # 2. Make targets using windowed input_ids
     targets = input_ids_windowed[:, :-horizon]  # (B, T-H, H)
     targets = targets.reshape(-1, horizon)  # (B * (T-H), H)
+    return targets
+
+
+def get_windowed_input_ids_v2(input_ids: torch.Tensor, horizon: int):
+    # 1. Window the `input_ids` to get targets: (*, T) => (*, T, H)
+    #   each position should look H steps ahead
+    batch_dims = input_ids.shape[:-1]
+    input_ids = input_ids.reshape(-1, input_ids.shape[-1])  # Flatten batch dims
+    input_ids_windowed = window_input_ids(input_ids, horizon=horizon)
+
+    # 2. Make targets using windowed input_ids
+    targets = input_ids_windowed[:, :-horizon]  # (*, T-H, H)
+    targets = targets.reshape(*batch_dims, -1, horizon)  # (*,(T-H), H)
     return targets
 
 

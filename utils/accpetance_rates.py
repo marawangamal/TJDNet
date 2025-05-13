@@ -3,6 +3,7 @@ import torch
 from tqdm import tqdm
 
 from dataloaders._base import BaseChatTemplate
+from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.utils import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -24,18 +25,14 @@ def collate_fn(batch, tokenizer):
 
 
 def compute_acceptance_rate(
-    model: torch.nn.Module,
+    model: TJD,
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     test_dataset: DatasetDict,
     chat_template: BaseChatTemplate,
-    # top_k: int = 50,
-    # do_sample: bool = True,
+    generation_config: TJDGenerationConfig,
     batch_size: int = 1,
     on_batch_end=None,
-    log_samples=False,
-    log_samples_count=10,
     avg_meter_kwargs={},
-    generate_kwargs={},
     max_num_samples: Optional[int] = None,
     **kwargs,
 ):
@@ -69,11 +66,12 @@ def compute_acceptance_rate(
                 attention_mask=batch["attention_mask"],
                 tokenizer=tokenizer,
             )
-            _, acceptance_metrics = model.generate(
-                input_ids=input_ids,
+            outputs, acceptance_metrics = model.generate(
+                inputs=input_ids,
                 attention_mask=attention_mask,
-                **generate_kwargs,
+                generation_config=generation_config,
             )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
+            y_pred = tokenizer.batch_decode(outputs)
 
             ar_meter.update(
                 val=acceptance_metrics["tokens_accepted"]
@@ -89,5 +87,8 @@ def compute_acceptance_rate(
             if max_num_samples and i * batch_size >= max_num_samples:
                 print("Max number of samples reached, stopping evaluation.")
                 break
+
+    if len(y_pred) > 0:
+        print("Sampled outputs:\n", y_pred[0])
 
     return ar_meter.avg, {**ar_meter.dump(), "total_samples": total_samples}

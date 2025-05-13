@@ -1,7 +1,7 @@
 import torch
-from tjdnet.distributions._base import BaseDistConfig
+from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models._tjd import TJD, TJDConfig
+from tjdnet.models.tjd import TJD, TJDConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
 from tjdnet.utils import mem_check
 
@@ -17,40 +17,16 @@ def create_model(
 ):
     return lambda: TJDHuggingFace(
         TJDConfig(
-            base_dist=BaseDistConfig(
+            model_head=model_head,
+            model_head_config=BaseDistConfig(
                 vocab_size=-1,  # will be set by tjd
                 horizon=horizon,
                 rank=rank,
                 param_net=TensorParamNetConfig(hidden_dim=hidden_dim),
             ),
-            model_head=model_head,
-            auto_model_kwargs={"pretrained_model_name_or_path": model},
             use_memory_efficient_loss=use_memory_efficient_loss,
-            **kwargs,
         ),
-    )
-
-
-def create_model_gpt_fn(
-    rank,
-    horizon,
-    hidden_dim,
-    model_head="cp",
-    auto_model_kwargs={"pretrained_model_name_or_path": "gpt2"},
-    **kwargs,
-):
-    return lambda: TJDHuggingFace(
-        TJDConfig(
-            base_dist=BaseDistConfig(
-                vocab_size=-1,  # will be set by tjd
-                rank=rank,
-                horizon=horizon,
-                param_net=TensorParamNetConfig(hidden_dim=hidden_dim),
-            ),
-            model_head=model_head,
-            auto_model_kwargs=auto_model_kwargs,
-            **kwargs,
-        )
+        auto_model_kwargs={"pretrained_model_name_or_path": model},
     )
 
 

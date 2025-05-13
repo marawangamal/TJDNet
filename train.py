@@ -30,7 +30,6 @@ from re import L
 import shutil
 import time
 from typing import Literal, Union
-import uuid
 
 import torch
 import wandb
@@ -45,16 +44,20 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
+from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accpetance_rates import compute_acceptance_rate
 from utils.accuracy import compute_accuracy
 from utils.utils import get_experiment_name
 from utils.helpers import (
     get_git_info,
-    get_model_and_tokenizer,
+    get_model_and_tokenizer_v2,
     parse_args,
     save_args,
     set_seed,
 )
+from utils.utils import printo
+from utils.utils import printr
+from utils.utils import generate_wandb_id
 
 CHECKPOINT_DIR = "checkpoints"
 SILENT_ARGS = [
@@ -69,6 +72,11 @@ SILENT_ARGS = [
     "eval_strategy",
     "eval_steps",
     "wandb_project",
+    # Evaluation args
+    "do_sample",
+    "max_new_tokens",
+    "top_k",
+    "gen_mode",
 ]
 
 
@@ -78,7 +86,7 @@ class TJDTrainer(Trainer):
         test_dataset: torch.utils.data.Dataset,
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
         chat_template: BaseChatTemplate,
-        generate_kwargs: dict,
+        generation_config: TJDGenerationConfig,
         on_converge_callback_cs=None,
         metric: Literal["accuracy", "acceptance_rate"] = "accuracy",
         **kwargs,
@@ -87,7 +95,7 @@ class TJDTrainer(Trainer):
         self.test_dataset = test_dataset
         self.chat_template = chat_template
         self.tokenizer = tokenizer
-        self.generate_kwargs = generate_kwargs
+        self.generation_config = generation_config
         self.on_converge_callback_cs = on_converge_callback_cs
         self.metric_name = metric
         self.metric_fn = {
@@ -110,7 +118,7 @@ class TJDTrainer(Trainer):
                 tokenizer=self.tokenizer,  # type: ignore
                 test_dataset=self.test_dataset,  # type: ignore
                 chat_template=self.chat_template,
-                generate_kwargs=self.generate_kwargs,
+                generation_config=self.generation_config,
             )
 
             if output and output.metrics:
@@ -132,55 +140,6 @@ class TJDTrainer(Trainer):
         return output
 
 
-def setup_dist_class_fsdp_wrapping(model, training_args):
-    """Modify FSDP wrapping to include distribution classes."""
-    import importlib
-    from functools import partial
-
-    # Find all distribution classes in the model
-    dist_classes = set()
-
-    def find_dist_classes_in_model(module):
-        for name, child in module.named_children():
-            if "Dist" in child.__class__.__name__:
-                dist_classes.add(child.__class__)
-                print(f"Found distribution class: {child.__class__.__name__}")
-            find_dist_classes_in_model(child)
-
-    # Find classes in the model
-    find_dist_classes_in_model(model)
-
-    # Only proceed if we found distribution classes and have FSDP
-    if (
-        dist_classes
-        and hasattr(training_args, "_fsdp_plugin")
-        and training_args._fsdp_plugin is not None
-    ):
-        # Get existing auto wrap policy
-        fsdp_plugin = training_args._fsdp_plugin
-        existing_policy = getattr(fsdp_plugin, "auto_wrap_policy", None)
-
-        # Create a combined policy
-        def combined_wrap_policy(module, recurse=True, **kwargs):
-            # Check if module is one of our distribution classes
-            if module.__class__ in dist_classes:
-                return True
-
-            # Otherwise, use the existing policy
-            if callable(existing_policy):
-                return existing_policy(module, recurse=recurse, **kwargs)
-
-            return False
-
-        # Apply the combined policy
-        fsdp_plugin.auto_wrap_policy = combined_wrap_policy
-        print(
-            f"Applied custom FSDP wrapping for {len(dist_classes)} distribution classes"
-        )
-    else:
-        print("No distribution classes found or FSDP not active")
-
-
 # Custom evaluation function
 def compute_metrics(eval_pred):
     # Note: If return type of model forward is a dict, then the `predictions` will be tuple of all vals of keys except loss
@@ -189,14 +148,6 @@ def compute_metrics(eval_pred):
     return {
         "nll": nll.mean().item(),
     }
-
-
-def generate_wandb_id():
-    """Generate a random wandb_id that's compatible with W&B requirements."""
-    # Generate a random UUID and take the first 8 characters
-    # This gives us plenty of uniqueness while keeping the ID short
-    random_id = str(uuid.uuid4()).replace("-", "")[:8]
-    return random_id
 
 
 def get_wandb_id(exp_name):
@@ -243,17 +194,6 @@ def has_valid_checkpoint(ckpt_dir):
             printr(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
 
     return has_checkpoint
-
-
-def printr(msg):
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    print(f"[RANK {local_rank}] {msg}")
-
-
-def printo(msg):
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    if local_rank == 0:
-        printr(msg)
 
 
 def main():
@@ -311,9 +251,9 @@ def main():
         printr("Setup complete.")
     # ====
 
-    # Model and tokenizer
+    # 1. Model and tokenizer
     printr("Initializing model...")
-    model, tokenizer = get_model_and_tokenizer(args)
+    model, tokenizer = get_model_and_tokenizer_v2(args)
     chat_template = CHAT_TEMPLATES[args.dataset]
     printo(f"Model: {model.__class__.__name__}")
     printo(f"Tokenizer: {tokenizer.__class__.__name__}")
@@ -405,9 +345,6 @@ def main():
                 resume="allow",
             )
 
-    # Add this line here:
-    # setup_dist_class_fsdp_wrapping(model, training_args)
-
     # Initialize the trainer
     trainer = TJDTrainer(
         model=model,
@@ -416,21 +353,19 @@ def main():
         eval_dataset=lm_dataset["eval"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        # callbacks=[generation_callback] if args.compute_acc else None,
         # Evaluation
         tokenizer=tokenizer,
         test_dataset=lm_dataset["test"] if args.compute_acc else None,  # type: ignore
         chat_template=chat_template,
-        generate_kwargs=dict(
-            horizon=args.horizon_eval,
-            top_k=args.top_k,
-            top_p=0.95,
-            do_sample=True,
+        generation_config=TJDGenerationConfig(
+            do_sample=args.do_sample,
+            horizon=args.horizon,
             max_new_tokens=args.max_new_tokens,
-            stop_token=tokenizer.eos_token_id,
+            gen_mode=args.gen_mode,
+            top_k=args.top_k,
         ),
         on_converge_callback_cs=on_converge_callback_cs,
-        metric="acceptance_rate" if args.use_speculative_sampling else "accuracy",
+        # metric="acceptance_rate" if args.use_speculative_sampling else "accuracy",
     )
     printr(f"Trainer initialized with {len(lm_dataset['train'])} training samples")
     trainer.train(resume_from_checkpoint=has_checkpoint)
@@ -439,79 +374,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-# def setup(args, local_rank: int):
-#     # mkdir for checkpoints if not exists
-#     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-#     wandb_id = None
-#     iterations = 0
-#     while wandb_id is None:
-#         wandb_id = lookup_wandb_id(args)
-#         if local_rank == 0 and wandb_id is None:
-#             wandb_id = generate_wandb_id()
-#             args.wandb_id = wandb_id
-#             exp_name = get_experiment_name(vars(args))
-#             ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
-#             os.makedirs(ckpt_dir, exist_ok=True)
-#             save_args(args, ckpt_dir)
-#             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
-#             print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
-#         elif wandb_id is None:
-#             time.sleep(1)  # Sleep for a few seconds
-#         iterations += 1
-
-#         if iterations > 10:
-#             raise ValueError("Failed to find or generate a wandb_id")
-
-#         print(f"[{local_rank}] wandb_id: {wandb_id}")
-
-#     args.wandb_id = wandb_id
-#     exp_name = get_experiment_name(vars(args))
-#     ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
-
-#     has_checkpoint = False
-#     if osp.exists(ckpt_dir):
-#         # Look for actual checkpoint files (like pytorch_model.bin or similar)
-#         checkpoint_files = [
-#             f for f in os.listdir(ckpt_dir) if f.startswith("checkpoint-")
-#         ]
-
-#         # Fix files - delete if checkpoint is empty
-#         for f in checkpoint_files:
-#             if not "trainer_state.json" in os.listdir(osp.join(ckpt_dir, f)):
-#                 try:
-#                     print(f"Deleting corrupt checkpoint: {f}")
-#                     shutil.rmtree(osp.join(ckpt_dir, f))
-#                     checkpoint_files.remove(f)
-#                 except Exception as e:
-#                     print(f"Error deleting checkpoint {f}: {e}")
-
-#         # Check if there are any checkpoint files
-#         has_checkpoint = len(checkpoint_files) > 0
-#         if has_checkpoint:
-#             print(f"Resuming from checkpoint: {ckpt_dir}")
-#         else:
-#             print(f"No checkpoint found in {ckpt_dir}. Starting fresh.")
-
-#     return args, exp_name, ckpt_dir, has_checkpoint
-
-
-# def get_wandb_id(args, local_rank: int):
-#     wandb_id = None
-#     iterations = 0
-#     while wandb_id is None:
-#         wandb_id = lookup_wandb_id(args)
-#         if local_rank == 0 and wandb_id is None:
-#             wandb_id = generate_wandb_id()
-#             print(f"[{local_rank}] Generated new wandb_id: {wandb_id}")
-#             print(f"[{local_rank}] lookup_wandb_id: {lookup_wandb_id(args)}")
-#         elif wandb_id is None:
-#             time.sleep(1)  # Sleep for a few seconds
-#         iterations += 1
-
-#         if iterations > 10:
-#             raise ValueError("Failed to find or generate a wandb_id")
-
-#         print(f"[{local_rank}] wandb_id: {wandb_id}")
-#     return wandb_id
