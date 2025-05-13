@@ -129,6 +129,7 @@ class TJDist(AbstractDist):
         x: torch.Tensor,
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int],
+        return_logits: bool = False,
         **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Computes P(yh|x, y1:h-1) for h in [1, H].
@@ -136,12 +137,12 @@ class TJDist(AbstractDist):
         Args:
             x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
             sample_fn (Callable): Sampling function.
+            horizon (Optional[int]): Horizon for sampling. Must be <= self.horizon.
+            return_logits (bool): Whether to return logits or probabilities.
 
         Returns:
-            Tuple[torch.Tensor, List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
+            tuple:
                 - Evaluation of the distribution at the points of shape (B, H).
-                - Scale tensors (empty list).
-                - Normalization constants of shape (B, T).
-                - Scale tensors for normalization constants (empty list).
+                - Probabilities of shape (B, H, V) or logits of shape (B, H, V).
         """
         pass

@@ -9,7 +9,7 @@ from wandb import config
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig, BaseDistFromLinearConfig
-from tjdnet.spec_sample import speculative_sampling
+from tjdnet.spec_sample import spec_sample
 from tjdnet.tensorops.common import get_windowed_input_ids_v2
 from tjdnet.utils import sample_topk
 
@@ -111,10 +111,37 @@ class TJD(ABC, torch.nn.Module):
     def forward_backbone(self, *args, **kwargs) -> torch.Tensor:
         pass
 
+    def prob_y_bar_x_backbone(
+        self,
+        x: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
+        return_logits: bool = False,
+        **kwargs,
+    ) -> torch.Tensor:
+        """Compute probabilities P(yt|x, y1:t-1) for all t timesteps.
+
+        Args:
+            input_ids (torch.Tensor): Input ids. Shape (B, T).
+            attention_mask (Optional[torch.Tensor], optional): Attention mask. Shape (B, T). Defaults to None.
+
+        Returns:
+            torch.Tensor: Probabilities of shape (B, T, V).
+        """
+        h = self.forward_backbone(
+            input_ids=x,
+            attention_mask=attn_mask,
+            **kwargs,
+        )
+        logits = self.lm_head(h)
+        if return_logits:
+            return logits
+        return torch.nn.functional.softmax(logits, dim=-1)
+
     def generate(
         self,
         inputs: torch.Tensor,
         generation_config: TJDGenerationConfig,
+        return_full_text: bool = False,
         **kwargs,  # will be passed to the forward method
     ):
         """Generate sequences given an input tensor.
@@ -156,7 +183,7 @@ class TJD(ABC, torch.nn.Module):
         y_out[:, : inputs.size(1)] = inputs
 
         accept_rate_metrics = {
-            "tokens_proposed": 0,
+            "tokens_generated": 0,
             "tokens_accepted": 0,
         }
 
@@ -169,9 +196,12 @@ class TJD(ABC, torch.nn.Module):
 
                 mask_active = torch.ones(B, device=device).bool()
                 if generation_config.eos_token_id is not None:
+                    # mask_active = ~torch.any(
+                    #     y_out[:, inputs.size(1) :] == generation_config.eos_token_id,
+                    #     dim=1,
+                    # )
                     mask_active = ~torch.any(
-                        y_out[:, inputs.size(1) :] == generation_config.eos_token_id,
-                        dim=1,
+                        y_out == generation_config.eos_token_id, dim=1
                     )
 
                 # Exit if all sequences are done
@@ -179,40 +209,36 @@ class TJD(ABC, torch.nn.Module):
                     break
 
                 # Get hidden state
-                y_prime = y_out[mask_active, : T + t]  # (B', T + t)
-                h_last = self.forward_backbone(input_ids=y_prime, **kwargs)[:, -1]
+                x = y_out[mask_active, : T + t]  # (B', T + t)
+                h_last = self.forward_backbone(input_ids=x, **kwargs)[:, -1]
 
                 # Sample
                 if generation_config.gen_mode == "speculative":
-                    y_cand, qy = self.mhead.sample(
-                        h_last,
-                        horizon=H,
+
+                    def model_p(y):
+                        attn_mask = kwargs.get("attention_mask", None)
+                        if attn_mask is not None:
+                            attn_mask = extend_attn_mask(attn_mask, horizon=H)
+                        return self.prob_y_bar_x_backbone(
+                            x=torch.cat((x, y), dim=1),
+                            attn_mask=attn_mask,
+                        )[:, x.size(1) - 1 : -1]
+
+                    def model_q():
+                        return self.mhead.sample(
+                            h_last,
+                            horizon=H,
+                            sample_fn=sample_fn,
+                        )
+
+                    y_hat, n_accept = spec_sample(
+                        model_p=model_p,  # (B', H, V)
+                        model_q=model_q,  # None -> (B', H), (B', H, V)
                         sample_fn=sample_fn,
                     )
-                    attn_mask = kwargs.get("attention_mask", None)
-                    if attn_mask is not None:
-                        attn_mask = extend_attn_mask(
-                            attn_mask[mask_active, : T + t], horizon=H
-                        )
-                    else:
-                        raise Warning(
-                            "Attention mask not provided. Generation may not work as expected."
-                        )
-                    py = self.forward_backbone(
-                        input_ids=torch.cat((inputs, y_cand), dim=1),  # (B', T + t + H)
-                        attention_mask=attn_mask,
-                        **kwargs,
-                    )
-                    y_hat, n_matches = speculative_sampling(
-                        candidate_input_ids=y_cand,
-                        candidate_logits=qy,
-                        candidate_length=H,
-                        new_logits=py,
-                        is_done_candidate=False,
-                    )  # (B', H') -- H' <= H_tgt if not all tokens are accepted
 
-                    accept_rate_metrics["tokens_proposed"] += H
-                    accept_rate_metrics["tokens_accepted"] += y_hat.size(1) - 1
+                    accept_rate_metrics["tokens_generated"] += H
+                    accept_rate_metrics["tokens_accepted"] += n_accept
 
                 elif generation_config.gen_mode == "draft":
                     y_hat, _ = self.mhead.sample(
@@ -232,12 +258,7 @@ class TJD(ABC, torch.nn.Module):
 
                 # Append new tokens
                 H_sampled = y_hat.size(1)  # Number of tokens sampled
-                time_step_abs = inputs.size(1) + t
-                y_out[
-                    mask_active,
-                    time_step_abs : time_step_abs + H_sampled,
-                ] = y_hat
-
+                y_out[mask_active, x.size(1) : x.size(1) + H_sampled] = y_hat
                 t += H_sampled
 
         # Replace stop tokens with padding
@@ -246,6 +267,7 @@ class TJD(ABC, torch.nn.Module):
             stop_mask = (y_out == generation_config.eos_token_id).float()  # (B, T_out)
             y_out[torch.cumsum(stop_mask, dim=1) >= 1] = generation_config.eos_token_id
 
+        y_out = y_out if return_full_text else y_out[:, inputs.size(1) :]
         return y_out, accept_rate_metrics
 
     def forward(
