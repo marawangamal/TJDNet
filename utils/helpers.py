@@ -138,7 +138,6 @@ def parse_args():
         default="lora",
         choices=[
             "full",
-            "last",
             "lora",
         ],
         help="Training mode for the model.",
@@ -379,7 +378,7 @@ def get_model_and_tokenizer_v2(args):
             ),
         ),
         init_method=args.init_method,
-        loss_mode=args.train_mode,
+        loss_mode=args.loss_mode,
     )
     model = TJDHuggingFace(
         model_config,
@@ -387,5 +386,7 @@ def get_model_and_tokenizer_v2(args):
             pretrained_model_name_or_path=args.model,
             low_cpu_mem_usage=True,
         ),
+        train_mode=args.train_mode,
+        lora_rank=args.lora_rank,
     )
     return model, tokenizer

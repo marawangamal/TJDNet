@@ -67,11 +67,14 @@ class TJD(ABC, torch.nn.Module):
     def __init__(self, config: TJDConfig, **kwargs):
         super().__init__()
         self.tjd_config = config
-        self.horizon = config.model_head_config.horizon
-        self.n_embd = config.model_head_config.param_net.in_dim
         self.backbone, self.lm_head = self.get_model()
 
-        # Initialize the model head
+        # Set dims
+        self.horizon = config.model_head_config.horizon
+        self.n_embd = config.model_head_config.param_net.in_dim
+        self.vocab_size = config.model_head_config.vocab_size
+
+        # Initialize model head
         if config.init_method == "pretrained":
             self.mhead = TJD_DISTS[config.model_head].from_linear(
                 linear=self.lm_head,
@@ -313,12 +316,16 @@ class TJD(ABC, torch.nn.Module):
         loss_mhead = self.mhead.compute_loss(
             x=h_ds.reshape(-1, self.n_embd),
             y=y_true_ds.reshape(-1, H),
-        ).reshape(B, -1)
-        loss_tot = loss_mhead.sum(-1)
+        ).reshape(
+            B, -1
+        )  # (B, T-H // H)
+        loss_tot = loss_mhead.sum(-1)  # (B,)
 
         # 3b. Compute lm_head loss (target model)
+        loss_target = torch.zeros(1, device=input_ids.device)
+        loss_draft = loss_tot
         if self.tjd_config.loss_mode == "joint":
-            log_probs_lm_head = self.tgt_model_head(h[:, :-1])  # (B, T-1, V)
+            log_probs_lm_head = self.lm_head(h[:, :-1])  # (B, T-1, V)
             # (B, T) -> (B, T-1)
             y_true = get_windowed_input_ids_v2(
                 input_ids,
@@ -326,15 +333,16 @@ class TJD(ABC, torch.nn.Module):
             ).squeeze(-1)
             loss_lm_head = (
                 torch.nn.functional.cross_entropy(
-                    log_probs_lm_head.view(-1, self.vocab_size),
-                    y_true.view(-1),
+                    log_probs_lm_head.reshape(-1, self.vocab_size),
+                    y_true.reshape(-1),
                     reduction="none",
                 )
                 .reshape(B, -1)  # (B, T-1)
-                .sum(-1)
+                .sum(-1)  # (B,)
             )
+            loss_target = loss_lm_head
             loss_tot = (
-                loss_tot + self.tjd_config.joint_loss_lambda * loss_lm_head
+                loss_tot + self.tjd_config.joint_loss_lambda * loss_target
             )  # (B,)
 
         # NLL must be computed on downsampled seq.
@@ -342,10 +350,10 @@ class TJD(ABC, torch.nn.Module):
             loss_mhead
             if self.tjd_config.use_memory_efficient_loss
             else loss_mhead[:, ::H]
-        )
+        ).sum(dim=-1)
         return {
             "loss": reduce_fn(loss_tot),
-            "nll": reduce_fn(nll.sum(dim=-1)),
-            # "loss_scale": torch.tensor(1 / self.rank).to(loss_mhead.device),
-            "loss_scale": torch.tensor(1).to(loss_mhead.device),
+            "nll": reduce_fn(nll),
+            "loss_draft": reduce_fn(loss_draft),
+            "loss_target": reduce_fn(loss_target),
         }

@@ -1,10 +1,11 @@
+from typing import Literal
 from transformers import AutoModelForCausalLM
 
 from tjdnet.models.tjd import TJD, TJDConfig
 
 from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 
-# NOTE: Not all models have the same structure
+# Not all models have the same structure
 EXCEPTIONS = {
     "gpt2": lambda m: (m.transformer, m.lm_head),
 }
@@ -12,13 +13,19 @@ EXCEPTIONS = {
 
 class TJDHuggingFace(TJD):
     def __init__(
-        self, config: TJDConfig, auto_model_kwargs: dict, lora_rank: int = 32, **kwargs
+        self,
+        config: TJDConfig,
+        auto_model_kwargs: dict,
+        train_mode: Literal["full", "lora"] = "lora",
+        lora_rank: int = 32,
+        **kwargs
     ):
 
         # Determine model_head dimensions
         hfmodel = AutoModelForCausalLM.from_pretrained(**auto_model_kwargs)
         self.hf_lora_rank = lora_rank
         self.hf_auto_model_kwargs = auto_model_kwargs
+        self.hf_train_mode = train_mode
         lm_head = hfmodel.lm_head
         if hasattr(lm_head, "weight"):
             vocab_size = lm_head.weight.size(0)
@@ -42,15 +49,16 @@ class TJDHuggingFace(TJD):
             backbone, lm_head = hfmodel.model, hfmodel.lm_head
 
         # Apply LoRA to backbone
-        peft_config = LoraConfig(
-            task_type=TaskType.FEATURE_EXTRACTION,
-            inference_mode=False,
-            r=self.hf_lora_rank,
-            lora_alpha=32,
-            lora_dropout=0.1,
-        )
+        if self.hf_train_mode == "lora":
+            peft_config = LoraConfig(
+                task_type=TaskType.FEATURE_EXTRACTION,
+                inference_mode=False,
+                r=self.hf_lora_rank,
+                lora_alpha=32,
+                lora_dropout=0.1,
+            )
+            backbone = get_peft_model(backbone, peft_config)  # type: ignore
 
-        backbone = get_peft_model(backbone, peft_config)  # type: ignore
         return backbone, lm_head
 
     def forward_backbone(self, *args, **kwargs):

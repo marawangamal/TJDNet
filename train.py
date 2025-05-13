@@ -144,9 +144,11 @@ class TJDTrainer(Trainer):
 def compute_metrics(eval_pred):
     # Note: If return type of model forward is a dict, then the `predictions` will be tuple of all vals of keys except loss
     # See `prediction_step` in Trainer class
-    (nll, loss_scale), labels = eval_pred
+    (nll, loss_draft, loss_target), labels = eval_pred
     return {
         "nll": nll.mean().item(),
+        "loss_draft": loss_draft.mean().item(),
+        "loss_target": loss_target.mean().item(),
     }
 
 
