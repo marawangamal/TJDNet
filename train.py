@@ -23,6 +23,7 @@ Hardware requirements:
 """
 
 from argparse import Namespace
+import gc
 import json
 import os
 import os.path as osp
@@ -45,12 +46,12 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
 from tjdnet.models.tjd import TJDGenerationConfig
-from utils.accpetance_rates import compute_acceptance_rate
-from utils.accuracy import compute_accuracy, compute_accuracy_v2
+from utils.accuracy import compute_accuracy
 from utils.utils import get_experiment_name
 from utils.helpers import (
     get_git_info,
     get_model_and_tokenizer_v2,
+    get_model_and_tokenizer_base,
     parse_args,
     save_args,
     set_seed,
@@ -59,7 +60,7 @@ from utils.utils import printo
 from utils.utils import printr
 from utils.utils import generate_wandb_id
 
-CHECKPOINT_DIR = "checkpoints"
+EXPERIMENTS_DIR = "experiments"
 SILENT_ARGS = [
     "slurm_job_id",
     "cache_dir",
@@ -78,6 +79,132 @@ SILENT_ARGS = [
     "top_k",
     "gen_mode",
 ]
+
+
+def log_memory(stage, rank=None):
+    """Log memory usage at different stages."""
+    if rank is None:
+        rank = int(os.environ.get("LOCAL_RANK", 0))
+
+    # Only log from rank 0 to avoid cluttering logs
+    if rank == 0:
+        # Force garbage collection first
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Get memory stats
+        allocated = torch.cuda.memory_allocated() / (1024**3)
+        reserved = torch.cuda.memory_reserved() / (1024**3)
+        max_allocated = torch.cuda.max_memory_allocated() / (1024**3)
+
+        # Print memory stats
+        print(f"\n[MEMORY - {stage}]")
+        print(f"  Allocated: {allocated:.2f} GB")
+        print(f"  Reserved:  {reserved:.2f} GB")
+        print(f"  Peak:      {max_allocated:.2f} GB")
+
+        # Log to wandb if available
+        if wandb.run is not None:
+            wandb.log(
+                {
+                    f"memory/{stage}/allocated_gb": allocated,
+                    f"memory/{stage}/reserved_gb": reserved,
+                    f"memory/{stage}/peak_gb": max_allocated,
+                }
+            )
+
+
+def log_params(msg, model, rank=None):
+    """Log model parameters at different stages."""
+    if rank is None:
+        rank = int(os.environ.get("LOCAL_RANK", 0))
+
+    # Only log from rank 0 to avoid cluttering logs
+    if rank == 0:
+        # Force garbage collection first
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Get model parameters
+        total_params = sum(p.numel() for p in model.parameters())
+        cuda_params = sum(
+            p.numel() for p in model.parameters() if p.device.type == "cuda"
+        )
+        print(f"\n[PARAMS] - {msg}")
+        print(f"  CUDA parameters: {cuda_params/1e9:.2f} B")
+        print(f"  Total parameters: {total_params/1e9:.2f} B")
+        print(
+            f"  Parameter Sharing: {cuda_params/total_params:.2%} of params on this GPU"
+        )
+
+
+def calculate_model_memory_breakdown(model, batch_size, seq_len, dtype=torch.float32):
+    """Calculate the theoretical memory breakdown for the model."""
+
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+
+    # Calculate memory requirements
+    bytes_per_param = {
+        torch.float32: 4,
+        torch.float16: 2,
+        torch.bfloat16: 2,
+        torch.int8: 1,
+    }[dtype]
+
+    # Model parameters
+    params_memory_gb = total_params * bytes_per_param / (1024**3)
+
+    # Optimizer states (Adam uses 2 states per parameter)
+    optimizer_memory_gb = params_memory_gb * 2  # For Adam
+
+    # Rough activation memory estimate (depends on model architecture)
+    # This is a very rough estimate - actual usage varies by model
+    hidden_size = (
+        model.config.hidden_size if hasattr(model.config, "hidden_size") else 768
+    )
+    layers = (
+        model.config.num_hidden_layers
+        if hasattr(model.config, "num_hidden_layers")
+        else 12
+    )
+    activation_memory_gb = (
+        batch_size * seq_len * hidden_size * layers * bytes_per_param
+    ) / (1024**3)
+
+    # Gradients
+    gradients_memory_gb = params_memory_gb
+
+    # Total theoretical memory
+    total_theoretical_gb = (
+        params_memory_gb
+        + optimizer_memory_gb
+        + activation_memory_gb
+        + gradients_memory_gb
+    )
+
+    return {
+        "parameters_gb": params_memory_gb,
+        "optimizer_states_gb": optimizer_memory_gb,
+        "activations_estimate_gb": activation_memory_gb,
+        "gradients_gb": gradients_memory_gb,
+        "total_theoretical_gb": total_theoretical_gb,
+        "total_params": total_params,
+        "params_in_billions": total_params / 1e9,
+    }
+
+
+def get_layer_sizes(model):
+    """Analyze sizes of different layers in the model."""
+    layer_sizes = {}
+
+    for name, param in model.named_parameters():
+        # Get the top-level module name
+        top_module = name.split(".")[0]
+        if top_module not in layer_sizes:
+            layer_sizes[top_module] = 0
+        layer_sizes[top_module] += param.numel()
+    return layer_sizes
 
 
 class TJDTrainer(Trainer):
@@ -112,7 +239,7 @@ class TJDTrainer(Trainer):
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
         if self.test_dataset:
-            metrics = compute_accuracy_v2(
+            metrics = compute_accuracy(
                 model=self.model,  # type: ignore
                 tokenizer=self.tokenizer,  # type: ignore
                 dataset=self.test_dataset,  # type: ignore
@@ -141,6 +268,64 @@ class TJDTrainer(Trainer):
 
         return output
 
+    # def training_step(self, *args, **kwargs):
+    #     # Log memory before training_step on first step
+    #     if self.state.global_step == 0:
+    #         log_memory(f"before_first_step", self.args.local_rank)
+
+    #     result = super().training_step(*args, **kwargs)
+
+    #     if self.state.global_step == 0:
+    #         log_memory(f"after_first_step", self.args.local_rank)
+    #     elif self.state.global_step == 1:
+    #         log_memory(f"after_second_step", self.args.local_rank)
+    #     elif self.state.global_step % 100 == 0:
+    #         log_memory(f"step_{self.state.global_step}", self.args.local_rank)
+
+    #     return result
+
+
+class MemoryLoggingTJDTrainer(TJDTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Flag to track if first step has been logged
+        self._logged_first_step = False
+
+    def compute_loss(self, model, inputs, return_outputs=False, *args, **kwargs):
+        """Log memory during compute_loss - this is where parameters are first accessed."""
+        # Only log for the first batch
+        if not self._logged_first_step:
+            log_memory("before_first_forward", self.args.local_rank)
+            log_params("before_first_forward", model, self.args.local_rank)
+            torch.cuda.reset_peak_memory_stats()
+
+        # Call original compute_loss
+        result = super().compute_loss(model, inputs, return_outputs, *args, **kwargs)
+
+        # Log after forward pass
+        if not self._logged_first_step:
+            log_memory("after_first_forward", self.args.local_rank)
+            log_params("after_first_forward", model, self.args.local_rank)
+
+        return result
+
+    def training_step(self, *args, **kwargs):
+        """Log memory during backward pass."""
+        # Call original training_step
+        loss = super().training_step(*args, **kwargs)
+
+        # Log after backward
+        if not self._logged_first_step:
+            log_memory("after_first_backward", self.args.local_rank)
+            log_params("after_first_backward", self.model, self.args.local_rank)
+            self._logged_first_step = True
+
+        # Log again after several steps to check for leaks
+        if self.state.global_step == 10:
+            log_memory("after_step_10", self.args.local_rank)
+
+        return loss
+
 
 # Custom evaluation function
 def compute_metrics(eval_pred):
@@ -155,10 +340,10 @@ def compute_metrics(eval_pred):
 
 
 def get_wandb_id(exp_name):
-    exps = os.listdir(CHECKPOINT_DIR)
+    exps = os.listdir(EXPERIMENTS_DIR)
     matches = [exp for exp in exps if exp.startswith(exp_name)]
     if len(matches) == 1:
-        args_file = os.path.join(CHECKPOINT_DIR, matches[0], "args.json")
+        args_file = os.path.join(EXPERIMENTS_DIR, matches[0], "args.json")
         if osp.exists(args_file):
             with open(osp.join(args_file), "r") as f:
                 printr(f"Found args file: {args_file}")
@@ -210,7 +395,7 @@ def main():
     )
     # exp name does not include silent args
     exp_name = get_experiment_name(vars(filtered_args))
-    ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
+    ckpt_dir = osp.join(EXPERIMENTS_DIR, exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # Sync file path
@@ -230,6 +415,8 @@ def main():
         # Signal completion by creating an empty file
         with open(sync_file, "w") as f:
             pass  # Create empty file
+
+        printr(f"Rank 0 setup complete. Sync file created at {sync_file}")
 
     # Other ranks wait for the file to appear
     else:
@@ -257,7 +444,7 @@ def main():
 
     # 1. Model and tokenizer
     printr("Initializing model...")
-    model, tokenizer = get_model_and_tokenizer_v2(args)
+    model, tokenizer = get_model_and_tokenizer_base(args)
     chat_template = CHAT_TEMPLATES[args.dataset]
     printo(f"Model: {model.__class__.__name__}")
     printo(f"Tokenizer: {tokenizer.__class__.__name__}")
@@ -308,7 +495,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        eval_on_start=True,
+        # eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
@@ -328,6 +515,7 @@ def main():
         greater_is_better=False,
         # remove_unused_columns=False,
         # Memory optimization
+        # bf16=True,
         # fp16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
@@ -349,8 +537,34 @@ def main():
                 resume="allow",
             )
 
+    # Log model memory breakdown
+    memory_breakdown = calculate_model_memory_breakdown(
+        model,
+        args.batch_size,
+        args.seq_len,
+        dtype=torch.bfloat16 if training_args.bf16 else torch.float32,
+    )
+
+    printo("\n===== THEORETICAL MEMORY BREAKDOWN =====")
+    printo(
+        f"Parameters: {memory_breakdown['params_in_billions']:.2f}B parameters, {memory_breakdown['parameters_gb']:.2f} GB"
+    )
+    printo(f"Optimizer states: {memory_breakdown['optimizer_states_gb']:.2f} GB")
+    printo(f"Activation estimate: {memory_breakdown['activations_estimate_gb']:.2f} GB")
+    printo(f"Gradients: {memory_breakdown['gradients_gb']:.2f} GB")
+    printo(f"Total theoretical: {memory_breakdown['total_theoretical_gb']:.2f} GB")
+    printo("=========================================\n")
+
+    # Log layer sizes
+    printo("\n===== LAYER SIZE BREAKDOWN =====")
+    layer_sizes = get_layer_sizes(model)
+    printo("\nLayer Size Analysis:")
+    for module, size in sorted(layer_sizes.items(), key=lambda x: x[1], reverse=True):
+        printo(f"  {module}: {size/1e9:.2f}B parameters")
+    printo("=========================================\n")
+
     # Initialize the trainer
-    trainer = TJDTrainer(
+    trainer = MemoryLoggingTJDTrainer(
         model=model,
         args=training_args,
         train_dataset=lm_dataset["train"],

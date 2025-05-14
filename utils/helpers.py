@@ -6,7 +6,7 @@ import subprocess
 
 import torch
 import numpy as np
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig
@@ -384,9 +384,20 @@ def get_model_and_tokenizer_v2(args):
         model_config,
         auto_model_kwargs=dict(
             pretrained_model_name_or_path=args.model,
+            device_map="cpu",
+            torch_dtype=torch.float32,
             low_cpu_mem_usage=True,
         ),
         train_mode=args.train_mode,
         lora_rank=args.lora_rank,
+    )
+    return model, tokenizer
+
+
+def get_model_and_tokenizer_base(args):
+    tokenizer = get_auto_tokenizer(args.model)
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        low_cpu_mem_usage=True,
     )
     return model, tokenizer

@@ -27,7 +27,13 @@ def collate_fn(batch, tokenizer):
     }
 
 
-def compute_accuracy_v2(
+def custom_shorten(text, begin_width=70, end_width=50, placeholder=" … "):
+    if len(text) <= begin_width + end_width:
+        return text
+    return text[:begin_width] + placeholder + text[-end_width:]
+
+
+def compute_accuracy(
     model: TJD,
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     dataset: DatasetDict,
@@ -40,7 +46,7 @@ def compute_accuracy_v2(
     return_avg_meters: bool = False,
 ):
 
-    # Creat dataloader
+    # Create dataloader
     dataloader = torch.utils.data.DataLoader(
         dataset,  # type: ignore
         batch_size=batch_size,
@@ -99,8 +105,12 @@ def compute_accuracy_v2(
             accuracy_meter.update(
                 batch_correct / len(batch["input_ids"]), len(batch["input_ids"])
             )
+
+            tokens_accepted = ardict["tokens_accepted"]
+            tokens_generated = ardict["tokens_generated"]
+
             accept_rate_meter.update(
-                ardict["tokens_accepted"] / ardict["tokens_generated"],
+                tokens_accepted / tokens_generated if tokens_generated > 0 else 0,
                 ardict["tokens_generated"],
             )
 
@@ -128,10 +138,8 @@ def compute_accuracy_v2(
             f"({accuracy_meter.sum}/{accuracy_meter.count} correct)\n"
             f"Acceptance rate : {accept_rate_meter.avg:.2%} "
             f"({accept_rate_meter.sum}/{accept_rate_meter.count} tokens accepted)\n\n"
-            f"▶ Ground truth  : "
-            f"{textwrap.shorten(y_true_prime, width=120, placeholder=' …')}\n"
-            f"▶ Model output  : "
-            f"{textwrap.shorten(y_pred[0], width=120, placeholder=' …')}\n"
+            f"▶ Ground truth  : {custom_shorten(y_true_prime, begin_width=120)}\n"
+            f"▶ Model output  : {custom_shorten(y_pred[0], begin_width=120)}\n"
             f"{line}\n"
         )
         print(summary)
@@ -150,137 +158,3 @@ def compute_accuracy_v2(
             "accuracy": accuracy_meter.avg,
             "acceptance_rate": accept_rate_meter.avg,
         }
-
-
-def compute_accuracy(
-    model: TJD,
-    tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
-    test_dataset: DatasetDict,
-    chat_template: BaseChatTemplate,
-    generation_config: TJDGenerationConfig,
-    # top_k: int = 50,
-    # do_sample: bool = True,
-    batch_size: int = 1,
-    on_batch_end=None,
-    log_samples=False,
-    log_samples_count=10,
-    # replace with generate_kwargs
-    # max_new_tokens: int = 128,
-    # horizon: int = 1,
-    avg_meter_kwargs={},
-    verbose=True,
-    max_num_samples: Optional[int] = None,
-    # **kwargs,
-):
-    dataloader = torch.utils.data.DataLoader(
-        test_dataset,  # type: ignore
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=lambda x: collate_fn(x, tokenizer),
-    )
-    model.eval()
-    acc_meter = AverageMeter(**avg_meter_kwargs)
-    total_samples = len(test_dataset)
-    pbar = tqdm(
-        dataloader,
-        total=(total_samples + batch_size - 1) // batch_size,  # Ceiling division
-        desc="Computing accuracy",
-        leave=True,
-    )
-    batches_to_skip = acc_meter.count // batch_size
-
-    y_pred = []
-    y_true = []
-    failures = []
-    successes = []
-
-    printv = print if verbose else lambda *args, **kwargs: None
-
-    tokens_generated = avg_meter_kwargs.get("tokens_generated", 0)
-    tokens_accepted = avg_meter_kwargs.get("tokens_accepted", 0)
-
-    printv("Total number of samples:", total_samples)
-    with torch.no_grad():
-        for i, batch in enumerate(pbar):
-            if i < batches_to_skip:
-                continue
-            batch = {k: v.to(model.device) for k, v in batch.items()}
-            input_ids, attention_mask = chat_template.format_batch(
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                tokenizer=tokenizer,
-            )
-            outputs, acceptance_metrics = model.generate(
-                inputs=input_ids,
-                attention_mask=attention_mask,
-                generation_config=generation_config,
-                # x=input_ids,
-                # attn_mask=attention_mask,
-                # **generate_kwargs,
-            )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
-            tokens_generated += acceptance_metrics["tokens_generated"]
-            tokens_accepted += acceptance_metrics["tokens_accepted"]
-
-            # Batched decoding
-            y_pred = tokenizer.batch_decode(outputs)
-            y_true = tokenizer.batch_decode(batch["labels"])
-            # Compute accuracy
-            correct_mask = [
-                chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
-                for b in range(len(y_pred))
-            ]
-            batch_correct = sum(correct_mask)
-            acc_meter.update(
-                batch_correct / len(batch["input_ids"]), len(batch["input_ids"])
-            )
-
-            # Update progress bar
-            pbar.set_postfix({"acc": f"{acc_meter.avg:.4f}"})
-
-            if on_batch_end:
-                on_batch_end({**acc_meter.dump(), "total_samples": total_samples})
-
-            if log_samples:
-                # Add failures to failures list and successes to successes list
-                if len(failures) < log_samples_count:
-                    failures.extend(
-                        [
-                            (y_pred[b], y_true[b])
-                            for b in range(len(y_pred))
-                            if not correct_mask[b]
-                        ]
-                    )
-                if len(successes) < log_samples_count:
-                    successes.extend(
-                        [
-                            (y_pred[b], y_true[b])
-                            for b in range(len(y_pred))
-                            if correct_mask[b]
-                        ]
-                    )
-                    printv(f"Failures:\n{failures}")
-
-            if max_num_samples and i * batch_size >= max_num_samples:
-                print("Max number of samples reached, stopping evaluation.")
-                break
-
-    # Print example
-    if len(y_pred) > 0 and len(y_true) > 0:
-        printv("Example:")
-        printv(f"y_true:\n {y_true[0]}")
-        printv(f"y_pred:\n {y_pred[0]}")
-
-    accept_rate = tokens_accepted / tokens_generated if tokens_generated > 0 else 0.0
-    print("Acceptance rate:", accept_rate)
-    logged_metrics = {
-        "accuracy": acc_meter.avg,
-        "acceptance_rate": accept_rate,
-    }
-    saved_metrics = {
-        **acc_meter.dump(),
-        "total_samples": total_samples,
-        "tokens_accepted": tokens_accepted,
-        "tokens_generated": tokens_generated,
-        "acceptance_rate": accept_rate,
-    }
-    return logged_metrics, saved_metrics

@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 """
-Checkpoint Evaluation Script (eval.py)
-
-This script evaluates all checkpoints in a specified directory for a trained model,
-computing accuracy metrics for each checkpoint and saving the results to a CSV file.
+Experiment evaluation script.
 
 Usage:
-    python eval.py --checkpoint_dir [checkpoint_dir]
+    python scripts/eval_accuracy.py -e [experiments_dir]
 
 Example:
-    python eval.py --checkpoint_dir checkpoints
+    python scripts/eval_accuracy.py -e experiments
 
-Hardware Requirements:
-    Same as train.py requirements for inference
 """
 
 import os
@@ -25,9 +20,9 @@ from tqdm import tqdm
 import wandb
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
-from utils.accpetance_rates import compute_acceptance_rate
+from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accuracy import compute_accuracy
-from utils.helpers import get_git_info, get_model_and_tokenizer
+from utils.helpers import get_git_info, get_model_and_tokenizer_v2
 
 
 def load_weights(model, checkpoint_path):
@@ -112,12 +107,6 @@ def parse_args():
 
 def main():
     args = parse_args()
-
-    metric_fn = {
-        "accuracy": compute_accuracy,
-        "acceptance_rate": compute_acceptance_rate,
-    }[args.metric]
-
     checkpoints: List[str] = [
         osp.join(args.experiment, c)
         for c in os.listdir(args.experiment)
@@ -133,7 +122,7 @@ def main():
     exp_args = argparse.Namespace(**exp_args_dict)
     if args.metric == "acceptance_rate":
         exp_args.use_speculative_sampling = True
-    model, tokenizer = get_model_and_tokenizer(exp_args)
+    model, tokenizer = get_model_and_tokenizer_v2(exp_args)
     chat_template = CHAT_TEMPLATES[exp_args.dataset]
     lm_dataset = DATASET_LOADERS[exp_args.dataset](tokenizer, exp_args.seq_len)
 
@@ -147,42 +136,30 @@ def main():
         with open(results_file) as f:
             results = json.load(f)
 
-    print(f"Evaluating metric: {args.metric}")
     print("Using device:", args.device)
     for checkpoint in tqdm(checkpoints, desc="Evaluating checkpoints"):
         model = load_weights(model, checkpoint)
         model.to(args.device)
-        average_meter_kwargs = results.get(checkpoint, {"sum": 0, "count": 0})
-        metric_ds_val, metric_avg_meter_kwargs = metric_fn(
-            model,
+        metric_dict = compute_accuracy(
+            model=model,
             tokenizer=tokenizer,
-            test_dataset=lm_dataset["test"],
+            dataset=lm_dataset["test"],
             chat_template=chat_template,
             batch_size=args.batch_size,
-            avg_meter_kwargs=average_meter_kwargs,
-            on_batch_end=lambda avg_meter_kwargs: save_results_checkpoint(
-                {**results, checkpoint: avg_meter_kwargs}, results_file
-            ),
-            log_samples=True,
-            # max_num_samples=args.max_num_samples,
-            # horizon=exp_args.horizon,
-            # top_k=args.top_k,
-            # max_new_tokens=args.max_new_tokens,
-            generate_kwargs=dict(
+            generation_config=TJDGenerationConfig(
                 do_sample=True,
                 max_new_tokens=args.max_new_tokens,
                 top_k=args.top_k,
                 horizon=exp_args.horizon,
             ),
-            max_num_samples=args.max_num_samples,
+            ckpt_dir=checkpoint,
         )
-        results[checkpoint] = metric_avg_meter_kwargs
-        print(f"Eval {args.metric}: {metric_ds_val} for checkpoint: {checkpoint}")
+        results[checkpoint] = metric_dict
 
     save_results_checkpoint(results, results_file)
     print(f"Results saved to {results_file}")
-    best_acc = max([(k, v["avg"]) for k, v in results.items()], key=lambda x: x[1])
-    print(f"Eval {args.metric} (best): {best_acc} for exp: {args.experiment}")
+    best_acc = max([(k, v["accuracy"]) for k, v in results.items()], key=lambda x: x[1])
+    print(f"Eval accuracy (best): {best_acc} for exp: {args.experiment}")
 
     # ==== Log to wandb
     git_info = get_git_info()

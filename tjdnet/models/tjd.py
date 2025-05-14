@@ -108,7 +108,15 @@ class TJD(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
-    def forward_backbone(self, *args, **kwargs) -> torch.Tensor:
+    def forward_backbone(self, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass of the backbone model.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: Tuple containing
+                - h_targ (torch.Tensor): Hidden state for use by target head
+                - h_draft (torch.Tensor): Hidden state for use by draft head
+
+        """
         pass
 
     def prob_y_bar_x_backbone(
@@ -127,12 +135,12 @@ class TJD(ABC, torch.nn.Module):
         Returns:
             torch.Tensor: Probabilities of shape (B, T, V).
         """
-        h = self.forward_backbone(
+        h_targ, _ = self.forward_backbone(
             input_ids=x,
             attention_mask=attn_mask,
             **kwargs,
         )
-        logits = self.lm_head(h)
+        logits = self.lm_head(h_targ)
         if return_logits:
             return logits
         return torch.nn.functional.softmax(logits, dim=-1)
@@ -210,7 +218,8 @@ class TJD(ABC, torch.nn.Module):
 
                 # Get hidden state
                 x = y_out[mask_active, : T + t]  # (B', T + t)
-                h_last = self.forward_backbone(input_ids=x, **kwargs)[:, -1]
+                _, h_draft = self.forward_backbone(input_ids=x, **kwargs)
+                h_last_draft = h_draft[:, -1]
 
                 # Sample
                 if generation_config.gen_mode == "speculative":
@@ -226,7 +235,7 @@ class TJD(ABC, torch.nn.Module):
 
                     def model_q():
                         return self.mhead.sample(
-                            h_last,
+                            h_last_draft,
                             horizon=H,
                             sample_fn=sample_fn,
                         )
@@ -242,14 +251,14 @@ class TJD(ABC, torch.nn.Module):
 
                 elif generation_config.gen_mode == "draft":
                     y_hat, _ = self.mhead.sample(
-                        h_last,
+                        h_last_draft,
                         horizon=H,
                         sample_fn=sample_fn,
                     )  # (B', H_tgt)
 
                 elif generation_config.gen_mode == "base":
-                    logits_y = self.lm_head(h_last)
-                    y_hat = sample_fn(logits_y)
+                    logits_y = self.lm_head(h_last_draft)
+                    y_hat = sample_fn(logits_y).unsqueeze(-1)  # (B', 1)
 
                 else:
                     raise ValueError(
@@ -316,7 +325,9 @@ class TJD(ABC, torch.nn.Module):
         B, _ = input_ids.size()
         H = self.horizon
 
-        h = self.forward_backbone(input_ids, attention_mask=attention_mask)
+        h_targ, h_draft = self.forward_backbone(
+            input_ids, attention_mask=attention_mask
+        )
 
         # 1. Create targets
         y_true = get_windowed_input_ids_v2(input_ids, horizon=self.horizon).reshape(
@@ -326,17 +337,17 @@ class TJD(ABC, torch.nn.Module):
         # 2. Downsample if `use_memory_efficient_loss` is True
         # This is a hack to avoid memory issues. The shift is random to align the expectation of the loss
         # with the non-downsampled version.
-        h_ds = h[:, :-H]  # (B, T-H, D)
+        h_draft_ds = h_draft[:, :-H]  # (B, T-H, D)
         y_true_ds = y_true  # (B, T-H, H)
         if self.tjd_config.use_memory_efficient_loss:
             shift = torch.randint(0, H, (1,)).item()
-            h_ds = h_ds[:, shift::H]  # (B, T-H // H, D)
+            h_draft_ds = h_draft_ds[:, shift::H]  # (B, T-H // H, D)
             y_true_ds = y_true[:, shift::H]  # (B, T-H // H, H)
 
         # 3a. Compute mhead loss (draft model)
         # (B, T') i.e., maybe downsampled
         loss_mhead = self.mhead.compute_loss(
-            x=h_ds.reshape(-1, self.n_embd),
+            x=h_draft_ds.reshape(-1, self.n_embd),
             y=y_true_ds.reshape(-1, H),
         ).reshape(
             B, -1
@@ -347,7 +358,7 @@ class TJD(ABC, torch.nn.Module):
         loss_target = torch.zeros(1, device=input_ids.device)
         loss_draft = loss_tot
         if self.tjd_config.loss_mode == "joint":
-            log_probs_lm_head = self.lm_head(h[:, :-1])  # (B, T-1, V)
+            log_probs_lm_head = self.lm_head(h_targ[:, :-1])  # (B, T-1, V)
             # (B, T) -> (B, T-1)
             y_true = get_windowed_input_ids_v2(
                 input_ids,
