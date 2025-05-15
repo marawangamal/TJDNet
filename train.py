@@ -408,47 +408,15 @@ def main():
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # Sync file path
-    sync_file = os.path.join(ckpt_dir, ".rank0_done")
+    has_checkpoint = has_valid_checkpoint(ckpt_dir)
 
     # Rank 0 does initialization
     if local_rank == 0:
-        # Clean up old flag if it exists
-        if os.path.exists(sync_file):
-            os.remove(sync_file)
-
         wandb_id = get_wandb_id(exp_name)
         args.wandb_id = wandb_id
         save_args(args, ckpt_dir)
-        has_checkpoint = has_valid_checkpoint(ckpt_dir)
+        printo(f"Setup complete.")
 
-        # Signal completion by creating an empty file
-        with open(sync_file, "w") as f:
-            pass  # Create empty file
-
-        printr(f"Rank 0 setup complete. Sync file created at {sync_file}")
-
-    # Other ranks wait for the file to appear
-    else:
-        wait_time = 0
-        while not os.path.exists(sync_file):
-            if wait_time > 10:
-                raise ValueError("Setup failed")
-            time.sleep(1)
-            printr("Waiting for rank 0...")
-
-        # Load the args file
-        with open(os.path.join(ckpt_dir, "args.json"), "r") as f:
-            saved_args = json.load(f)
-            args.wandb_id = saved_args.get("wandb_id")
-
-        has_checkpoint = has_valid_checkpoint(ckpt_dir)
-
-        # Optional: Clean up the sync file when all processes are past the setup
-        # Use a distributed barrier if available (preferred method)
-        if os.path.exists(sync_file) and local_rank == 1:
-            printo("Cleaning up...")
-            os.remove(sync_file)
-        printr("Setup complete.")
     # ====
 
     # 1. Model and tokenizer
@@ -568,7 +536,7 @@ def main():
         # },
     )
 
-    if training_args.local_rank == 0:  # main process
+    if local_rank == 0:
         git_info = get_git_info()
         suffix = "main" if git_info.get("branch") == "main" else "dev"
         project_name = f"{args.wandb_project}-{suffix}"
