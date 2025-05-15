@@ -19,6 +19,9 @@ from tjdnet.models.tjdhf import TJDHuggingFace
 import uuid
 import re
 
+from tjdnet.models.tjdhf_v2 import TJDHuggingFaceV2
+from tjdnet.models.tllama import TJDLlamaModel
+
 
 def generate_wandb_id():
     """Generate a random 8-character ID with lowercase letters and numbers only."""
@@ -364,7 +367,7 @@ def get_auto_tokenizer(model_name):
     return tokenizer
 
 
-def get_model_and_tokenizer_v2(args):
+def get_model_and_tokenizer(args):
     tokenizer = get_auto_tokenizer(args.model)
     model_config = TJDConfig(
         model_head=args.model_head,
@@ -394,10 +397,32 @@ def get_model_and_tokenizer_v2(args):
     return model, tokenizer
 
 
-def get_model_and_tokenizer_base(args):
+def get_model_and_tokenizer_tjdhfv2(args):
+    tokenizer = get_auto_tokenizer(args.model)
+    model = TJDHuggingFaceV2(
+        auto_model_kwargs=dict(
+            pretrained_model_name_or_path=args.model,
+            low_cpu_mem_usage=True,
+        ),
+    )
+    return model, tokenizer
+
+
+def get_model_and_tokenizer_tjdllama(args):
+    tokenizer = get_auto_tokenizer(args.model)
+    model = TJDLlamaModel.from_pretrained(
+        args.model,
+    )
+    return model, tokenizer
+
+
+def get_model_and_tokenizer_nowrap(args):
     tokenizer = get_auto_tokenizer(args.model)
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         low_cpu_mem_usage=True,
     )
     return model, tokenizer
+
+
+# model = AutoModelForCausalLM.from_pretrained('meta-llama/Llama-3.2-3B-Instruct', low_cpu_mem_usage=True)

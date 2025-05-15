@@ -23,6 +23,7 @@ Hardware requirements:
 """
 
 from argparse import Namespace
+import functools
 import gc
 import json
 import os
@@ -41,7 +42,9 @@ from transformers import (
 )
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
@@ -50,8 +53,10 @@ from utils.accuracy import compute_accuracy
 from utils.utils import get_experiment_name
 from utils.helpers import (
     get_git_info,
-    get_model_and_tokenizer_v2,
-    get_model_and_tokenizer_base,
+    get_model_and_tokenizer_nowrap,
+    get_model_and_tokenizer_tjdllama,
+    get_model_and_tokenizer,
+    get_model_and_tokenizer_tjdhfv2,
     parse_args,
     save_args,
     set_seed,
@@ -324,6 +329,9 @@ class MemoryLoggingTJDTrainer(TJDTrainer):
         if self.state.global_step == 10:
             log_memory("after_step_10", self.args.local_rank)
 
+        elif self.state.global_step == 20:
+            log_memory("after_step_20", self.args.local_rank)
+
         return loss
 
 
@@ -387,6 +395,7 @@ def has_valid_checkpoint(ckpt_dir):
 
 def main():
     # ==== Setup
+    # Rank 0 looks up the wandb id and creates a new if it doesn't exist
     set_seed(42)
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     args = parse_args()
@@ -444,7 +453,18 @@ def main():
 
     # 1. Model and tokenizer
     printr("Initializing model...")
-    model, tokenizer = get_model_and_tokenizer_base(args)
+    # model, tokenizer = get_model_and_tokenizer(args)
+    # model, tokenizer = get_model_and_tokenizer_tjdhfv2(args)
+    # model, tokenizer = get_model_and_tokenizer_tjdllama(args)
+    model, tokenizer = get_model_and_tokenizer_nowrap(args)
+
+    # wrap_policy = functools.partial(
+    #     transformer_auto_wrap_policy,
+    #     transformer_layer_cls={LlamaDecoderLayer},
+    # )
+
+    # model = FSDP(model, auto_wrap_policy=wrap_policy)
+
     chat_template = CHAT_TEMPLATES[args.dataset]
     printo(f"Model: {model.__class__.__name__}")
     printo(f"Tokenizer: {tokenizer.__class__.__name__}")
@@ -522,6 +542,30 @@ def main():
         # optim="adafactor",  # Use Adafactor optimizer
         # torch_empty_cache_steps=1,
         # no_cuda=True,  # Force CPU usage
+        # === FSDP ===
+        fsdp="full_shard",
+        fsdp_config={
+            "fsdp_use_orig_params": True,
+            "transformer_layer_cls_to_wrap": ["LlamaDecoderLayer"],
+        },
+        # fsdp_config={
+        #     "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+        #     "fsdp_transformer_layer_cls_to_wrap": ["LlamaDecoderLayer"],
+        #     "fsdp_backward_prefetch_policy": "BACKWARD_PRE",
+        #     "fsdp_use_orig_params": True,
+        #     "fsdp_cpu_ram_efficient_loading": True,
+        #     # "fsdp": {
+        #     #     "sharding_strategy": "FULL_SHARD",
+        #     #     "auto_wrap_policy": transformer_auto_wrap_policy,
+        #     #     "use_orig_params": True,
+        #     #     "cpu_offload": False,
+        #     #     "mixed_precision": args.bf16,
+        #     # },
+        #     # "activation_checkpointing": {
+        #     #     "checkpointing_policy": "always",
+        #     #     "contiguous_memory_optimization": True,
+        #     # },
+        # },
     )
 
     if training_args.local_rank == 0:  # main process

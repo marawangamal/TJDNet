@@ -22,7 +22,7 @@ import wandb
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accuracy import compute_accuracy
-from utils.helpers import get_git_info, get_model_and_tokenizer_v2
+from utils.helpers import get_git_info, get_model_and_tokenizer
 
 
 def load_weights(model, checkpoint_path):
@@ -122,7 +122,7 @@ def main():
     exp_args = argparse.Namespace(**exp_args_dict)
     if args.metric == "acceptance_rate":
         exp_args.use_speculative_sampling = True
-    model, tokenizer = get_model_and_tokenizer_v2(exp_args)
+    model, tokenizer = get_model_and_tokenizer(exp_args)
     chat_template = CHAT_TEMPLATES[exp_args.dataset]
     lm_dataset = DATASET_LOADERS[exp_args.dataset](tokenizer, exp_args.seq_len)
 
