@@ -181,6 +181,12 @@ def parse_args():
         help="Whether to disable wandb logging.",
         default=False,
     )
+    parser.add_argument(
+        "--accel_strategy",
+        type=str,
+        default="auto",
+        choices=["auto", "fsdp"],
+    )
 
     args = parser.parse_args()
     validate_args(args)

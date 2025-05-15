@@ -2,6 +2,7 @@
 
 Example:
     python train_pl.py --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10
+    python train_pl.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 1 --seq_len 8 --lr 5e-5 --model_head base --horizon 1 --rank 1
 
 """
 
@@ -11,13 +12,17 @@ from argparse import Namespace
 
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
-
+from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
+
+import torch
 from torch import optim
 from torch.utils.data import DataLoader
 from transformers import DataCollatorForLanguageModeling
 
 from dataloaders import DATASET_LOADERS
+from tjdnet.distributions._tjdist import TJDist
 from utils.helpers import (
     get_auto_tokenizer,
     get_git_info,
@@ -25,6 +30,7 @@ from utils.helpers import (
     get_model_and_tokenizer_nowrap,
 )
 from utils.arguments_v2 import parse_args
+from utils.monitor import calculate_model_memory_breakdown
 from utils.pl_callbacks import CUDAMemoryLogger
 from utils.utils import get_experiment_name
 
@@ -40,6 +46,8 @@ SILENT_ARGS = [
     "max_new_tokens",
     "top_k",
     "gen_mode",
+    # Accelerator
+    "accel_strategy",
 ]
 
 
@@ -47,11 +55,14 @@ SILENT_ARGS = [
 class LModel(L.LightningModule):
     def __init__(self, args: Namespace):
         super().__init__()
-        self.model, self.tokenizer = get_model_and_tokenizer_nowrap(args)
-        self.model.train()
-
-        # Save args
+        self.args = args
+        self.tokenizer = get_auto_tokenizer(args.model)
         self.save_hyperparameters(args)
+
+    def configure_model(self):
+        # create all your layers here
+        self.model, _ = get_model_and_tokenizer(args)
+        self.model.train()
 
     def training_step(self, batch, batch_idx):
         output = self.model(**batch)
@@ -79,14 +90,26 @@ def get_wandb_logger(exp_name: str):
     return wandb_logger
 
 
+def printo(*args, **kwargs):
+    """Print to stdout and stderr."""
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    if local_rank == 0:
+        print(*args, **kwargs)
+
+
 def main(args):
     # Setup
     L.seed_everything(42)
     filtered_args = Namespace(
         **{k: v for k, v in vars(args).items() if k not in SILENT_ARGS}
     )
-    # exp name does not include silent args
     exp_name = get_experiment_name(vars(filtered_args))
+    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+    if not osp.exists(ckpt_path):
+        ckpt_path = None
+    print(
+        "Training from scratch." if ckpt_path is None else f"Resuming from {ckpt_path}"
+    )
 
     # Model
     lmodel = LModel(args=args)
@@ -122,8 +145,7 @@ def main(args):
         num_workers=4,
     )
 
-    # Trainer
-    # trainer = L.Trainer(accelerator="cuda", devices=2, strategy=FSDPStrategy())
+    # Callbacks
     checkpoint_cb = ModelCheckpoint(
         dirpath=osp.join(EXPERIMENTS_DIR, exp_name),
         filename="ckpt-{epoch}-{val_loss:.2f}",  # template for *best* files
@@ -134,22 +156,30 @@ def main(args):
     )
     memory_cb = CUDAMemoryLogger()
 
-    wandb_logger = get_wandb_logger(exp_name)
+    # Trainer
+    # trainer = L.Trainer(accelerator="cuda", devices=2, strategy=FSDPStrategy())
+    policy = {LlamaDecoderLayer}
+    strategy = {"auto": "auto", "fsdp": FSDPStrategy(auto_wrap_policy=policy)}[
+        args.accel_strategy
+    ]
     trainer = L.Trainer(
         # fast_dev_run=args.fast_dev_run,
         # overfit_batches=1,
+        # accelerator=args.accel,
+        strategy=strategy,
         max_epochs=args.epochs + 2,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
         callbacks=[checkpoint_cb, memory_cb],
-        logger=wandb_logger,
+        logger=get_wandb_logger(exp_name),
     )
 
-    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
-    if not osp.exists(ckpt_path):
-        ckpt_path = None
-    print(
-        "Training from scratch." if ckpt_path is None else f"Resuming from {ckpt_path}"
-    )
+    # Memory breakdown
+    params = sum(p.numel() for p in lmodel.parameters())
+    params_memory_gb = params * 4 / (1024**3)
+    printo("\n===== MEMORY BREAKDOWN =====")
+    printo(f"Params: {params / 1e9:.3f} B parameters │  {params_memory_gb:.2f} GB ")
+    printo("==============================\n")
+
     trainer.fit(
         lmodel,
         train_dataloader,

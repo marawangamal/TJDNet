@@ -52,6 +52,7 @@ from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accuracy import compute_accuracy
 from utils.arguments import parse_args
 from utils.monitor import log_memory
+from utils.monitor import calculate_model_memory_breakdown
 from utils.utils import get_experiment_name
 from utils.helpers import (
     get_git_info,
@@ -109,62 +110,6 @@ def log_params(msg, model, rank=None):
         print(
             f"  Parameter Sharing: {cuda_params/total_params:.2%} of params on this GPU"
         )
-
-
-def calculate_model_memory_breakdown(model, batch_size, seq_len, dtype=torch.float32):
-    """Calculate the theoretical memory breakdown for the model."""
-
-    # Count parameters
-    total_params = sum(p.numel() for p in model.parameters())
-
-    # Calculate memory requirements
-    bytes_per_param = {
-        torch.float32: 4,
-        torch.float16: 2,
-        torch.bfloat16: 2,
-        torch.int8: 1,
-    }[dtype]
-
-    # Model parameters
-    params_memory_gb = total_params * bytes_per_param / (1024**3)
-
-    # Optimizer states (Adam uses 2 states per parameter)
-    optimizer_memory_gb = params_memory_gb * 2  # For Adam
-
-    # Rough activation memory estimate (depends on model architecture)
-    # This is a very rough estimate - actual usage varies by model
-    hidden_size = (
-        model.config.hidden_size if hasattr(model.config, "hidden_size") else 768
-    )
-    layers = (
-        model.config.num_hidden_layers
-        if hasattr(model.config, "num_hidden_layers")
-        else 12
-    )
-    activation_memory_gb = (
-        batch_size * seq_len * hidden_size * layers * bytes_per_param
-    ) / (1024**3)
-
-    # Gradients
-    gradients_memory_gb = params_memory_gb
-
-    # Total theoretical memory
-    total_theoretical_gb = (
-        params_memory_gb
-        + optimizer_memory_gb
-        + activation_memory_gb
-        + gradients_memory_gb
-    )
-
-    return {
-        "parameters_gb": params_memory_gb,
-        "optimizer_states_gb": optimizer_memory_gb,
-        "activations_estimate_gb": activation_memory_gb,
-        "gradients_gb": gradients_memory_gb,
-        "total_theoretical_gb": total_theoretical_gb,
-        "total_params": total_params,
-        "params_in_billions": total_params / 1e9,
-    }
 
 
 def get_layer_sizes(model):
@@ -264,42 +209,14 @@ class MemoryLoggingTJDTrainer(TJDTrainer):
         # Flag to track if first step has been logged
         self._logged_first_step = False
 
-    def compute_loss(self, model, inputs, return_outputs=False, *args, **kwargs):
-        """Log memory during compute_loss - this is where parameters are first accessed."""
-        # Only log for the first batch
-        if not self._logged_first_step:
-            log_memory("before_first_forward", self.args.local_rank)
-            log_params("before_first_forward", model, self.args.local_rank)
-            torch.cuda.reset_peak_memory_stats()
-
-        # Call original compute_loss
-        result = super().compute_loss(model, inputs, return_outputs, *args, **kwargs)
-
-        # Log after forward pass
-        if not self._logged_first_step:
-            log_memory("after_first_forward", self.args.local_rank)
-            log_params("after_first_forward", model, self.args.local_rank)
-
-        return result
-
     def training_step(self, *args, **kwargs):
         """Log memory during backward pass."""
         # Call original training_step
         loss = super().training_step(*args, **kwargs)
-
-        # Log after backward
-        if not self._logged_first_step:
-            log_memory("after_first_backward", self.args.local_rank)
-            log_params("after_first_backward", self.model, self.args.local_rank)
-            self._logged_first_step = True
-
-        # Log again after several steps to check for leaks
-        if self.state.global_step == 10:
-            log_memory("after_step_10", self.args.local_rank)
-
-        elif self.state.global_step == 20:
-            log_memory("after_step_20", self.args.local_rank)
-
+        if self.state.global_step in [0, 1, 10, 20]:
+            log_memory(
+                f"batch {self.state.global_step} (before forward)", self.args.local_rank
+            )
         return loss
 
 
@@ -479,11 +396,11 @@ def main():
         # torch_empty_cache_steps=1,
         # no_cuda=True,  # Force CPU usage
         # === FSDP ===
-        fsdp="full_shard",
-        fsdp_config={
-            "fsdp_use_orig_params": True,
-            "transformer_layer_cls_to_wrap": ["LlamaDecoderLayer"],
-        },
+        # fsdp="full_shard",
+        # fsdp_config={
+        #     "fsdp_use_orig_params": True,
+        #     "transformer_layer_cls_to_wrap": ["LlamaDecoderLayer"],
+        # },
         # fsdp_config={
         #     "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
         #     "fsdp_transformer_layer_cls_to_wrap": ["LlamaDecoderLayer"],

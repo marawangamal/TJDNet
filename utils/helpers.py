@@ -129,7 +129,6 @@ def get_model_and_tokenizer(args):
             rank=args.rank,
             param_net=TensorParamNetConfig(
                 hidden_dim=args.hidden_dim,
-                positivity_func=args.positivity_func,
             ),
         ),
         init_method=args.init_method,
