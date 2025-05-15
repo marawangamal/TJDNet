@@ -50,6 +50,8 @@ from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
 from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accuracy import compute_accuracy
+from utils.arguments import parse_args
+from utils.monitor import log_memory
 from utils.utils import get_experiment_name
 from utils.helpers import (
     get_git_info,
@@ -57,7 +59,6 @@ from utils.helpers import (
     get_model_and_tokenizer_tjdllama,
     get_model_and_tokenizer,
     get_model_and_tokenizer_tjdhfv2,
-    parse_args,
     save_args,
     set_seed,
 )
@@ -84,39 +85,6 @@ SILENT_ARGS = [
     "top_k",
     "gen_mode",
 ]
-
-
-def log_memory(stage, rank=None):
-    """Log memory usage at different stages."""
-    if rank is None:
-        rank = int(os.environ.get("LOCAL_RANK", 0))
-
-    # Only log from rank 0 to avoid cluttering logs
-    if rank == 0:
-        # Force garbage collection first
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        # Get memory stats
-        allocated = torch.cuda.memory_allocated() / (1024**3)
-        reserved = torch.cuda.memory_reserved() / (1024**3)
-        max_allocated = torch.cuda.max_memory_allocated() / (1024**3)
-
-        # Print memory stats
-        print(f"\n[MEMORY - {stage}]")
-        print(f"  Allocated: {allocated:.2f} GB")
-        print(f"  Reserved:  {reserved:.2f} GB")
-        print(f"  Peak:      {max_allocated:.2f} GB")
-
-        # Log to wandb if available
-        if wandb.run is not None:
-            wandb.log(
-                {
-                    f"memory/{stage}/allocated_gb": allocated,
-                    f"memory/{stage}/reserved_gb": reserved,
-                    f"memory/{stage}/peak_gb": max_allocated,
-                }
-            )
 
 
 def log_params(msg, model, rank=None):

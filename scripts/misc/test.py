@@ -1,5 +1,5 @@
 # Test script with dummy data
-from utils.helpers import get_model_and_tokenizer, parse_args
+from utils.helpers import get_model_and_tokenizer
 
 import torch
 import torch.distributed as dist
@@ -23,7 +23,9 @@ from torch.distributed.fsdp.wrap import (
 from functools import partial
 from transformers.models.gptj.modeling_gptj import (
     GPTJBlock,
-)  # Update this import based on your model
+)
+
+from utils.arguments import parse_args  # Update this import based on your model
 
 
 def setup_process_group():

@@ -1,0 +1,25 @@
+# ----------------- new imports -----------------
+import torch  # <-- add this with the other imports
+from lightning.pytorch.callbacks import Callback
+from pytorch_lightning.utilities import rank_zero_only
+
+
+class CUDAMemoryLogger(Callback):
+    @rank_zero_only  # ensure one-time print in DDP/FSDP
+    def _print_memory(self, msg: str):
+        alloc = torch.cuda.memory_allocated() / 1024**2
+        reserved = torch.cuda.memory_reserved() / 1024**2
+        peak = torch.cuda.max_memory_allocated() / 1024**2
+        print(
+            f"[MEMORY - {msg}] "
+            f"allocated: {alloc:>7.1f} MB │ "
+            f"reserved: {reserved:>7.1f} MB │ "
+            f"peak: {peak:>7.1f} MB"
+        )
+        torch.cuda.reset_peak_memory_stats()
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        if batch_idx == 0:
+            self._print_memory("before_first_forward")
+        elif batch_idx == 10:
+            self._print_memory("before_tenth_forward")
