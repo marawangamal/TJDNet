@@ -29,7 +29,7 @@ from tjdnet.models.tjd import TJDGenerationConfig
 from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
 from utils.arguments_v2 import parse_args
 
-# from utils.lightning_callbacks.generate import GenerateCallback
+from utils.lightning_callbacks.generate import GenerateCallback
 from utils.lightning_callbacks.memory_logger import CUDAMemoryLogger
 from utils.utils import AverageMeter, get_experiment_name
 
@@ -78,25 +78,25 @@ class LModel(L.LightningModule):
             "eval_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
         )
 
-    # def test_step(self, batch, batch_idx):
-    #     outputs, ardict = self.model.generate(
-    #         generation_config=TJDGenerationConfig(
-    #             max_new_tokens=self.args.max_new_tokens,
-    #             do_sample=self.args.do_sample,
-    #             top_k=self.args.top_k,
-    #         ),
-    #         **batch,
-    #     )
+    def test_step(self, batch, batch_idx):
+        outputs, ardict = self.model.generate(
+            generation_config=TJDGenerationConfig(
+                max_new_tokens=self.args.max_new_tokens,
+                do_sample=self.args.do_sample,
+                top_k=self.args.top_k,
+            ),
+            **batch,
+        )
 
-    #     # Compute accuracy
-    #     y_pred_str = self.tokenizer.batch_decode(outputs)
-    #     y_pred = torch.tensor(
-    #         [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],
-    #         device=outputs.device,
-    #     )
-    #     corr = (y_pred == batch["labels"]).float().sum()
-    #     self.test_ameter.update(corr, len(batch["input_ids"]))
-    #     self.log("test_acc", self.test_ameter.avg, prog_bar=True, on_epoch=True)
+        # Compute accuracy
+        y_pred_str = self.tokenizer.batch_decode(outputs)
+        y_pred = torch.tensor(
+            [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],
+            device=outputs.device,
+        )
+        corr = (y_pred == batch["labels"]).float().sum()
+        self.test_ameter.update(corr, len(batch["input_ids"]))
+        self.log("test_acc", self.test_ameter.avg, prog_bar=True, on_epoch=True)
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
@@ -220,8 +220,7 @@ def main(args):
         save_top_k=1,  # keep only the single best model
         save_last=True,  # ALSO keep a rolling 'last.ckpt'
     )
-    # memory_cb = CUDAMemoryLogger()
-    # generate_cb = GenerateCallback()
+    generate_cb = GenerateCallback()
 
     # Trainer
     # trainer = L.Trainer(accelerator="cuda", devices=2, strategy=FSDPStrategy())
