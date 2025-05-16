@@ -30,6 +30,12 @@ def parse_args():
     parser.add_argument(
         "--lr", type=float, default=1e-3, help="Learning rate for training."
     )
+    parser.add_argument(
+        "--grad_clip_val",
+        type=float,
+        default=1.0,
+        help="Gradient clipping value for training.",
+    )
 
     # ---------------
     # Model init args

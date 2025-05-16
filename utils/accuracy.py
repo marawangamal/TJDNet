@@ -13,18 +13,27 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from datasets import DatasetDict
 
 
+# def collate_fn(batch, tokenizer):
+#     batch_dict = {"input_ids": [item["prompt_ids"] for item in batch]}
+#     padded_batch = tokenizer.pad(batch_dict, return_tensors="pt")
+
+#     batch_dict_labels = {"input_ids": [item["input_ids"] for item in batch]}
+#     padded_batch_labels = tokenizer.pad(batch_dict_labels, return_tensors="pt")
+
+#     return {
+#         **padded_batch,
+#         "labels": padded_batch_labels["input_ids"],
+#         "attention_mask_labels": padded_batch_labels["attention_mask"],
+#     }
+
+
 def collate_fn(batch, tokenizer):
-    batch_dict = {"input_ids": [item["prompt_ids"] for item in batch]}
-    padded_batch = tokenizer.pad(batch_dict, return_tensors="pt")
-
-    batch_dict_labels = {"input_ids": [item["input_ids"] for item in batch]}
-    padded_batch_labels = tokenizer.pad(batch_dict_labels, return_tensors="pt")
-
-    return {
-        **padded_batch,
-        "labels": padded_batch_labels["input_ids"],
-        "attention_mask_labels": padded_batch_labels["attention_mask"],
-    }
+    # return batch[0]
+    # stack all tensors across keys
+    collated_batch = {}
+    for key in batch[0].keys():
+        collated_batch[key] = torch.stack([torch.tensor(b[key]) for b in batch])
+    return collated_batch
 
 
 def custom_shorten(text, begin_width=70, end_width=50, placeholder=" … "):
@@ -116,18 +125,25 @@ def compute_accuracy(
             )
 
             # Batched decoding
-            y_pred = tokenizer.batch_decode(outputs)
-            y_true = tokenizer.batch_decode(batch["labels"])
-            # Compute accuracy
-            correct_mask = [
-                chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
-                for b in range(len(y_pred))
-            ]
-
-            batch_correct = sum(correct_mask)
-            accuracy_meter.update(
-                batch_correct / len(batch["input_ids"]), len(batch["input_ids"])
+            y_pred_str = tokenizer.batch_decode(outputs)
+            y_true = batch["labels"]
+            y_pred = torch.tensor(
+                [
+                    chat_template.parse_answer(y, tokenizer.eos_token)  # type: ignore
+                    for y in y_pred_str
+                ],
+                device=outputs.device,
             )
+            corr = (y_pred == y_true).float().sum()
+            accuracy_meter.update(
+                corr / len(batch["input_ids"]), len(batch["input_ids"])
+            )
+
+            # # Compute accuracy
+            # correct_mask = [
+            #     chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
+            #     for b in range(len(y_pred))
+            # ]
 
             tokens_accepted = ardict["tokens_accepted"]
             tokens_generated = ardict["tokens_generated"]
@@ -152,7 +168,7 @@ def compute_accuracy(
     # ── Evaluation summary ──────────────────────────────────────────────
     if verbose and y_pred and y_true:
         line = "─" * 60
-        y_true_prime = tokenizer.decode(batch["labels"][0, input_ids[0].size(0) :])
+        prompt = tokenizer.decode(batch["input_ids"][0])
         summary = (
             f"\n{line}\n"
             f"📊  EVALUATION SUMMARY\n"
@@ -161,8 +177,9 @@ def compute_accuracy(
             f"({accuracy_meter.sum}/{accuracy_meter.count} correct)\n"
             f"Acceptance rate : {accept_rate_meter.avg:.2%} "
             f"({accept_rate_meter.sum}/{accept_rate_meter.count} tokens accepted)\n\n"
-            f"▶ Ground truth  : {custom_shorten(y_true_prime, begin_width=120)}\n"
-            f"▶ Model output  : {custom_shorten(y_pred[0], begin_width=120)}\n"
+            f"Prompt         : {custom_shorten(prompt, begin_width=120)}\n"
+            f"▶ Ground truth  : {y_true[0].item()}\n"
+            f"▶ Model output  : {custom_shorten(y_pred_str[0], begin_width=120)}\n"
             f"{line}\n"
         )
         print(summary)

@@ -306,10 +306,10 @@ def main():
 
     # 1. Model and tokenizer
     printr("Initializing model...")
-    # model, tokenizer = get_model_and_tokenizer(args)
+    model, tokenizer = get_model_and_tokenizer(args)
     # model, tokenizer = get_model_and_tokenizer_tjdhfv2(args)
     # model, tokenizer = get_model_and_tokenizer_tjdllama(args)
-    model, tokenizer = get_model_and_tokenizer_nowrap(args)
+    # model, tokenizer = get_model_and_tokenizer_nowrap(args)
 
     # wrap_policy = functools.partial(
     #     transformer_auto_wrap_policy,

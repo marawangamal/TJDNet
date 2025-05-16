@@ -218,7 +218,7 @@ class TJD(ABC, torch.nn.Module):
 
                 # Get hidden state
                 x = y_out[mask_active, : T + t]  # (B', T + t)
-                _, h_draft = self.forward_backbone(input_ids=x, **kwargs)
+                _, h_draft = self.forward_backbone(input_ids=x)
                 h_last_draft = h_draft[:, -1]
 
                 # Sample
@@ -319,9 +319,12 @@ class TJD(ABC, torch.nn.Module):
 
         # Check if the model is in training mode
         if labels is None:
-            return self.generate(
-                input_ids=input_ids,
-                **kwargs,
+            # return self.generate(
+            #     input_ids=input_ids,
+            #     **kwargs,
+            # )
+            raise ValueError(
+                "Labels must be provided for training. Use `generate` method for inference."
             )
 
         reduce_fn = {

@@ -77,7 +77,7 @@ class LModel(L.LightningModule):
                 do_sample=self.args.do_sample,
                 top_k=self.args.top_k,
             ),
-            input_ids=batch["input_ids"],
+            **batch,
         )
         # Batched decoding
         y_pred_str = self.tokenizer.batch_decode(outputs)
@@ -88,9 +88,10 @@ class LModel(L.LightningModule):
         corr = (y_pred == batch["labels"]).float().sum()
         self.test_ameter.update(corr, len(batch["input_ids"]))
         self.log("test_acc", self.test_ameter.avg, prog_bar=True, on_epoch=True)
+        print(y_pred_str[0])
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = optim.Adam(self.parameters(), lr=self.args.lr)
         return optimizer
 
 
@@ -156,19 +157,20 @@ def main(args):
         mlm=False,  # we’re doing causal-LM, not masked-LM
         return_tensors="pt",
     )
-
     train_dataloader = DataLoader(
         lm_dataset["train"],
         batch_size=args.batch_size,
         shuffle=True,
         collate_fn=collator,
         num_workers=4,
+        persistent_workers=True,
     )
     eval_dataloader = DataLoader(
         lm_dataset["eval"],
         batch_size=args.batch_size,
         collate_fn=collator,
         num_workers=4,
+        persistent_workers=True,
     )
 
     test_dataloader = DataLoader(
@@ -204,6 +206,7 @@ def main(args):
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
         callbacks=[checkpoint_cb, memory_cb],
         logger=get_wandb_logger(exp_name),
+        gradient_clip_val=args.grad_clip_val,
     )
 
     # Memory breakdown
