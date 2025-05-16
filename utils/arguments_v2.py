@@ -42,6 +42,12 @@ def parse_args():
         default=1.0,
         help="Gradient clipping value for training.",
     )
+    parser.add_argument(
+        "--accum_grad_batches",
+        type=int,
+        default=1,
+        help="Number of batches to accumulate gradients over.",
+    )
 
     # ---------------
     # Model init args
@@ -197,7 +203,7 @@ def parse_args():
         "--accel_strategy",
         type=str,
         default="auto",
-        choices=["auto", "fsdp"],
+        choices=["auto", "fsdp", "ddp", "deepspeed"],
     )
 
     args = parser.parse_args()

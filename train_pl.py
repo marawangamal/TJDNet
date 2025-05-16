@@ -224,19 +224,26 @@ def main(args):
 
     # Trainer
     policy = {LlamaDecoderLayer, GPT2Block}
-    strategy = {"auto": "auto", "fsdp": FSDPStrategy(auto_wrap_policy=policy)}[  # type: ignore
+    strategy = {
+        "auto": "auto",
+        "ddp": "ddp",
+        "fsdp": FSDPStrategy(auto_wrap_policy=policy),
+    }[  # type: ignore
         args.accel_strategy
     ]
     trainer = L.Trainer(
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
-        callbacks=[checkpoint_cb, generate_cb],
+        # callbacks=[checkpoint_cb, generate_cb],
+        callbacks=[checkpoint_cb],
         logger=get_wandb_logger(exp_name),
+        precision="bf16-mixed",
         # gradient_clip_val=args.grad_clip_val,
         # fast_dev_run=True,
         # overfit_batches=1,
         # accelerator=args.accel,
+        accumulate_grad_batches=args.accum_grad_batches,
     )
 
     # Memory breakdown
@@ -252,14 +259,31 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
+    # trainer.test(ckpt_path="last", dataloaders=test_dataloader)
+
+    # # Test (no fsdp)
+    # printo(f"Testing model...")
+    # torch.cuda.empty_cache()  # free shards before reload
+    # best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+    # if not osp.exists(best_ckpt):
+    #     raise FileNotFoundError(
+    #         f"Checkpoint {best_ckpt} not found. Please train the model first."
+    #     )
+    # test_model = LModel.load_from_checkpoint(best_ckpt, strict=True)
+    # test_model.eval()  # Explicitly set eval mode
+    # test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
+    # test_trainer.test(test_model, dataloaders=test_dataloader)
 
     # Test (no fsdp)
     printo(f"Testing model...")
     torch.cuda.empty_cache()  # free shards before reload
-    best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
-    test_model = LModel.load_from_checkpoint(best_ckpt)
     test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
-    test_trainer.test(test_model, dataloaders=test_dataloader)
+    best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+    with test_trainer.init_module(empty_init=True):
+        # creation of the model is fast
+        # and depending on the strategy allocates no memory, or uninitialized memory
+        test_model = LModel.load_from_checkpoint(best_ckpt)
+        test_trainer.test(test_model, dataloaders=test_dataloader)
 
 
 if __name__ == "__main__":
