@@ -113,11 +113,12 @@ def compute_accuracy(
             if i < accuracy_meter.count // batch_size:
                 continue
             batch = {k: v.to(model.device) for k, v in batch.items()}
-            input_ids, attention_mask = chat_template.format_batch(
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                tokenizer=tokenizer,
-            )
+            # input_ids, attention_mask = chat_template.format_batch(
+            #     input_ids=batch["input_ids"],
+            #     attention_mask=batch["attention_mask"],
+            #     tokenizer=tokenizer,
+            # )
+            input_ids, attention_mask = batch["input_ids"], batch["attention_mask"]
             outputs, ardict = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -166,7 +167,7 @@ def compute_accuracy(
                 break
 
     # ── Evaluation summary ──────────────────────────────────────────────
-    if verbose and y_pred and y_true:
+    if verbose and y_pred:
         line = "─" * 60
         prompt = tokenizer.decode(batch["input_ids"][0])
         summary = (

@@ -31,6 +31,12 @@ def parse_args():
         "--lr", type=float, default=1e-3, help="Learning rate for training."
     )
     parser.add_argument(
+        "--warmup_steps",
+        type=int,
+        default=100,
+        help="Number of warmup steps for learning rate scheduler.",
+    )
+    parser.add_argument(
         "--grad_clip_val",
         type=float,
         default=1.0,

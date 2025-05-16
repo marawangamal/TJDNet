@@ -20,11 +20,14 @@ from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from torch import optim
 from torch.utils.data import DataLoader
 from transformers import DataCollatorForLanguageModeling
+from transformers import get_linear_schedule_with_warmup
+
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from tjdnet.models.tjd import TJDGenerationConfig
 from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
 from utils.arguments_v2 import parse_args
+from utils.lightning_callbacks.generate import GenerateCallback
 from utils.lightning_callbacks.memory_logger import CUDAMemoryLogger
 from utils.utils import AverageMeter, get_experiment_name
 
@@ -59,18 +62,22 @@ class LModel(L.LightningModule):
     def configure_model(self):
         # create all your layers here
         self.model, _ = get_model_and_tokenizer(args)
-        self.model.train()
 
     def training_step(self, batch, batch_idx):
         output = self.model(**batch)
-        self.log("train_loss", output["loss"], prog_bar=True, on_epoch=True)
+        self.log(
+            "train_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
+        )
         return output["loss"]
 
     def validation_step(self, batch, batch_idx):
         output = self.model(**batch)
-        self.log("val_loss", output["loss"], prog_bar=True, on_epoch=True)
+        self.log(
+            "eval_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
+        )
 
     def test_step(self, batch, batch_idx):
+        # Sample
         outputs, ardict = self.model.generate(
             generation_config=TJDGenerationConfig(
                 max_new_tokens=self.args.max_new_tokens,
@@ -79,20 +86,43 @@ class LModel(L.LightningModule):
             ),
             **batch,
         )
-        # Batched decoding
+
+        # Compute accuracy
         y_pred_str = self.tokenizer.batch_decode(outputs)
         y_pred = torch.tensor(
-            [self.ct.parse_answer(y, self.eos) if y else None for y in y_pred_str],
+            [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],
             device=outputs.device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
         self.test_ameter.update(corr, len(batch["input_ids"]))
         self.log("test_acc", self.test_ameter.avg, prog_bar=True, on_epoch=True)
-        print(y_pred_str[0])
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=self.args.lr)
-        return optimizer
+        optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=self.args.warmup_steps,
+            num_training_steps=self.trainer.estimated_stepping_batches,
+        )
+        return [optimizer], [scheduler]
+
+    # === Debug (memory) ===
+    def on_train_batch_start(self, batch, batch_idx):
+        # print memory usage
+        if batch_idx in [0, 10, 20, 30, 40]:
+            self._log_memory("before_forward")
+        return super().on_train_batch_start(batch, batch_idx)
+
+    def _log_memory(self, phase: str):
+        if torch.cuda.is_available():
+            alloc = torch.cuda.memory_allocated() / 1024**3
+            # reserved = torch.cuda.memory_reserved() / 1024**3
+            peak = torch.cuda.max_memory_allocated() / 1024**3
+            dct = {"allocated": alloc, "peak": peak}
+            dct = {f"{phase}_{k}": v for k, v in dct.items()}
+            for k, v in dct.items():
+                self.log(k, v, prog_bar=True)
+            torch.cuda.reset_peak_memory_stats()
 
 
 def get_wandb_logger(exp_name: str):
@@ -184,12 +214,13 @@ def main(args):
     checkpoint_cb = ModelCheckpoint(
         dirpath=osp.join(EXPERIMENTS_DIR, exp_name),
         filename="ckpt-{epoch}-{val_loss:.2f}",  # template for *best* files
-        monitor="val_loss",  # metric to track
+        monitor="eval_loss",  # metric to track
         mode="min",  # "max" for accuracy / "min" for loss
         save_top_k=1,  # keep only the single best model
         save_last=True,  # ALSO keep a rolling 'last.ckpt'
     )
-    memory_cb = CUDAMemoryLogger()
+    # memory_cb = CUDAMemoryLogger()
+    generate_cb = GenerateCallback()
 
     # Trainer
     # trainer = L.Trainer(accelerator="cuda", devices=2, strategy=FSDPStrategy())
@@ -204,7 +235,7 @@ def main(args):
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
-        callbacks=[checkpoint_cb, memory_cb],
+        callbacks=[checkpoint_cb, generate_cb],
         logger=get_wandb_logger(exp_name),
         gradient_clip_val=args.grad_clip_val,
     )
