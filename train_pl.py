@@ -16,6 +16,7 @@ from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
 import torch
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
+from transformers.models.gpt2.modeling_gpt2 import GPT2Block
 
 from torch import optim
 from torch.utils.data import DataLoader
@@ -27,7 +28,8 @@ from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from tjdnet.models.tjd import TJDGenerationConfig
 from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
 from utils.arguments_v2 import parse_args
-from utils.lightning_callbacks.generate import GenerateCallback
+
+# from utils.lightning_callbacks.generate import GenerateCallback
 from utils.lightning_callbacks.memory_logger import CUDAMemoryLogger
 from utils.utils import AverageMeter, get_experiment_name
 
@@ -76,25 +78,25 @@ class LModel(L.LightningModule):
             "eval_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
         )
 
-    def test_step(self, batch, batch_idx):
-        outputs, ardict = self.model.generate(
-            generation_config=TJDGenerationConfig(
-                max_new_tokens=self.args.max_new_tokens,
-                do_sample=self.args.do_sample,
-                top_k=self.args.top_k,
-            ),
-            **batch,
-        )
+    # def test_step(self, batch, batch_idx):
+    #     outputs, ardict = self.model.generate(
+    #         generation_config=TJDGenerationConfig(
+    #             max_new_tokens=self.args.max_new_tokens,
+    #             do_sample=self.args.do_sample,
+    #             top_k=self.args.top_k,
+    #         ),
+    #         **batch,
+    #     )
 
-        # Compute accuracy
-        y_pred_str = self.tokenizer.batch_decode(outputs)
-        y_pred = torch.tensor(
-            [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],
-            device=outputs.device,
-        )
-        corr = (y_pred == batch["labels"]).float().sum()
-        self.test_ameter.update(corr, len(batch["input_ids"]))
-        self.log("test_acc", self.test_ameter.avg, prog_bar=True, on_epoch=True)
+    #     # Compute accuracy
+    #     y_pred_str = self.tokenizer.batch_decode(outputs)
+    #     y_pred = torch.tensor(
+    #         [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],
+    #         device=outputs.device,
+    #     )
+    #     corr = (y_pred == batch["labels"]).float().sum()
+    #     self.test_ameter.update(corr, len(batch["input_ids"]))
+    #     self.log("test_acc", self.test_ameter.avg, prog_bar=True, on_epoch=True)
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
@@ -219,7 +221,7 @@ def main(args):
         save_last=True,  # ALSO keep a rolling 'last.ckpt'
     )
     # memory_cb = CUDAMemoryLogger()
-    generate_cb = GenerateCallback()
+    # generate_cb = GenerateCallback()
 
     # Trainer
     # trainer = L.Trainer(accelerator="cuda", devices=2, strategy=FSDPStrategy())
@@ -234,9 +236,9 @@ def main(args):
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
-        callbacks=[checkpoint_cb, generate_cb],
+        callbacks=[checkpoint_cb],
         logger=get_wandb_logger(exp_name),
-        gradient_clip_val=args.grad_clip_val,
+        # gradient_clip_val=args.grad_clip_val,
     )
 
     # Memory breakdown
@@ -252,10 +254,17 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
-    trainer.test(
-        ckpt_path=osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt"),
-        dataloaders=test_dataloader,
-    )
+    # best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+    # trainer.test(
+    #     ckpt_path=best_ckpt,
+    #     dataloaders=test_dataloader,
+    # )
+
+    # Test (no fsdp)
+    # torch.cuda.empty_cache()  # free shards before reload
+    # test_model = LModel.load_from_checkpoint(best_ckpt, args=args)
+    # test_trainer = L.Trainer(strategy="auto")
+    # test_trainer.test(test_model, dataloaders=test_dataloader)
 
 
 if __name__ == "__main__":
