@@ -57,6 +57,23 @@ class ChatTemplateGSM8k(BaseChatTemplate):
         except Exception as e:
             return None
 
+    @classmethod
+    def parse_answer(cls, generation: str, eos_token: str):
+        try:
+            return (
+                float(
+                    generation.split("####")[-1]
+                    .split(eos_token)[0]
+                    .strip()
+                    .split(" ")[0]
+                    .split("\n")[0]
+                )
+                if "####" in generation
+                else float("nan")
+            )
+        except Exception as e:
+            return float("nan")
+
 
 def prepare_example(example, eos_token="<|endoftext|>", use_few_shot=False):
     """Process a single example into training format."""
@@ -111,9 +128,10 @@ def process_test_dataset(dataset, tokenizer, use_few_shot=False):
 
     dataset = dataset.map(
         lambda x: {
-            **tokenizer(x["text"], add_special_tokens=False),
-            "prompt_ids": tokenizer(x["prompt"])["input_ids"],
+            **tokenizer(x["prompt"], add_special_tokens=False),
+            "labels": ChatTemplateGSM8k.parse_answer(x["text"], tokenizer.eos_token),
         },
+        remove_columns=["text", "prompt"],
     )
     return dataset
 

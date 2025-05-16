@@ -23,7 +23,8 @@ import seaborn as sns
 import numpy as np
 
 from tjdnet.regressors.cp_regressor import CPRegressor
-from utils.utils import get_experiment_name, group_arr, plot_groups
+from utils.experiment_naming import get_experiment_name
+from utils.utils import group_arr, plot_groups
 
 # set tl backend to pytorch
 tl.set_backend("pytorch")

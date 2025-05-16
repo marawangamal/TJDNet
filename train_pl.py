@@ -10,28 +10,25 @@ import os
 import os.path as osp
 from argparse import Namespace
 
+import torch
+from torch import optim
+from torch.utils.data import DataLoader
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
+from transformers.models.gpt2.modeling_gpt2 import GPT2Block
+from transformers import DataCollatorForLanguageModeling
+from transformers import get_linear_schedule_with_warmup
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
-import torch
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer
-from transformers.models.gpt2.modeling_gpt2 import GPT2Block
-
-from torch import optim
-from torch.utils.data import DataLoader
-from transformers import DataCollatorForLanguageModeling
-from transformers import get_linear_schedule_with_warmup
-
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from tjdnet.models.tjd import TJDGenerationConfig
+from utils.average_meter import AverageMeter
 from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
 from utils.arguments_v2 import parse_args
-
 from utils.lightning_callbacks.generate import GenerateCallback
-from utils.lightning_callbacks.memory_logger import CUDAMemoryLogger
-from utils.utils import AverageMeter, get_experiment_name
+from utils.experiment_naming import get_experiment_name
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -53,11 +50,11 @@ SILENT_ARGS = [
 
 # define the LightningModule
 class LModel(L.LightningModule):
-    def __init__(self, args: Namespace):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.args = args
-        self.tokenizer = get_auto_tokenizer(args.model)
-        self.ct = CHAT_TEMPLATES[args.dataset]
+        self.args = Namespace(**kwargs)
+        self.tokenizer = get_auto_tokenizer(self.args.model)
+        self.ct = CHAT_TEMPLATES[self.args.dataset]
         self.eos = self.tokenizer.eos_token
         self.test_ameter = AverageMeter()
         self.save_hyperparameters(args)
@@ -92,7 +89,7 @@ class LModel(L.LightningModule):
         # Compute accuracy
         y_pred_str = self.tokenizer.batch_decode(outputs)
         y_pred = torch.tensor(
-            [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],
+            [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],  # type: ignore
             device=outputs.device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
@@ -171,7 +168,7 @@ def main(args):
     )
 
     # Model
-    lmodel = LModel(args=args)
+    lmodel = LModel(**vars(args))
 
     # Data
     lm_dataset = DATASET_LOADERS[args.dataset](
@@ -221,7 +218,9 @@ def main(args):
         save_top_k=1,  # keep only the single best model
         save_last=True,  # ALSO keep a rolling 'last.ckpt'
     )
-    generate_cb = GenerateCallback()
+    generate_cb = GenerateCallback(
+        prompt=CHAT_TEMPLATES[args.dataset].get_sample_prompt()
+    )
 
     # Trainer
     policy = {LlamaDecoderLayer, GPT2Block}
@@ -232,7 +231,7 @@ def main(args):
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
-        callbacks=[checkpoint_cb],
+        callbacks=[checkpoint_cb, generate_cb],
         logger=get_wandb_logger(exp_name),
         # gradient_clip_val=args.grad_clip_val,
         # fast_dev_run=True,
@@ -258,7 +257,7 @@ def main(args):
     printo(f"Testing model...")
     torch.cuda.empty_cache()  # free shards before reload
     best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
-    test_model = LModel.load_from_checkpoint(best_ckpt, args=args)
+    test_model = LModel.load_from_checkpoint(best_ckpt)
     test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
     test_trainer.test(test_model, dataloaders=test_dataloader)
 

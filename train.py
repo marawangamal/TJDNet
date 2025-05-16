@@ -53,7 +53,7 @@ from utils.accuracy import compute_accuracy
 from utils.arguments import parse_args
 from utils.monitor import log_memory
 from utils.monitor import calculate_model_memory_breakdown
-from utils.utils import get_experiment_name
+from utils.experiment_naming import get_experiment_name
 from utils.helpers import (
     get_git_info,
     get_model_and_tokenizer_nowrap,

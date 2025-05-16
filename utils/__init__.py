@@ -1,2 +1,2 @@
 from .helpers import *
-from .utils import AverageMeter
+from .average_meter import AverageMeter

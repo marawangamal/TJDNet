@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 from dataloaders._base import BaseChatTemplate
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
-from utils.utils import AverageMeter
+from utils.average_meter import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from datasets import DatasetDict

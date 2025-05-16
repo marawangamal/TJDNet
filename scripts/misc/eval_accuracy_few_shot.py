@@ -38,7 +38,7 @@ from dataloaders.syn_number_bases import load_syn_num_base_data
 from dataloaders.syn_numbers import load_syn_num_data
 from dataloaders.syn_temp import load_syn_temp_data
 from dataloaders.wikitext import load_wikitext_data
-from utils.utils import get_experiment_name
+from utils.experiment_naming import get_experiment_name
 
 
 def load_weights(model, checkpoint_path):
