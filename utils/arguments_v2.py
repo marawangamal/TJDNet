@@ -199,12 +199,6 @@ def parse_args():
         default="auto",
         choices=["auto", "fsdp"],
     )
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="Whether to run the test set.",
-        default=False,
-    )
 
     args = parser.parse_args()
     validate_args(args)

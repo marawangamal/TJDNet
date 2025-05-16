@@ -9,8 +9,7 @@ class GenerateCallback(Callback):
     def __init__(self, prompt: str = "What is 20°C in Fahrenheit?"):
         self.prompt = prompt
 
-    @rank_zero_only
-    def on_validation_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
+    def _generate(self, pl_module: LightningModule) -> None:
         # Generate sample text
         model: TJD = pl_module.model
         output, _ = model.generate(
@@ -36,3 +35,10 @@ class GenerateCallback(Callback):
             f"{line}\n"
         )
         print(summary)
+
+    @rank_zero_only
+    def on_validation_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
+        self._generate(pl_module)
+
+    def on_test_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
+        self._generate(pl_module)

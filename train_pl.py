@@ -47,6 +47,7 @@ SILENT_ARGS = [
     "gen_mode",
     # Accelerator
     "accel_strategy",
+    "test",
 ]
 
 
@@ -223,21 +224,20 @@ def main(args):
     generate_cb = GenerateCallback()
 
     # Trainer
-    # trainer = L.Trainer(accelerator="cuda", devices=2, strategy=FSDPStrategy())
-    policy = {LlamaDecoderLayer}
+    policy = {LlamaDecoderLayer, GPT2Block}
     strategy = {"auto": "auto", "fsdp": FSDPStrategy(auto_wrap_policy=policy)}[  # type: ignore
         args.accel_strategy
     ]
     trainer = L.Trainer(
-        # fast_dev_run=True,
-        # overfit_batches=1,
-        # accelerator=args.accel,
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
         callbacks=[checkpoint_cb],
         logger=get_wandb_logger(exp_name),
         # gradient_clip_val=args.grad_clip_val,
+        # fast_dev_run=True,
+        # overfit_batches=1,
+        # accelerator=args.accel,
     )
 
     # Memory breakdown
@@ -253,17 +253,14 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
-    # best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
-    # trainer.test(
-    #     ckpt_path=best_ckpt,
-    #     dataloaders=test_dataloader,
-    # )
 
     # Test (no fsdp)
-    # torch.cuda.empty_cache()  # free shards before reload
-    # test_model = LModel.load_from_checkpoint(best_ckpt, args=args)
-    # test_trainer = L.Trainer(strategy="auto")
-    # test_trainer.test(test_model, dataloaders=test_dataloader)
+    printo(f"Testing model...")
+    torch.cuda.empty_cache()  # free shards before reload
+    best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+    test_model = LModel.load_from_checkpoint(best_ckpt, args=args)
+    test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
+    test_trainer.test(test_model, dataloaders=test_dataloader)
 
 
 if __name__ == "__main__":
