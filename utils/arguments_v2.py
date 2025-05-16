@@ -1,5 +1,4 @@
 from tjdnet.distributions import TJD_DISTS
-from utils.helpers import validate_args
 
 
 import argparse
@@ -205,7 +204,26 @@ def parse_args():
         default="auto",
         choices=["auto", "fsdp", "ddp", "deepspeed"],
     )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Whether to run the test set.",
+        default=False,
+    )
 
     args = parser.parse_args()
     validate_args(args)
     return parser.parse_args()
+
+
+def validate_args(args):
+    rules = [
+        {
+            "message": "Cannot use fsdp strategy during testing.",
+            "condition": lambda: not (args.accel_strategy == "fsdp" and args.test),
+        }
+    ]
+
+    for rule in rules:
+        if not rule["condition"]():
+            raise ValueError(rule["message"])

@@ -57,11 +57,20 @@ class LModel(L.LightningModule):
         self.ct = CHAT_TEMPLATES[self.args.dataset]
         self.eos = self.tokenizer.eos_token
         self.test_ameter = AverageMeter()
-        self.save_hyperparameters(args)
+        self.save_hyperparameters(kwargs)
 
     def configure_model(self):
         # create all your layers here
         self.model, _ = get_model_and_tokenizer(args)
+
+    @classmethod
+    def load_from_checkpoint(cls, checkpoint_path, *args, **kwargs):
+        checkpoint = torch.load(checkpoint_path, *args, **kwargs)
+        hp_params = checkpoint["hyper_parameters"]
+        model = cls(**hp_params)
+        model.configure_model()
+        model.load_state_dict(checkpoint["state_dict"])
+        return model
 
     def training_step(self, batch, batch_idx):
         output = self.model(**batch)
@@ -222,7 +231,29 @@ def main(args):
         prompt=CHAT_TEMPLATES[args.dataset].get_sample_prompt()
     )
 
-    # Trainer
+    # Memory breakdown
+    params = sum(p.numel() for p in lmodel.parameters())
+    params_memory_gb = params * 4 / (1024**3)
+    printo("\n===== MEMORY BREAKDOWN =====")
+    printo(f"Params: {params / 1e9:.3f} B parameters │  {params_memory_gb:.2f} GB ")
+    printo("==============================\n")
+
+    # Test only
+    if args.test:
+        # Cannot directly test when using FSDP
+        best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+        printo(f"Testing model...")
+        # torch.cuda.empty_cache()  # free shards before reload
+        test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
+        best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+        with test_trainer.init_module(empty_init=True):
+            # creation of the model is fast
+            # and depending on the strategy allocates no memory, or uninitialized memory
+            test_model = LModel.load_from_checkpoint(best_ckpt)
+        test_trainer.test(test_model, dataloaders=test_dataloader)
+        return
+
+    # Train
     policy = {LlamaDecoderLayer, GPT2Block}
     strategy = {
         "auto": "auto",
@@ -231,6 +262,7 @@ def main(args):
     }[  # type: ignore
         args.accel_strategy
     ]
+
     trainer = L.Trainer(
         strategy=strategy,
         max_epochs=args.epochs,
@@ -246,44 +278,24 @@ def main(args):
         accumulate_grad_batches=args.accum_grad_batches,
     )
 
-    # Memory breakdown
-    params = sum(p.numel() for p in lmodel.parameters())
-    params_memory_gb = params * 4 / (1024**3)
-    printo("\n===== MEMORY BREAKDOWN =====")
-    printo(f"Params: {params / 1e9:.3f} B parameters │  {params_memory_gb:.2f} GB ")
-    printo("==============================\n")
-
     trainer.fit(
         lmodel,
         train_dataloader,
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
-    # trainer.test(ckpt_path="last", dataloaders=test_dataloader)
+    trainer.test(ckpt_path="best", dataloaders=test_dataloader)
 
-    # # Test (no fsdp)
+    # # Test (compatible with FSDP)
     # printo(f"Testing model...")
     # torch.cuda.empty_cache()  # free shards before reload
-    # best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
-    # if not osp.exists(best_ckpt):
-    #     raise FileNotFoundError(
-    #         f"Checkpoint {best_ckpt} not found. Please train the model first."
-    #     )
-    # test_model = LModel.load_from_checkpoint(best_ckpt, strict=True)
-    # test_model.eval()  # Explicitly set eval mode
     # test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
-    # test_trainer.test(test_model, dataloaders=test_dataloader)
-
-    # Test (no fsdp)
-    printo(f"Testing model...")
-    torch.cuda.empty_cache()  # free shards before reload
-    test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
-    best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
-    with test_trainer.init_module(empty_init=True):
-        # creation of the model is fast
-        # and depending on the strategy allocates no memory, or uninitialized memory
-        test_model = LModel.load_from_checkpoint(best_ckpt)
-        test_trainer.test(test_model, dataloaders=test_dataloader)
+    # best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+    # with test_trainer.init_module(empty_init=True):
+    #     # creation of the model is fast
+    #     # and depending on the strategy allocates no memory, or uninitialized memory
+    #     test_model = LModel.load_from_checkpoint(best_ckpt)
+    #     test_trainer.test(test_model, dataloaders=test_dataloader)
 
 
 if __name__ == "__main__":
