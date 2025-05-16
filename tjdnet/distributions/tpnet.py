@@ -53,6 +53,7 @@ class TensorParamNet(nn.Module):
         Returns:
             torch.Tensor: Output tensor of shape (*, `out_dim_encoder x out_dim_decoder`)
         """
+        # e.g., (B, D) -> (B, RH, d)
         params = self.w(x)  # (*, D) => (*, `out_dim_encoder x hidden_dim`)
         params = params.reshape(
             *params.size()[:-1],

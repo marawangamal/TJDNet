@@ -67,7 +67,7 @@ def compute_acceptance_rate(
                 tokenizer=tokenizer,
             )
             outputs, acceptance_metrics = model.generate(
-                inputs=input_ids,
+                input_ids=input_ids,
                 attention_mask=attention_mask,
                 generation_config=generation_config,
             )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early

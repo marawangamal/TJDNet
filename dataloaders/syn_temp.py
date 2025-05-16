@@ -41,6 +41,17 @@ class ChatTemplateSynTemp(BaseChatTemplate):
         except Exception as e:
             return None
 
+    @classmethod
+    def parse_answer(cls, generation: str, eos_token: str):
+        try:
+            return (
+                float(generation.split("####")[1].split(eos_token)[0].strip())
+                if "####" in generation
+                else float("nan")
+            )
+        except Exception as e:
+            return float("nan")
+
 
 def generate_sample():
     """Generate a single synthetic QA sample."""
@@ -82,17 +93,16 @@ def process_synthetic_dataset(dataset, tokenizer, input_seq_len=512):
 
 
 def process_synthetic_test_dataset(dataset, tokenizer):
-    # Process the selected samples
-
     dataset = dataset.map(
         lambda x: parse_qa(x, tokenizer.eos_token),
         remove_columns=dataset.column_names,
     )
     dataset = dataset.map(
         lambda x: {
-            **tokenizer(x["text"], add_special_tokens=False),
-            "prompt_ids": tokenizer(x["prompt"])["input_ids"],
+            **tokenizer(x["prompt"], add_special_tokens=False),
+            "labels": ChatTemplateSynTemp.parse_answer(x["text"], tokenizer.eos_token),
         },
+        remove_columns=["text", "prompt"],
     )
     return dataset
 

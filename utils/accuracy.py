@@ -45,6 +45,28 @@ def compute_accuracy(
     verbose: bool = True,
     return_avg_meters: bool = False,
 ):
+    """Compute accuracy of the model on the given dataset.
+
+    Args:
+        model (TJD): _description_
+        tokenizer (Union[PreTrainedTokenizer, PreTrainedTokenizerFast]): _description_
+        dataset (DatasetDict): _description_
+        chat_template (BaseChatTemplate): _description_
+        generation_config (TJDGenerationConfig): _description_
+        batch_size (int, optional): _description_. Defaults to 1.
+        max_iters (Optional[int], optional): _description_. Defaults to None.
+        ckpt_dir (Optional[str], optional): _description_. Defaults to None.
+        verbose (bool, optional): _description_. Defaults to True.
+        return_avg_meters (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        dict: Dictionary containing the following keys:
+            - accuracy (float): Accuracy of the model on the dataset.
+            - acceptance_rate (float): Acceptance rate of the model on the dataset.
+            - accuracy_avg_meter (dict): AverageMeter object containing the following
+            - acceptance_rate_avg_meter (dict): AverageMeter object containing the following
+            - total_samples (int): Total number of samples in the dataset.
+    """
 
     # Create dataloader
     dataloader = torch.utils.data.DataLoader(
@@ -88,7 +110,7 @@ def compute_accuracy(
                 tokenizer=tokenizer,
             )
             outputs, ardict = model.generate(
-                inputs=input_ids,
+                input_ids=input_ids,
                 attention_mask=attention_mask,
                 generation_config=generation_config,
             )
@@ -101,6 +123,7 @@ def compute_accuracy(
                 chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
                 for b in range(len(y_pred))
             ]
+
             batch_correct = sum(correct_mask)
             accuracy_meter.update(
                 batch_correct / len(batch["input_ids"]), len(batch["input_ids"])

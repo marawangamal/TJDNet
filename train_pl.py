@@ -14,25 +14,19 @@ import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
+import torch
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
-import torch
 from torch import optim
 from torch.utils.data import DataLoader
 from transformers import DataCollatorForLanguageModeling
 
-from dataloaders import DATASET_LOADERS
-from tjdnet.distributions._tjdist import TJDist
-from utils.helpers import (
-    get_auto_tokenizer,
-    get_git_info,
-    get_model_and_tokenizer,
-    get_model_and_tokenizer_nowrap,
-)
+from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
+from tjdnet.models.tjd import TJDGenerationConfig
+from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
 from utils.arguments_v2 import parse_args
-from utils.monitor import calculate_model_memory_breakdown
-from utils.pl_callbacks import CUDAMemoryLogger
-from utils.utils import get_experiment_name
+from utils.lightning_callbacks.memory_logger import CUDAMemoryLogger
+from utils.utils import AverageMeter, get_experiment_name
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -57,6 +51,9 @@ class LModel(L.LightningModule):
         super().__init__()
         self.args = args
         self.tokenizer = get_auto_tokenizer(args.model)
+        self.ct = CHAT_TEMPLATES[args.dataset]
+        self.eos = self.tokenizer.eos_token
+        self.test_ameter = AverageMeter()
         self.save_hyperparameters(args)
 
     def configure_model(self):
@@ -72,6 +69,25 @@ class LModel(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         output = self.model(**batch)
         self.log("val_loss", output["loss"], prog_bar=True, on_epoch=True)
+
+    def test_step(self, batch, batch_idx):
+        outputs, ardict = self.model.generate(
+            generation_config=TJDGenerationConfig(
+                max_new_tokens=self.args.max_new_tokens,
+                do_sample=self.args.do_sample,
+                top_k=self.args.top_k,
+            ),
+            input_ids=batch["input_ids"],
+        )
+        # Batched decoding
+        y_pred_str = self.tokenizer.batch_decode(outputs)
+        y_pred = torch.tensor(
+            [self.ct.parse_answer(y, self.eos) if y else None for y in y_pred_str],
+            device=outputs.device,
+        )
+        corr = (y_pred == batch["labels"]).float().sum()
+        self.test_ameter.update(corr, len(batch["input_ids"]))
+        self.log("test_acc", self.test_ameter.avg, prog_bar=True, on_epoch=True)
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=1e-3)
@@ -95,6 +111,16 @@ def printo(*args, **kwargs):
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if local_rank == 0:
         print(*args, **kwargs)
+
+
+# Define a simple identity collator for single samples
+def identity_collator(batch):
+    # return batch[0]
+    # stack all tensors across keys
+    collated_batch = {}
+    for key in batch[0].keys():
+        collated_batch[key] = torch.stack([torch.tensor(b[key]) for b in batch])
+    return collated_batch
 
 
 def main(args):
@@ -145,6 +171,13 @@ def main(args):
         num_workers=4,
     )
 
+    test_dataloader = DataLoader(
+        lm_dataset["test"],
+        batch_size=1,
+        num_workers=4,
+        collate_fn=identity_collator,
+    )
+
     # Callbacks
     checkpoint_cb = ModelCheckpoint(
         dirpath=osp.join(EXPERIMENTS_DIR, exp_name),
@@ -159,15 +192,15 @@ def main(args):
     # Trainer
     # trainer = L.Trainer(accelerator="cuda", devices=2, strategy=FSDPStrategy())
     policy = {LlamaDecoderLayer}
-    strategy = {"auto": "auto", "fsdp": FSDPStrategy(auto_wrap_policy=policy)}[
+    strategy = {"auto": "auto", "fsdp": FSDPStrategy(auto_wrap_policy=policy)}[  # type: ignore
         args.accel_strategy
     ]
     trainer = L.Trainer(
-        # fast_dev_run=args.fast_dev_run,
+        # fast_dev_run=True,
         # overfit_batches=1,
         # accelerator=args.accel,
         strategy=strategy,
-        max_epochs=args.epochs + 2,
+        max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
         callbacks=[checkpoint_cb, memory_cb],
         logger=get_wandb_logger(exp_name),
@@ -186,6 +219,7 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
+    trainer.test(model=lmodel, dataloaders=test_dataloader)
 
 
 if __name__ == "__main__":

@@ -58,6 +58,11 @@ class BaseChatTemplate(ABC):
     def safe_parse(cls, generation: str, eos_token: str) -> Optional[float]:
         pass
 
+    @classmethod
+    @abstractmethod
+    def parse_answer(cls, generation: str, eos_token: str) -> float:
+        pass
+
 
 def group_texts(examples, input_seq_len):
     # Concatenate all texts.

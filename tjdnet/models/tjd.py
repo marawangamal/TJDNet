@@ -147,10 +147,10 @@ class TJD(ABC, torch.nn.Module):
 
     def generate(
         self,
-        inputs: torch.Tensor,
+        input_ids: torch.Tensor,
         generation_config: TJDGenerationConfig,
         return_full_text: bool = False,
-        **kwargs,  # will be passed to the forward method
+        **kwargs,
     ):
         """Generate sequences given an input tensor.
 
@@ -165,15 +165,15 @@ class TJD(ABC, torch.nn.Module):
         # ==== Input validation
         input_validation_checks = [
             {
-                "test": lambda: torch.all(inputs > 0),
+                "test": lambda: torch.all(input_ids > 0),
                 "msg": "Input tokens must be positive",
             }
         ]
         self._run_checks(input_validation_checks)
         # ====
 
-        B, T, H = inputs.size(0), inputs.size(1), self.horizon
-        device = inputs.device
+        B, T, H = input_ids.size(0), input_ids.size(1), self.horizon
+        device = input_ids.device
         temp_token = -100  # Temporary token for padding
 
         gen_kwargs = {
@@ -183,12 +183,12 @@ class TJD(ABC, torch.nn.Module):
 
         # Initialize output with input_ids
         y_out = torch.full(
-            (B, inputs.size(1) + generation_config.max_new_tokens),
+            (B, input_ids.size(1) + generation_config.max_new_tokens),
             fill_value=temp_token,
             dtype=torch.long,
             device=device,
         )  # (B, T + N)
-        y_out[:, : inputs.size(1)] = inputs
+        y_out[:, : input_ids.size(1)] = input_ids
 
         accept_rate_metrics = {
             "tokens_generated": 0,
@@ -276,13 +276,13 @@ class TJD(ABC, torch.nn.Module):
             stop_mask = (y_out == generation_config.eos_token_id).float()  # (B, T_out)
             y_out[torch.cumsum(stop_mask, dim=1) >= 1] = generation_config.eos_token_id
 
-        y_out = y_out if return_full_text else y_out[:, inputs.size(1) :]
+        y_out = y_out if return_full_text else y_out[:, input_ids.size(1) :]
         return y_out, accept_rate_metrics
 
     def forward(
         self,
         input_ids: torch.Tensor,
-        labels: torch.Tensor,  # NOTE: needed for compatibility with Trainer
+        labels: Optional[torch.Tensor] = None,
         attention_mask=None,
         reduce="mean",
         **kwargs,
@@ -309,12 +309,20 @@ class TJD(ABC, torch.nn.Module):
         # ==== Input validation
         input_validation_checks = [
             {
-                "test": lambda: input_ids.size(1) > self.horizon,
-                "msg": "Sequence length must be greater than horizon",
+                "test": lambda: input_ids.size(1) >= self.horizon
+                and input_ids.size(1) % self.horizon == 0,
+                "msg": f"Input sequence length must be greater than or equal to {self.horizon} and divisible by {self.horizon}",
             }
         ]
         self._run_checks(input_validation_checks)
         # ====
+
+        # Check if the model is in training mode
+        if labels is None:
+            return self.generate(
+                input_ids=input_ids,
+                **kwargs,
+            )
 
         reduce_fn = {
             "mean": torch.mean,
@@ -327,10 +335,10 @@ class TJD(ABC, torch.nn.Module):
 
         h_targ, h_draft = self.forward_backbone(
             input_ids, attention_mask=attention_mask
-        )
+        )  # (B, T, D), (B, T, D)
 
         # 1. Create targets
-        y_true = get_windowed_input_ids_v2(input_ids, horizon=self.horizon).reshape(
+        y_true = get_windowed_input_ids_v2(labels, horizon=self.horizon).reshape(
             B, -1, H
         )  # (B, T-H, H)
 
@@ -361,7 +369,7 @@ class TJD(ABC, torch.nn.Module):
             log_probs_lm_head = self.lm_head(h_targ[:, :-1])  # (B, T-1, V)
             # (B, T) -> (B, T-1)
             y_true = get_windowed_input_ids_v2(
-                input_ids,
+                labels,
                 horizon=1,
             ).squeeze(-1)
             loss_lm_head = (

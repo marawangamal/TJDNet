@@ -9,6 +9,7 @@ from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 # Not all models have the same structure
 EXCEPTIONS = {
     "gpt2": lambda m: (m.transformer, m.lm_head),
+    "distilbert/distilgpt2": lambda m: (m.transformer, m.lm_head),
 }
 
 
