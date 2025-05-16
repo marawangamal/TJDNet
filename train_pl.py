@@ -77,7 +77,6 @@ class LModel(L.LightningModule):
         )
 
     def test_step(self, batch, batch_idx):
-        # Sample
         outputs, ardict = self.model.generate(
             generation_config=TJDGenerationConfig(
                 max_new_tokens=self.args.max_new_tokens,
@@ -253,7 +252,10 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
-    trainer.test(model=lmodel, dataloaders=test_dataloader)
+    trainer.test(
+        ckpt_path=osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt"),
+        dataloaders=test_dataloader,
+    )
 
 
 if __name__ == "__main__":
