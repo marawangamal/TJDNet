@@ -71,7 +71,7 @@ class TJD(ABC, torch.nn.Module):
 
         # Set dims
         self.horizon = config.model_head_config.horizon
-        self.n_embd = config.model_head_config.param_net.in_dim
+        self.n_embd = config.model_head_config.in_dim
         self.vocab_size = config.model_head_config.vocab_size
 
         # Initialize model head
@@ -79,9 +79,10 @@ class TJD(ABC, torch.nn.Module):
             self.mhead = TJD_DISTS[config.model_head].from_linear(
                 linear=self.lm_head,
                 config=BaseDistFromLinearConfig(
+                    vocab_size=config.model_head_config.vocab_size,
                     horizon=config.model_head_config.horizon,
                     rank=config.model_head_config.rank,
-                    param_net=config.model_head_config.param_net,
+                    positivity_func=config.model_head_config.positivity_func,
                 ),
             )
         else:

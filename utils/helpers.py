@@ -127,9 +127,8 @@ def get_model_and_tokenizer(args):
             vocab_size=len(tokenizer),
             horizon=args.horizon,
             rank=args.rank,
-            param_net=TensorParamNetConfig(
-                hidden_dim=args.hidden_dim,
-            ),
+            hidden_dim=args.hidden_dim,
+            in_dim=-1,  # Will be set in TJDHuggingFace model
         ),
         init_method=args.init_method,
         loss_mode=args.loss_mode,

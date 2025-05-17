@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import torch
 import tensorly as tl
 import line_profiler
@@ -8,8 +8,11 @@ from tjdnet.tensorops.common import get_breakpoints
 tl.set_backend("pytorch")
 
 
-def select_margin_cp_tensor_batched(
-    cp_params: torch.Tensor, ops: torch.Tensor, use_scale_factors=True
+def select_margin_cp_tensor_decoder_batched(
+    cp_params: torch.Tensor,
+    ops: torch.Tensor,
+    cp_decoder: torch.Tensor,
+    use_scale_factors=True,
 ):
     """Performs selection and marginalization operations on a CP tensor representation.
 
@@ -20,15 +23,123 @@ def select_margin_cp_tensor_batched(
         - Free index: For op = -1, keeps aᵢⱼ unchanged
 
     Args:
-        cp_params (torch.Tensor): CP tensor factors of shape (B, R, T, D) where:
-            B: Batch size
-            R: CP rank
-            T: number of tensor modes/dimensions
-            D: dimension of each mode
-        ops (torch.Tensor): Operation codes of shape (T,) specifying:
-            -2: marginalize mode (sum reduction)
-            -1: keep mode as free index
-            [0,V): select index v in mode
+        cp_params (torch.Tensor): CP tensor factors of shape (B, R, H, d) where:
+        ops (torch.Tensor): Operation codes of shape (B, T). -2: margin, -1: free, [0,V): select
+        cp_decoder (torch.Tensor): CP decoder. Shape: (d, D)
+
+    Note:
+        - The number of free indices in `ops` must be at most 1
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]:
+            - Result tensor of shape (n_free, D) where n_free is the number of free indices (-1 operations) in ops
+            - Scale factors list of shape (T,)
+    """
+
+    # Validation:
+    assert len(cp_params.shape) == 4, "CP params tensor must be $D (batched)"
+    assert len(ops.shape) == 2, "Invalid ops tensor: must be 2D (batched)"
+    assert (ops >= -2).all() and (
+        ops < cp_params.size(3)
+    ).all(), "Invalid ops tensor: must be in range [-2, vocab_size)"
+    assert ops.size(0) == cp_params.size(0), "Batch size mismatch"
+
+    batch_size, rank, horizon, hidden_dim = cp_params.size()
+    vocab_size = cp_decoder.size(1)
+
+    # Get breakpoints for 1st free leg and 1st margin leg
+    bp_free, bp_margin = get_breakpoints(ops)  # (batch_size,), (batch_size,)
+
+    res_left = torch.ones(batch_size, rank, device=cp_params.device)
+    res_right = torch.ones(batch_size, rank, device=cp_params.device)
+    res_free = torch.ones(batch_size, rank, vocab_size, device=cp_params.device)
+
+    # (BRH, d) @ (d, 1) -> (BRH, 1) -> (B, R, H)
+    core_margins = (
+        cp_params.reshape(-1, hidden_dim) @ cp_decoder.sum(dim=-1).unsqueeze(-1)
+    ).reshape(batch_size, rank, horizon)
+    scale_factors = []
+
+    for t in range(horizon):
+        mask_select = t < bp_free
+        mask_margin = t >= bp_margin
+        mask_free = ~mask_select & ~mask_margin
+
+        # Select
+        if mask_select.any():
+            # (d, D) -> (B', d, D) -> (B', d)
+            update = torch.gather(
+                cp_decoder.reshape(1, hidden_dim, vocab_size).expand(
+                    mask_select.size(0), -1, -1
+                ),  # (B', d, D)
+                dim=-1,
+                index=ops[mask_select, t]
+                .reshape(-1, 1, 1)
+                .expand(-1, hidden_dim, -1),  # (B', d, 1)
+            ).squeeze(-1)
+
+            # (B', R, d) @ (B', d, 1) -> (B', R)
+            update = torch.bmm(
+                cp_params[mask_select, :, t, :],  # (B', R, d)
+                update.unsqueeze(-1),  # (B', d, 1)
+            ).squeeze(-1)
+
+            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            if use_scale_factors:
+                sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
+            scale_factors.append(sf)
+            res_left[mask_select] = (
+                res_left[mask_select] * update / sf[mask_select].unsqueeze(-1)
+            )
+
+        # Marginalize
+        if mask_margin.any():
+            update = core_margins[mask_margin, :, t]  # (B', R)
+            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            if use_scale_factors:
+                sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
+            scale_factors.append(sf)
+            res_right[mask_margin] = (
+                res_right[mask_margin] * update / sf[mask_margin].unsqueeze(-1)
+            )
+
+        # Free
+        if mask_free.any():
+            # (B', R, d) @ (B', d, D) -> (B', R, D)
+            res_free[mask_free] = cp_params[mask_free, :, t, :] @ cp_decoder
+
+    # Final result
+    # if not use_scale_factors:
+    #     scale_factors = []
+    # Special case: pure select
+    if torch.all(bp_free == horizon):
+        return res_left.sum(dim=-1), scale_factors  # (B,)
+    # Special case: pure marginalization
+    elif torch.all(bp_margin == 0):
+        return res_right.sum(dim=-1), scale_factors
+    else:  # General case
+        result = (
+            res_left.unsqueeze(-1) * res_free * res_right.unsqueeze(-1)
+        )  # (B, R, D)
+        return result.sum(dim=1), scale_factors
+
+
+def select_margin_cp_tensor_batched(
+    cp_params: torch.Tensor,
+    ops: torch.Tensor,
+    use_scale_factors=True,
+):
+    """Performs selection and marginalization operations on a CP tensor representation.
+
+    Given a CP tensor T = ∑ᵢ aᵢ₁ ⊗ aᵢ₂ ⊗ ... ⊗ aᵢₜ where each aᵢⱼ ∈ ℝᵈ,
+    applies a sequence of operations on each mode:
+        - Selection: For op ∈ [0,V), selects op^th index of aᵢⱼ
+        - Marginalization: For op = -2, sums all elements in aᵢⱼ
+        - Free index: For op = -1, keeps aᵢⱼ unchanged
+
+    Args:
+        cp_params (torch.Tensor): CP tensor factors of shape (B, R, H, d) where:
+        ops (torch.Tensor): Operation codes of shape (T,). -2: margin, -1: free, [0,V): select
 
     Note:
         - The number of free indices in `ops` must be at most 1

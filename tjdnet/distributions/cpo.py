@@ -31,7 +31,7 @@ class CPODist(CPDist):
         self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
     ):
         batch_size, seq_len, _ = last_hidden_state.size()  # (B, T, D)
-        params = self.param_func(last_hidden_state)  # (B, T, RHV, 1)
+        params = self.w(last_hidden_state)  # (B, T, RHV, 1)
         params_reshaped = params.reshape(
             batch_size, seq_len, self.rank, self.horizon, self.vocab_size
         )

@@ -39,7 +39,7 @@ class TJDHuggingFace(TJD):
         del temp_model
         torch.cuda.empty_cache()
 
-        config.model_head_config.param_net.in_dim = embedding_size
+        config.model_head_config.in_dim = embedding_size
         config.model_head_config.vocab_size = vocab_size
         super().__init__(config)
 

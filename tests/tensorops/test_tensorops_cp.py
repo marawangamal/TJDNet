@@ -1,8 +1,12 @@
 import unittest
 import torch
 
+from tjdnet.distributions.tpnet import TensorParamNet, TensorParamNetConfig
 from tjdnet.tensorops.common import get_breakpoints
-from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
+from tjdnet.tensorops.cp import (
+    select_margin_cp_tensor_batched,
+    select_margin_cp_tensor_decoder_batched,
+)
 
 
 class TestCPTensor(unittest.TestCase):
@@ -45,7 +49,7 @@ class TestCPTensor(unittest.TestCase):
         # - marginalize last two positions
         ops = torch.tensor([[0, -1, -2, -2], [0, 1, -1, -2]])
         result_batched, _ = select_margin_cp_tensor_batched(
-            cp_params, ops
+            cp_params, ops, use_scale_factors=False
         )  # (rank, n_free, vocab_size)
 
         self.assertTrue(
@@ -54,29 +58,25 @@ class TestCPTensor(unittest.TestCase):
             )
         )
 
-    # def test_select_margin_cp_tensor_batched_values__match_select_marginalize(self):
-    #     # Set seed for reproducibility
-    #     torch.manual_seed(0)
-    #     batch_size, rank, horizon, vocab_size = 3, 4, 5, 4
-    #     # cp_params = torch.rand(batch_size, rank, horizon, vocab_size)  # (B, R, T, D)
-    #     cp_params = torch.ones(batch_size, rank, horizon, vocab_size)  # (B, R, T, D)
+    def test_select_margin_cp_tensor_decoder_values(self):
+        batch_size, rank, horizon, hidden_dim, vocab_size = 2, 2, 5, 4, 32
+        w = torch.randn(batch_size, rank, horizon, hidden_dim)
+        decoder = torch.randn(hidden_dim, vocab_size)
+        cp_params_recons = torch.einsum("brtd,dv->brtv", w, decoder)
 
-    #     # Create ops tensor with all three operation types:
-    #     # [0, -1, -1, -2] means:
-    #     # - select index 0 in first position
-    #     # - marginalize last two positions
-    #     # [1.0098, 0.9534, 1.4481, 0.2662],
-    #     ops = torch.tensor([[0, 1, 2, -1, -2], [0, 1, -1, -2, -2], [0, -1, -2, -2, -2]])
-    #     result_batched, _ = select_margin_cp_tensor_batched(
-    #         cp_params, ops
-    #     )  # (rank, n_free, vocab_size)
-    #     expected_result = torch.stack(
-    #         [
-    #             select_margin_cp_tensor(cp_params[i], ops[i])[0]
-    #             for i in range(batch_size)
-    #         ]
-    #     )
-    #     self.assertTrue(torch.allclose(result_batched, expected_result))
+        # Create ops tensor with all three operation types:
+        # [0, -1, -1, -2] means:
+        # - select index 0 in first position
+        # - marginalize last two positions
+        ops = torch.tensor([[0, -1, -2, -2], [0, 1, -1, -2]])
+        result_batched, _ = select_margin_cp_tensor_batched(
+            cp_params_recons, ops, use_scale_factors=False
+        )
+        result_decoder, _ = select_margin_cp_tensor_decoder_batched(
+            w, ops, cp_decoder=decoder, use_scale_factors=False
+        )
+
+        self.assertTrue(torch.allclose(result_batched, result_decoder))
 
 
 if __name__ == "__main__":

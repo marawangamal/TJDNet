@@ -236,8 +236,7 @@ def main(args):
         best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
         test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
         test_model = LModel.load_from_checkpoint(best_ckpt)
-        test_trainer.test(test_model, dataloaders=test_dataloader)
-        return
+        return test_trainer.test(test_model, dataloaders=test_dataloader)
 
     # Train
     policy = {LlamaDecoderLayer, GPT2Block}
@@ -263,8 +262,13 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
+    if not args.strategy == "fsdp":
+        trainer.test(ckpt_path="best", dataloaders=test_dataloader)
 
 
 if __name__ == "__main__":
     args = parse_args()
     main(args)
+
+
+# before_forward_allocated=13.50, before_forward_peak=29.00, tra

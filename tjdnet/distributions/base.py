@@ -23,17 +23,20 @@ class BaseDist(TJDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        assert config.horizon == 1, "Only horizon=1 is supported for now"
-        config.param_net.use_decoder = False  # Set TPNet decoder to False
-        config.param_net.out_dim_encoder = config.vocab_size
-        config.param_net.hidden_dim = 1
         super().__init__(config)
-        self.vocab_size = config.vocab_size
-        self.rank = config.rank
-        self.horizon = config.horizon
+        assert config.horizon == 1, "Only horizon=1 is supported for now"
+        self.pos_func = {
+            "sq": lambda x: x**2,
+            "abs": lambda x: torch.abs(x),
+            "exp": torch.exp,
+            "none": lambda x: x,
+        }[config.positivity_func]
+        self.w = torch.nn.Linear(
+            in_features=config.in_dim, out_features=config.vocab_size
+        )
 
     def get_params(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
-        p_tilde = self.param_func(x)  # (B, V, 1)
+        p_tilde = self.pos_func(self.w(x))  # (B, V)
         return p_tilde.squeeze(-1)  # (B, V)
 
     @classmethod
@@ -59,7 +62,9 @@ class BaseDist(TJDist):
                 vocab_size=vocab_size,
                 horizon=config.horizon,
                 rank=config.rank,
-                param_net=config.param_net,
+                in_dim=n_emb,
+                hidden_dim=n_emb,
+                positivity_func=config.positivity_func,
             ),
             **kwargs,
         )
@@ -69,14 +74,17 @@ class BaseDist(TJDist):
         x: torch.Tensor,  # (B, T, D)
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int] = None,
+        return_logits: bool = False,
         **kwargs,
     ):
         if horizon and horizon > 1:
             raise ValueError("Horizon must be 1 for base distribution")
         model_head_params = self.get_params(x)  # (B, V)
         y_hat = sample_fn(model_head_params).unsqueeze(1)  # (B, 1)
-        py = model_head_params.unsqueeze(1)
-        return y_hat, py  # (B, 1), (B, 1, V)
+        py_tilde = model_head_params.unsqueeze(1)
+        if return_logits:  # don't normalize
+            return y_hat, py_tilde  # (B, 1), (B, 1, V)
+        return y_hat, py_tilde / py_tilde.sum(dim=-1, keepdim=True)  # (B, H)
 
     def evaluate(
         self,

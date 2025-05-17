@@ -2,7 +2,7 @@ from __future__ import annotations  # only needed on 3.10 and below
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import Callable, Optional, Tuple, List, Type, TypeVar
+from typing import Callable, Literal, Optional, Tuple, List, Type, TypeVar
 
 import torch
 
@@ -13,9 +13,10 @@ T = TypeVar("T", bound="AbstractDist")
 
 @dataclass
 class BaseDistFromLinearConfig:
+    vocab_size: int
     horizon: int
     rank: int
-    param_net: TensorParamNetConfig
+    positivity_func: Literal["sq", "abs", "exp", "none"] = "exp"
 
 
 @dataclass
@@ -23,7 +24,9 @@ class BaseDistConfig:
     vocab_size: int
     horizon: int
     rank: int
-    param_net: TensorParamNetConfig
+    in_dim: int
+    hidden_dim: int
+    positivity_func: Literal["sq", "abs", "exp", "none"] = "exp"
 
 
 class AbstractDist(ABC, torch.nn.Module):
@@ -33,7 +36,6 @@ class AbstractDist(ABC, torch.nn.Module):
         self.vocab_size = config.vocab_size
         self.horizon = config.horizon
         self.rank = config.rank
-        self.param_func = TensorParamNet(config.param_net)
 
     def get_horizon(self, horizon: Optional[int]):
         horizon = self.horizon if horizon is None else horizon

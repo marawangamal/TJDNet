@@ -8,24 +8,27 @@ from tjdnet.distributions._tjdist import (
     TJDist,
 )
 
-from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
+from tjdnet.tensorops.cp import (
+    select_margin_cp_tensor_batched,
+    select_margin_cp_tensor_decoder_batched,
+)
 from tjdnet.utils import sample_topk
 
 
 class CPDist(TJDist):
     def __init__(self, config: BaseDistConfig, **kwargs):
-        """CP Distribution
-
-        Args:
-            n_embd (int): Embedding dimension
-            vocab_size (int): Vocabulary size
-            rank (int): Rank of the CP decomposition
-            horizon (int): Horizon of the model (Number of tokens to predict)
-        """
-        # config.param_net.out_dim_encoder = config.rank * config.horizon * config.vocab_size
-        config.param_net.out_dim_encoder = config.rank * config.horizon
-        config.param_net.out_dim_decoder = config.vocab_size
         super().__init__(config)
+        self.pos_func = {
+            "sq": lambda x: x**2,
+            "abs": lambda x: torch.abs(x),
+            "exp": torch.exp,
+            "none": lambda x: x,
+        }[config.positivity_func]
+        self.w = torch.nn.Linear(
+            in_features=config.in_dim,
+            out_features=config.hidden_dim * config.rank * config.horizon,
+        )
+        self.decoder = torch.nn.Linear(config.hidden_dim, config.vocab_size)
 
     @classmethod
     def from_linear(
@@ -50,21 +53,22 @@ class CPDist(TJDist):
                 vocab_size=vocab_size,
                 horizon=config.horizon,
                 rank=config.rank,
-                param_net=config.param_net,
+                in_dim=n_emb,
+                hidden_dim=n_emb,
             ),
             **kwargs,
         )
 
         # Initialize the parameters in obj.tensor_param_net
         # with the parameters from the linear layer
-        obj.param_func.linear.weight.data = linear.weight.data
+        obj.w.linear.weight.data = linear.weight.data
         return obj
 
     def get_params(self, x: torch.Tensor, **kwargs):
-        B = x.size(0)
-        params = self.param_func(x)  # (B, R * H, V)
-        params_reshaped = params.reshape(B, self.rank, self.horizon, self.vocab_size)
-        return params_reshaped  # (B, R, H, V)  // H* is model level horizon
+        params = self.pos_func(self.w(x))  # (B, RHd)
+        return params.reshape(
+            -1, self.rank, self.horizon, self.vocab_size
+        ), self.pos_func(self.decoder)
 
     def sample(
         self,
@@ -79,7 +83,7 @@ class CPDist(TJDist):
         batch_size = x.size(0)
         dvc = x.device
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
-        model_head_params = self.get_params(x)  # B, R, H, V)
+        cp_params, cp_decoder = self.get_params(x)  # (B, R, H, d), (d, V)
         py_tilde_list = []
         for h in range(horizon):
             ops_tensor = torch.cat(
@@ -95,9 +99,10 @@ class CPDist(TJDist):
                 dim=1,
             )  # (B, T)
             #  (B, R, H, V) -> (B, V)
-            p_ops_tilde, _ = select_margin_cp_tensor_batched(
-                cp_params=model_head_params,
+            p_ops_tilde, _ = select_margin_cp_tensor_decoder_batched(
+                cp_params=cp_params,
                 ops=ops_tensor,
+                cp_decoder=cp_decoder,
             )  # (B, V), (B,) * T
             py_tilde_list.append(p_ops_tilde)
             next_token = sample_fn(p_ops_tilde).unsqueeze(1)  # (B,1)
@@ -117,18 +122,22 @@ class CPDist(TJDist):
         # Get indexed distribution
         horizon = self.horizon
         B = x.size(0)
-        params = self.get_params(x)  # (B, T, R, H, V)
-        p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched(
-            cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
+        cp_params, cp_decoder = self.get_params(x)  # (B, R, H, d), (d, V)
+        p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_decoder_batched(
+            cp_params=cp_params,
+            cp_decoder=cp_decoder,
             ops=y.reshape(B, horizon),
         )  # (B,), (B, H)
-        norm_consts, norm_consts_scale_factors = select_margin_cp_tensor_batched(
-            cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
-            ops=torch.full(
-                (B, horizon),
-                -2,
-                dtype=torch.long,
-                device=x.device,
-            ),
+        norm_consts, norm_consts_scale_factors = (
+            select_margin_cp_tensor_decoder_batched(
+                cp_params=cp_params,
+                cp_decoder=cp_decoder,
+                ops=torch.full(
+                    (B, horizon),
+                    -2,
+                    dtype=torch.long,
+                    device=x.device,
+                ),
+            )
         )
         return (p_tilde, p_tilde_scale_factors, norm_consts, norm_consts_scale_factors)
