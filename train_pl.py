@@ -23,7 +23,7 @@ from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
-from tjdnet.models.tjd import TJDGenerationConfig
+from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.average_meter import AverageMeter
 from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
 from utils.arguments_v2 import parse_args
@@ -53,23 +53,24 @@ class LModel(L.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
         self.args = Namespace(**kwargs)
-        # self.tokenizer = get_auto_tokenizer(self.args.model)
-        self.model, self.tokenizer = get_model_and_tokenizer(args)
+        self.tokenizer = get_auto_tokenizer(self.args.model)
+        self.model: TJD = None  # type: ignore
         self.ct = CHAT_TEMPLATES[self.args.dataset]
         self.eos = self.tokenizer.eos_token
         self.test_ameter = AverageMeter()
         self.save_hyperparameters(kwargs)
 
-    # def configure_model(self):
-    #     # create all your layers here
-    #     self.model, _ = get_model_and_tokenizer(args)
+    def configure_model(self):
+        # create all your layers here
+        if self.model is None:  # Model might be already created in load_from_checkpoint
+            self.model, _ = get_model_and_tokenizer(args)
 
     # @classmethod
     # def load_from_checkpoint(cls, checkpoint_path, *args, **kwargs):
     #     checkpoint = torch.load(checkpoint_path, *args, **kwargs)
     #     hp_params = checkpoint["hyper_parameters"]
     #     model = cls(**hp_params)
-    #     model.configure_model()
+    #     # model.configure_model()
     #     model.load_state_dict(checkpoint["state_dict"], strict=True)
     #     return model
 
@@ -260,11 +261,6 @@ def main(args):
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
         callbacks=[checkpoint_cb],
-        # callbacks=(
-        #     [checkpoint_cb, generate_cb]
-        #     if not args.accel_strategy == "fsdp"
-        #     else [checkpoint_cb]
-        # ),
         logger=get_wandb_logger(exp_name),
         precision="bf16-mixed",
         accumulate_grad_batches=args.accum_grad_batches,
@@ -276,11 +272,6 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
-    # # Succeeds:
-    # trainer.test(
-    #     ckpt_path="best",
-    #     dataloaders=test_dataloader,
-    # )
 
 
 if __name__ == "__main__":
