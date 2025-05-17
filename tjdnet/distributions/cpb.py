@@ -187,7 +187,7 @@ class CPBDist(AbstractDist):
             )
             return torch.logsumexp(z, dim=1).squeeze(-1)
 
-    def compute_loss(self, x: torch.Tensor, y: torch.Tensor):
+    def forward(self, x: torch.Tensor, y: torch.Tensor):
         """Computes loss for CPB distribution.
 
         Args:

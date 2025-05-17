@@ -13,6 +13,8 @@ from argparse import Namespace
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
+from torch.distributed.fsdp import MixedPrecision
+
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from transformers.models.gpt2.modeling_gpt2 import GPT2Block
 from transformers import DataCollatorForLanguageModeling
@@ -23,6 +25,7 @@ from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
+from tjdnet.distributions._tjdist import TJDist
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.average_meter import AverageMeter
 from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
@@ -240,11 +243,15 @@ def main(args):
         return
 
     # Train
-    policy = {LlamaDecoderLayer, GPT2Block}
+    policy = {LlamaDecoderLayer, GPT2Block, TJDist}
     strategy = {
         "auto": "auto",
         "ddp": "ddp",
-        "fsdp": FSDPStrategy(auto_wrap_policy=policy),
+        "fsdp": FSDPStrategy(
+            auto_wrap_policy=policy,
+            sharding_strategy="FULL_SHARD",
+            mixed_precision=MixedPrecision(param_dtype=torch.bfloat16),
+        ),
     }[args.accel_strategy]
 
     trainer = L.Trainer(
@@ -253,7 +260,7 @@ def main(args):
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
         callbacks=[checkpoint_cb],
         logger=get_wandb_logger(exp_name),
-        precision="bf16-mixed",
+        precision="bf16",
         accumulate_grad_batches=args.accum_grad_batches,
     )
 
@@ -268,3 +275,14 @@ def main(args):
 if __name__ == "__main__":
     args = parse_args()
     main(args)
+
+
+# accelerate launch:
+# [MEMORY - batch 10 (before forward)]
+#   Allocated: 13.45 GB
+#   Reserved:  13.49 GB
+#   Peak:      30.25 GB
+#   0%|         | 18/113792 [00:29<49:57:19,  1.58s/it]^CW0517 11:28:38.256250 3339902
+
+# lightning:
+#   0%|         | 24/28448 [01:10<23:11:35,  0.34it/s, v_num=ph0c, before_forward_allocated=13.50, before_forward_peak=22.40, train_loss_step=84.40]

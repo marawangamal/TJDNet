@@ -47,7 +47,7 @@ class TestCPBDist(unittest.TestCase):
 
         last_hidden_state = torch.randn(batch_size, seq_len, n_embd)  # (B, T, D)
         targets = torch.randint(0, vocab_size, (batch_size, seq_len, horizon))
-        loss = model_head.compute_loss(
+        loss = model_head.forward(
             x=last_hidden_state.reshape(-1, n_embd),
             y=targets.reshape(-1, horizon),
         )

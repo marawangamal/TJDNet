@@ -357,7 +357,7 @@ class TJD(ABC, torch.nn.Module):
 
         # 3a. Compute mhead loss (draft model)
         # (B, T') i.e., maybe downsampled
-        loss_mhead = self.mhead.compute_loss(
+        loss_mhead = self.mhead(
             x=h_draft_ds.reshape(-1, self.n_embd),
             y=y_true_ds.reshape(-1, H),
         ).reshape(

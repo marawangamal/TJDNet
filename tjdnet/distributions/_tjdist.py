@@ -42,7 +42,7 @@ class AbstractDist(ABC, torch.nn.Module):
         return horizon
 
     @abstractmethod
-    def compute_loss(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Computes loss for CPB distribution.
 
         Args:
@@ -74,7 +74,7 @@ class TJDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__(config)
 
-    def compute_loss(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
         p_tilde, gammas_p, z_tilde, gammas_z = self.evaluate(x, y)
 
