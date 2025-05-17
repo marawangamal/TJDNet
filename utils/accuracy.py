@@ -7,27 +7,42 @@ from tqdm import tqdm
 
 from dataloaders._base import BaseChatTemplate
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
-from utils.utils import AverageMeter
+from utils.average_meter import AverageMeter
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from datasets import DatasetDict
 
 
+# def collate_fn(batch, tokenizer):
+#     batch_dict = {"input_ids": [item["prompt_ids"] for item in batch]}
+#     padded_batch = tokenizer.pad(batch_dict, return_tensors="pt")
+
+#     batch_dict_labels = {"input_ids": [item["input_ids"] for item in batch]}
+#     padded_batch_labels = tokenizer.pad(batch_dict_labels, return_tensors="pt")
+
+#     return {
+#         **padded_batch,
+#         "labels": padded_batch_labels["input_ids"],
+#         "attention_mask_labels": padded_batch_labels["attention_mask"],
+#     }
+
+
 def collate_fn(batch, tokenizer):
-    batch_dict = {"input_ids": [item["prompt_ids"] for item in batch]}
-    padded_batch = tokenizer.pad(batch_dict, return_tensors="pt")
-
-    batch_dict_labels = {"input_ids": [item["input_ids"] for item in batch]}
-    padded_batch_labels = tokenizer.pad(batch_dict_labels, return_tensors="pt")
-
-    return {
-        **padded_batch,
-        "labels": padded_batch_labels["input_ids"],
-        "attention_mask_labels": padded_batch_labels["attention_mask"],
-    }
+    # return batch[0]
+    # stack all tensors across keys
+    collated_batch = {}
+    for key in batch[0].keys():
+        collated_batch[key] = torch.stack([torch.tensor(b[key]) for b in batch])
+    return collated_batch
 
 
-def compute_accuracy_v2(
+def custom_shorten(text, begin_width=70, end_width=50, placeholder=" … "):
+    if len(text) <= begin_width + end_width:
+        return text
+    return text[:begin_width] + placeholder + text[-end_width:]
+
+
+def compute_accuracy(
     model: TJD,
     tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     dataset: DatasetDict,
@@ -39,8 +54,30 @@ def compute_accuracy_v2(
     verbose: bool = True,
     return_avg_meters: bool = False,
 ):
+    """Compute accuracy of the model on the given dataset.
 
-    # Creat dataloader
+    Args:
+        model (TJD): _description_
+        tokenizer (Union[PreTrainedTokenizer, PreTrainedTokenizerFast]): _description_
+        dataset (DatasetDict): _description_
+        chat_template (BaseChatTemplate): _description_
+        generation_config (TJDGenerationConfig): _description_
+        batch_size (int, optional): _description_. Defaults to 1.
+        max_iters (Optional[int], optional): _description_. Defaults to None.
+        ckpt_dir (Optional[str], optional): _description_. Defaults to None.
+        verbose (bool, optional): _description_. Defaults to True.
+        return_avg_meters (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        dict: Dictionary containing the following keys:
+            - accuracy (float): Accuracy of the model on the dataset.
+            - acceptance_rate (float): Acceptance rate of the model on the dataset.
+            - accuracy_avg_meter (dict): AverageMeter object containing the following
+            - acceptance_rate_avg_meter (dict): AverageMeter object containing the following
+            - total_samples (int): Total number of samples in the dataset.
+    """
+
+    # Create dataloader
     dataloader = torch.utils.data.DataLoader(
         dataset,  # type: ignore
         batch_size=batch_size,
@@ -76,31 +113,44 @@ def compute_accuracy_v2(
             if i < accuracy_meter.count // batch_size:
                 continue
             batch = {k: v.to(model.device) for k, v in batch.items()}
-            input_ids, attention_mask = chat_template.format_batch(
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                tokenizer=tokenizer,
-            )
+            # input_ids, attention_mask = chat_template.format_batch(
+            #     input_ids=batch["input_ids"],
+            #     attention_mask=batch["attention_mask"],
+            #     tokenizer=tokenizer,
+            # )
+            input_ids, attention_mask = batch["input_ids"], batch["attention_mask"]
             outputs, ardict = model.generate(
-                inputs=input_ids,
+                input_ids=input_ids,
                 attention_mask=attention_mask,
                 generation_config=generation_config,
             )
 
             # Batched decoding
-            y_pred = tokenizer.batch_decode(outputs)
-            y_true = tokenizer.batch_decode(batch["labels"])
-            # Compute accuracy
-            correct_mask = [
-                chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
-                for b in range(len(y_pred))
-            ]
-            batch_correct = sum(correct_mask)
-            accuracy_meter.update(
-                batch_correct / len(batch["input_ids"]), len(batch["input_ids"])
+            y_pred_str = tokenizer.batch_decode(outputs)
+            y_true = batch["labels"]
+            y_pred = torch.tensor(
+                [
+                    chat_template.parse_answer(y, tokenizer.eos_token)  # type: ignore
+                    for y in y_pred_str
+                ],
+                device=outputs.device,
             )
+            corr = (y_pred == y_true).float().sum()
+            accuracy_meter.update(
+                corr / len(batch["input_ids"]), len(batch["input_ids"])
+            )
+
+            # # Compute accuracy
+            # correct_mask = [
+            #     chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
+            #     for b in range(len(y_pred))
+            # ]
+
+            tokens_accepted = ardict["tokens_accepted"]
+            tokens_generated = ardict["tokens_generated"]
+
             accept_rate_meter.update(
-                ardict["tokens_accepted"] / ardict["tokens_generated"],
+                tokens_accepted / tokens_generated if tokens_generated > 0 else 0,
                 ardict["tokens_generated"],
             )
 
@@ -117,9 +167,9 @@ def compute_accuracy_v2(
                 break
 
     # ── Evaluation summary ──────────────────────────────────────────────
-    if verbose and y_pred and y_true:
+    if verbose and y_pred:
         line = "─" * 60
-        y_true_prime = tokenizer.decode(batch["labels"][0, input_ids[0].size(0) :])
+        prompt = tokenizer.decode(batch["input_ids"][0])
         summary = (
             f"\n{line}\n"
             f"📊  EVALUATION SUMMARY\n"
@@ -128,10 +178,9 @@ def compute_accuracy_v2(
             f"({accuracy_meter.sum}/{accuracy_meter.count} correct)\n"
             f"Acceptance rate : {accept_rate_meter.avg:.2%} "
             f"({accept_rate_meter.sum}/{accept_rate_meter.count} tokens accepted)\n\n"
-            f"▶ Ground truth  : "
-            f"{textwrap.shorten(y_true_prime, width=120, placeholder=' …')}\n"
-            f"▶ Model output  : "
-            f"{textwrap.shorten(y_pred[0], width=120, placeholder=' …')}\n"
+            f"Prompt         : {custom_shorten(prompt, begin_width=120)}\n"
+            f"▶ Ground truth  : {y_true[0].item()}\n"
+            f"▶ Model output  : {custom_shorten(y_pred_str[0], begin_width=120)}\n"
             f"{line}\n"
         )
         print(summary)
@@ -150,137 +199,3 @@ def compute_accuracy_v2(
             "accuracy": accuracy_meter.avg,
             "acceptance_rate": accept_rate_meter.avg,
         }
-
-
-def compute_accuracy(
-    model: TJD,
-    tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
-    test_dataset: DatasetDict,
-    chat_template: BaseChatTemplate,
-    generation_config: TJDGenerationConfig,
-    # top_k: int = 50,
-    # do_sample: bool = True,
-    batch_size: int = 1,
-    on_batch_end=None,
-    log_samples=False,
-    log_samples_count=10,
-    # replace with generate_kwargs
-    # max_new_tokens: int = 128,
-    # horizon: int = 1,
-    avg_meter_kwargs={},
-    verbose=True,
-    max_num_samples: Optional[int] = None,
-    # **kwargs,
-):
-    dataloader = torch.utils.data.DataLoader(
-        test_dataset,  # type: ignore
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=lambda x: collate_fn(x, tokenizer),
-    )
-    model.eval()
-    acc_meter = AverageMeter(**avg_meter_kwargs)
-    total_samples = len(test_dataset)
-    pbar = tqdm(
-        dataloader,
-        total=(total_samples + batch_size - 1) // batch_size,  # Ceiling division
-        desc="Computing accuracy",
-        leave=True,
-    )
-    batches_to_skip = acc_meter.count // batch_size
-
-    y_pred = []
-    y_true = []
-    failures = []
-    successes = []
-
-    printv = print if verbose else lambda *args, **kwargs: None
-
-    tokens_generated = avg_meter_kwargs.get("tokens_generated", 0)
-    tokens_accepted = avg_meter_kwargs.get("tokens_accepted", 0)
-
-    printv("Total number of samples:", total_samples)
-    with torch.no_grad():
-        for i, batch in enumerate(pbar):
-            if i < batches_to_skip:
-                continue
-            batch = {k: v.to(model.device) for k, v in batch.items()}
-            input_ids, attention_mask = chat_template.format_batch(
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                tokenizer=tokenizer,
-            )
-            outputs, acceptance_metrics = model.generate(
-                inputs=input_ids,
-                attention_mask=attention_mask,
-                generation_config=generation_config,
-                # x=input_ids,
-                # attn_mask=attention_mask,
-                # **generate_kwargs,
-            )  # (batch_size, max_seq_len') max_seq_len' might be less than max_seq_len if all sequences stopped early
-            tokens_generated += acceptance_metrics["tokens_generated"]
-            tokens_accepted += acceptance_metrics["tokens_accepted"]
-
-            # Batched decoding
-            y_pred = tokenizer.batch_decode(outputs)
-            y_true = tokenizer.batch_decode(batch["labels"])
-            # Compute accuracy
-            correct_mask = [
-                chat_template.check_answer(y_pred[b], y_true[b], tokenizer.eos_token)  # type: ignore
-                for b in range(len(y_pred))
-            ]
-            batch_correct = sum(correct_mask)
-            acc_meter.update(
-                batch_correct / len(batch["input_ids"]), len(batch["input_ids"])
-            )
-
-            # Update progress bar
-            pbar.set_postfix({"acc": f"{acc_meter.avg:.4f}"})
-
-            if on_batch_end:
-                on_batch_end({**acc_meter.dump(), "total_samples": total_samples})
-
-            if log_samples:
-                # Add failures to failures list and successes to successes list
-                if len(failures) < log_samples_count:
-                    failures.extend(
-                        [
-                            (y_pred[b], y_true[b])
-                            for b in range(len(y_pred))
-                            if not correct_mask[b]
-                        ]
-                    )
-                if len(successes) < log_samples_count:
-                    successes.extend(
-                        [
-                            (y_pred[b], y_true[b])
-                            for b in range(len(y_pred))
-                            if correct_mask[b]
-                        ]
-                    )
-                    printv(f"Failures:\n{failures}")
-
-            if max_num_samples and i * batch_size >= max_num_samples:
-                print("Max number of samples reached, stopping evaluation.")
-                break
-
-    # Print example
-    if len(y_pred) > 0 and len(y_true) > 0:
-        printv("Example:")
-        printv(f"y_true:\n {y_true[0]}")
-        printv(f"y_pred:\n {y_pred[0]}")
-
-    accept_rate = tokens_accepted / tokens_generated if tokens_generated > 0 else 0.0
-    print("Acceptance rate:", accept_rate)
-    logged_metrics = {
-        "accuracy": acc_meter.avg,
-        "acceptance_rate": accept_rate,
-    }
-    saved_metrics = {
-        **acc_meter.dump(),
-        "total_samples": total_samples,
-        "tokens_accepted": tokens_accepted,
-        "tokens_generated": tokens_generated,
-        "acceptance_rate": accept_rate,
-    }
-    return logged_metrics, saved_metrics

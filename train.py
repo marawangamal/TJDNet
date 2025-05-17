@@ -23,6 +23,8 @@ Hardware requirements:
 """
 
 from argparse import Namespace
+import functools
+import gc
 import json
 import os
 import os.path as osp
@@ -40,18 +42,24 @@ from transformers import (
 )
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from dataloaders._base import BaseChatTemplate
 from tjdnet.models.tjd import TJDGenerationConfig
-from utils.accpetance_rates import compute_acceptance_rate
-from utils.accuracy import compute_accuracy, compute_accuracy_v2
-from utils.utils import get_experiment_name
+from utils.accuracy import compute_accuracy
+from utils.arguments import parse_args
+from utils.monitor import log_memory
+from utils.monitor import calculate_model_memory_breakdown
+from utils.experiment_naming import get_experiment_name
 from utils.helpers import (
     get_git_info,
-    get_model_and_tokenizer_v2,
-    parse_args,
+    get_model_and_tokenizer_nowrap,
+    get_model_and_tokenizer_tjdllama,
+    get_model_and_tokenizer,
+    get_model_and_tokenizer_tjdhfv2,
     save_args,
     set_seed,
 )
@@ -59,7 +67,7 @@ from utils.utils import printo
 from utils.utils import printr
 from utils.utils import generate_wandb_id
 
-CHECKPOINT_DIR = "checkpoints"
+EXPERIMENTS_DIR = "experiments"
 SILENT_ARGS = [
     "slurm_job_id",
     "cache_dir",
@@ -78,6 +86,43 @@ SILENT_ARGS = [
     "top_k",
     "gen_mode",
 ]
+
+
+def log_params(msg, model, rank=None):
+    """Log model parameters at different stages."""
+    if rank is None:
+        rank = int(os.environ.get("LOCAL_RANK", 0))
+
+    # Only log from rank 0 to avoid cluttering logs
+    if rank == 0:
+        # Force garbage collection first
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Get model parameters
+        total_params = sum(p.numel() for p in model.parameters())
+        cuda_params = sum(
+            p.numel() for p in model.parameters() if p.device.type == "cuda"
+        )
+        print(f"\n[PARAMS] - {msg}")
+        print(f"  CUDA parameters: {cuda_params/1e9:.2f} B")
+        print(f"  Total parameters: {total_params/1e9:.2f} B")
+        print(
+            f"  Parameter Sharing: {cuda_params/total_params:.2%} of params on this GPU"
+        )
+
+
+def get_layer_sizes(model):
+    """Analyze sizes of different layers in the model."""
+    layer_sizes = {}
+
+    for name, param in model.named_parameters():
+        # Get the top-level module name
+        top_module = name.split(".")[0]
+        if top_module not in layer_sizes:
+            layer_sizes[top_module] = 0
+        layer_sizes[top_module] += param.numel()
+    return layer_sizes
 
 
 class TJDTrainer(Trainer):
@@ -112,7 +157,7 @@ class TJDTrainer(Trainer):
     def evaluation_loop(self, *args, **kwargs):
         output = super().evaluation_loop(*args, **kwargs)
         if self.test_dataset:
-            metrics = compute_accuracy_v2(
+            metrics = compute_accuracy(
                 model=self.model,  # type: ignore
                 tokenizer=self.tokenizer,  # type: ignore
                 dataset=self.test_dataset,  # type: ignore
@@ -141,6 +186,39 @@ class TJDTrainer(Trainer):
 
         return output
 
+    # def training_step(self, *args, **kwargs):
+    #     # Log memory before training_step on first step
+    #     if self.state.global_step == 0:
+    #         log_memory(f"before_first_step", self.args.local_rank)
+
+    #     result = super().training_step(*args, **kwargs)
+
+    #     if self.state.global_step == 0:
+    #         log_memory(f"after_first_step", self.args.local_rank)
+    #     elif self.state.global_step == 1:
+    #         log_memory(f"after_second_step", self.args.local_rank)
+    #     elif self.state.global_step % 100 == 0:
+    #         log_memory(f"step_{self.state.global_step}", self.args.local_rank)
+
+    #     return result
+
+
+class MemoryLoggingTJDTrainer(TJDTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Flag to track if first step has been logged
+        self._logged_first_step = False
+
+    def training_step(self, *args, **kwargs):
+        """Log memory during backward pass."""
+        # Call original training_step
+        loss = super().training_step(*args, **kwargs)
+        if self.state.global_step in [0, 1, 10, 20]:
+            log_memory(
+                f"batch {self.state.global_step} (before forward)", self.args.local_rank
+            )
+        return loss
+
 
 # Custom evaluation function
 def compute_metrics(eval_pred):
@@ -155,10 +233,10 @@ def compute_metrics(eval_pred):
 
 
 def get_wandb_id(exp_name):
-    exps = os.listdir(CHECKPOINT_DIR)
+    exps = os.listdir(EXPERIMENTS_DIR)
     matches = [exp for exp in exps if exp.startswith(exp_name)]
     if len(matches) == 1:
-        args_file = os.path.join(CHECKPOINT_DIR, matches[0], "args.json")
+        args_file = os.path.join(EXPERIMENTS_DIR, matches[0], "args.json")
         if osp.exists(args_file):
             with open(osp.join(args_file), "r") as f:
                 printr(f"Found args file: {args_file}")
@@ -202,6 +280,7 @@ def has_valid_checkpoint(ckpt_dir):
 
 def main():
     # ==== Setup
+    # Rank 0 looks up the wandb id and creates a new if it doesn't exist
     set_seed(42)
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     args = parse_args()
@@ -210,54 +289,35 @@ def main():
     )
     # exp name does not include silent args
     exp_name = get_experiment_name(vars(filtered_args))
-    ckpt_dir = osp.join(CHECKPOINT_DIR, exp_name)
+    ckpt_dir = osp.join(EXPERIMENTS_DIR, exp_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # Sync file path
-    sync_file = os.path.join(ckpt_dir, ".rank0_done")
+    has_checkpoint = has_valid_checkpoint(ckpt_dir)
 
     # Rank 0 does initialization
     if local_rank == 0:
-        # Clean up old flag if it exists
-        if os.path.exists(sync_file):
-            os.remove(sync_file)
-
         wandb_id = get_wandb_id(exp_name)
         args.wandb_id = wandb_id
         save_args(args, ckpt_dir)
-        has_checkpoint = has_valid_checkpoint(ckpt_dir)
+        printo(f"Setup complete.")
 
-        # Signal completion by creating an empty file
-        with open(sync_file, "w") as f:
-            pass  # Create empty file
-
-    # Other ranks wait for the file to appear
-    else:
-        wait_time = 0
-        while not os.path.exists(sync_file):
-            if wait_time > 10:
-                raise ValueError("Setup failed")
-            time.sleep(1)
-            printr("Waiting for rank 0...")
-
-        # Load the args file
-        with open(os.path.join(ckpt_dir, "args.json"), "r") as f:
-            saved_args = json.load(f)
-            args.wandb_id = saved_args.get("wandb_id")
-
-        has_checkpoint = has_valid_checkpoint(ckpt_dir)
-
-        # Optional: Clean up the sync file when all processes are past the setup
-        # Use a distributed barrier if available (preferred method)
-        if os.path.exists(sync_file) and local_rank == 1:
-            printo("Cleaning up...")
-            os.remove(sync_file)
-        printr("Setup complete.")
     # ====
 
     # 1. Model and tokenizer
     printr("Initializing model...")
-    model, tokenizer = get_model_and_tokenizer_v2(args)
+    model, tokenizer = get_model_and_tokenizer(args)
+    # model, tokenizer = get_model_and_tokenizer_tjdhfv2(args)
+    # model, tokenizer = get_model_and_tokenizer_tjdllama(args)
+    # model, tokenizer = get_model_and_tokenizer_nowrap(args)
+
+    # wrap_policy = functools.partial(
+    #     transformer_auto_wrap_policy,
+    #     transformer_layer_cls={LlamaDecoderLayer},
+    # )
+
+    # model = FSDP(model, auto_wrap_policy=wrap_policy)
+
     chat_template = CHAT_TEMPLATES[args.dataset]
     printo(f"Model: {model.__class__.__name__}")
     printo(f"Tokenizer: {tokenizer.__class__.__name__}")
@@ -308,7 +368,7 @@ def main():
         logging_steps=args.logging_steps,
         logging_first_step=True,
         # Evaluation
-        eval_on_start=True,
+        # eval_on_start=True,
         eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         # Reporting
@@ -328,15 +388,40 @@ def main():
         greater_is_better=False,
         # remove_unused_columns=False,
         # Memory optimization
+        # bf16=True,
         # fp16=True,  # Enable bfloat16 mixed precision
         # gradient_checkpointing=True,
         # gradient_accumulation_steps=4,  # Accumulate gradients over 4 steps
         # optim="adafactor",  # Use Adafactor optimizer
         # torch_empty_cache_steps=1,
         # no_cuda=True,  # Force CPU usage
+        # === FSDP ===
+        # fsdp="full_shard",
+        # fsdp_config={
+        #     "fsdp_use_orig_params": True,
+        #     "transformer_layer_cls_to_wrap": ["LlamaDecoderLayer"],
+        # },
+        # fsdp_config={
+        #     "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+        #     "fsdp_transformer_layer_cls_to_wrap": ["LlamaDecoderLayer"],
+        #     "fsdp_backward_prefetch_policy": "BACKWARD_PRE",
+        #     "fsdp_use_orig_params": True,
+        #     "fsdp_cpu_ram_efficient_loading": True,
+        #     # "fsdp": {
+        #     #     "sharding_strategy": "FULL_SHARD",
+        #     #     "auto_wrap_policy": transformer_auto_wrap_policy,
+        #     #     "use_orig_params": True,
+        #     #     "cpu_offload": False,
+        #     #     "mixed_precision": args.bf16,
+        #     # },
+        #     # "activation_checkpointing": {
+        #     #     "checkpointing_policy": "always",
+        #     #     "contiguous_memory_optimization": True,
+        #     # },
+        # },
     )
 
-    if training_args.local_rank == 0:  # main process
+    if local_rank == 0:
         git_info = get_git_info()
         suffix = "main" if git_info.get("branch") == "main" else "dev"
         project_name = f"{args.wandb_project}-{suffix}"
@@ -349,8 +434,34 @@ def main():
                 resume="allow",
             )
 
+    # Log model memory breakdown
+    memory_breakdown = calculate_model_memory_breakdown(
+        model,
+        args.batch_size,
+        args.seq_len,
+        dtype=torch.bfloat16 if training_args.bf16 else torch.float32,
+    )
+
+    printo("\n===== THEORETICAL MEMORY BREAKDOWN =====")
+    printo(
+        f"Parameters: {memory_breakdown['params_in_billions']:.2f}B parameters, {memory_breakdown['parameters_gb']:.2f} GB"
+    )
+    printo(f"Optimizer states: {memory_breakdown['optimizer_states_gb']:.2f} GB")
+    printo(f"Activation estimate: {memory_breakdown['activations_estimate_gb']:.2f} GB")
+    printo(f"Gradients: {memory_breakdown['gradients_gb']:.2f} GB")
+    printo(f"Total theoretical: {memory_breakdown['total_theoretical_gb']:.2f} GB")
+    printo("=========================================\n")
+
+    # Log layer sizes
+    printo("\n===== LAYER SIZE BREAKDOWN =====")
+    layer_sizes = get_layer_sizes(model)
+    printo("\nLayer Size Analysis:")
+    for module, size in sorted(layer_sizes.items(), key=lambda x: x[1], reverse=True):
+        printo(f"  {module}: {size/1e9:.2f}B parameters")
+    printo("=========================================\n")
+
     # Initialize the trainer
-    trainer = TJDTrainer(
+    trainer = MemoryLoggingTJDTrainer(
         model=model,
         args=training_args,
         train_dataset=lm_dataset["train"],
