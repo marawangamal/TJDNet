@@ -24,7 +24,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS, DATASETS
+from dataloaders import DATASETS
 from tjdnet.distributions._tjdist import TJDist
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.average_meter import AverageMeter
@@ -58,7 +58,7 @@ class LModel(L.LightningModule):
         self.args = Namespace(**kwargs)
         self.tokenizer = get_auto_tokenizer(self.args.model)
         self.model: TJD = None  # type: ignore
-        self.ct = CHAT_TEMPLATES[self.args.dataset]
+        self.dataset = DATASETS[self.args.dataset](tokenizer=self.tokenizer, **kwargs)
         self.eos = self.tokenizer.eos_token
         self.test_ameter = AverageMeter()
         self.save_hyperparameters(kwargs)
@@ -95,7 +95,7 @@ class LModel(L.LightningModule):
         # Compute accuracy
         y_pred_str = self.tokenizer.batch_decode(outputs)
         y_pred = torch.tensor(
-            [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],  # type: ignore
+            [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
             device=outputs.device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
@@ -177,18 +177,18 @@ def main(args):
     lmodel = LModel(**vars(args))
 
     # Data
-    lm_dataset = DATASET_LOADERS[args.dataset](
-        tokenizer=lmodel.tokenizer,
-        input_seq_len=args.seq_len,
-        max_num_samples=args.max_num_samples,
-    )
+    # lm_dataset = DATASET_LOADERS[args.dataset](
+    #     tokenizer=lmodel.tokenizer,
+    #     input_seq_len=args.seq_len,
+    #     max_num_samples=args.max_num_samples,
+    # )
 
     # New data:
-    # lm_dataset = DATASETS[args.dataset](
-    #     tokenizer=lmodel.tokenizer,
-    #     seq_len=args.seq_len,
-    #     max_num_samples=args.max_num_samples,
-    # ).dataset
+    lm_dataset = DATASETS[args.dataset](
+        tokenizer=lmodel.tokenizer,
+        seq_len=args.seq_len,
+        max_num_samples=args.max_num_samples,
+    ).load_data()
 
     # No pad token needed since all samples are of same length
     # if tokenizer.pad_token is None:
@@ -200,7 +200,7 @@ def main(args):
         return_tensors="pt",
     )
     train_dataloader = DataLoader(
-        lm_dataset["train"],
+        lm_dataset["train"],  # type: ignore
         batch_size=args.batch_size,
         shuffle=True,
         collate_fn=collator,
@@ -208,7 +208,7 @@ def main(args):
         persistent_workers=True,
     )
     eval_dataloader = DataLoader(
-        lm_dataset["eval"],
+        lm_dataset["eval"],  # type: ignore
         batch_size=args.batch_size,
         collate_fn=collator,
         num_workers=4,
@@ -216,7 +216,7 @@ def main(args):
     )
 
     test_dataloader = DataLoader(
-        lm_dataset["test"],
+        lm_dataset["test"],  # type: ignore
         batch_size=1,
         num_workers=4,
         collate_fn=identity_collator,
@@ -230,9 +230,7 @@ def main(args):
         mode="min",
         save_top_k=1,
     )
-    generate_cb = GenerateCallback(
-        prompt=CHAT_TEMPLATES[args.dataset].get_sample_prompt()
-    )
+    generate_cb = GenerateCallback(prompt=DATASETS[args.dataset].get_sample_prompt())
 
     # Memory breakdown
     params = sum(p.numel() for p in lmodel.parameters())
@@ -278,6 +276,11 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
+    if not args.accel_strategy == "fsdp":
+        trainer.test(
+            ckpt_path="best",
+            dataloaders=test_dataloader,
+        )
 
 
 if __name__ == "__main__":

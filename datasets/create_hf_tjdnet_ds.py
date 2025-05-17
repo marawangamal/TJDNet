@@ -22,7 +22,7 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
-from dataloaders.gsm8k import ChatTemplateGSM8k
+from dataloaders.gsm8k_v1 import ChatTemplateGSM8k
 from dataloaders.sharegpt import ChatTemplateShareGPT
 
 PROMPTS = [

@@ -3,6 +3,8 @@ from datasets import load_dataset, DatasetDict
 
 
 class GSM8k(AbstractDataset):
+    template = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
+
     def __init__(self, tokenizer, seq_len=512):
         super().__init__(tokenizer, seq_len)
 
@@ -22,11 +24,24 @@ class GSM8k(AbstractDataset):
         except Exception as e:
             return float("nan")
 
+    @classmethod
+    def get_sample_prompt(cls) -> str:
+        return cls.template.format(
+            question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
+            answer="",
+        )
+
     def format_train_example(self, example):
-        return f"[QUESTION]\n{example['question']}\n[ANSWER]{example['answer']}"
+        return self.template.format(
+            question=example["question"],
+            answer=example["answer"],
+        )
 
     def format_test_example(self, example):
-        return f"[QUESTION]\n{example['question']}\n[ANSWER]"
+        return self.template.format(
+            question=example["question"],
+            answer="",
+        )
 
     def format_test_label(self, example):
         return self.parse_answer(example["answer"])
@@ -34,7 +49,7 @@ class GSM8k(AbstractDataset):
     def load_data(self):
         base_datasets = {
             "train": load_dataset("openai/gsm8k", "main", split="train"),
-            "val": load_dataset("openai/gsm8k", "main", split="test"),
+            "eval": load_dataset("openai/gsm8k", "main", split="test"),
         }
         test_datasets = {
             "test": load_dataset("openai/gsm8k", "main", split="test"),
@@ -56,5 +71,5 @@ if __name__ == "__main__":
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    gsm8k = GSM8k(tokenizer)
-    print(gsm8k.dataset)
+    gsm8k = GSM8k(tokenizer).load_data()
+    print(gsm8k)

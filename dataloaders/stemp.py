@@ -1,6 +1,6 @@
 import random
 from dataloaders.base import AbstractDataset
-from datasets import load_dataset, DatasetDict, Dataset
+from datasets import DatasetDict, Dataset
 
 
 class DataIterator:
@@ -23,6 +23,8 @@ class DataIterator:
 
 
 class STemp(AbstractDataset):
+    template = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -42,11 +44,24 @@ class STemp(AbstractDataset):
         except Exception as e:
             return float("nan")
 
+    @classmethod
+    def get_sample_prompt(cls) -> str:
+        return cls.template.format(
+            question="What is 20°C in Fahrenheit?",
+            answer="",
+        )
+
     def format_train_example(self, example):
-        return f"[QUESTION]\n{example['question']}\n[ANSWER]{example['answer']}"
+        return self.template.format(
+            question=example["question"],
+            answer=example["answer"],
+        )
 
     def format_test_example(self, example):
-        return f"[QUESTION]\n{example['question']}\n[ANSWER]"
+        return self.template.format(
+            question=example["question"],
+            answer="",
+        )
 
     def format_test_label(self, example):
         return self.parse_answer(example["answer"])
@@ -56,7 +71,7 @@ class STemp(AbstractDataset):
         num_test_samples = 100
         base_datasets = {
             "train": Dataset.from_generator(lambda: DataIterator(num_train_samples)),
-            "val": Dataset.from_generator(lambda: DataIterator(num_test_samples)),
+            "eval": Dataset.from_generator(lambda: DataIterator(num_test_samples)),
         }
         test_datasets = {
             "test": Dataset.from_generator(lambda: DataIterator(num_test_samples))
@@ -78,5 +93,5 @@ if __name__ == "__main__":
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    stemp = STemp(tokenizer)
-    print(stemp.dataset)
+    stemp = STemp(tokenizer).load_data()
+    print(stemp)
