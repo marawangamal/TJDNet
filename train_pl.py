@@ -53,24 +53,25 @@ class LModel(L.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
         self.args = Namespace(**kwargs)
-        self.tokenizer = get_auto_tokenizer(self.args.model)
+        # self.tokenizer = get_auto_tokenizer(self.args.model)
+        self.model, self.tokenizer = get_model_and_tokenizer(args)
         self.ct = CHAT_TEMPLATES[self.args.dataset]
         self.eos = self.tokenizer.eos_token
         self.test_ameter = AverageMeter()
         self.save_hyperparameters(kwargs)
 
-    def configure_model(self):
-        # create all your layers here
-        self.model, _ = get_model_and_tokenizer(args)
+    # def configure_model(self):
+    #     # create all your layers here
+    #     self.model, _ = get_model_and_tokenizer(args)
 
-    @classmethod
-    def load_from_checkpoint(cls, checkpoint_path, *args, **kwargs):
-        checkpoint = torch.load(checkpoint_path, *args, **kwargs)
-        hp_params = checkpoint["hyper_parameters"]
-        model = cls(**hp_params)
-        model.configure_model()
-        model.load_state_dict(checkpoint["state_dict"])
-        return model
+    # @classmethod
+    # def load_from_checkpoint(cls, checkpoint_path, *args, **kwargs):
+    #     checkpoint = torch.load(checkpoint_path, *args, **kwargs)
+    #     hp_params = checkpoint["hyper_parameters"]
+    #     model = cls(**hp_params)
+    #     model.configure_model()
+    #     model.load_state_dict(checkpoint["state_dict"], strict=True)
+    #     return model
 
     def training_step(self, batch, batch_idx):
         output = self.model(**batch)
@@ -221,11 +222,10 @@ def main(args):
     # Callbacks
     checkpoint_cb = ModelCheckpoint(
         dirpath=osp.join(EXPERIMENTS_DIR, exp_name),
-        filename="ckpt-{epoch}-{val_loss:.2f}",  # template for *best* files
-        monitor="eval_loss",  # metric to track
-        mode="min",  # "max" for accuracy / "min" for loss
-        save_top_k=1,  # keep only the single best model
-        save_last=True,  # ALSO keep a rolling 'last.ckpt'
+        filename="best",
+        monitor="eval_loss",
+        mode="min",
+        save_top_k=1,
     )
     generate_cb = GenerateCallback(
         prompt=CHAT_TEMPLATES[args.dataset].get_sample_prompt()
@@ -240,16 +240,10 @@ def main(args):
 
     # Test only
     if args.test:
-        # Cannot directly test when using FSDP
-        best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
         printo(f"Testing model...")
-        # torch.cuda.empty_cache()  # free shards before reload
+        best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
         test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
-        best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
-        with test_trainer.init_module(empty_init=True):
-            # creation of the model is fast
-            # and depending on the strategy allocates no memory, or uninitialized memory
-            test_model = LModel.load_from_checkpoint(best_ckpt)
+        test_model = LModel.load_from_checkpoint(best_ckpt)
         test_trainer.test(test_model, dataloaders=test_dataloader)
         return
 
@@ -259,22 +253,20 @@ def main(args):
         "auto": "auto",
         "ddp": "ddp",
         "fsdp": FSDPStrategy(auto_wrap_policy=policy),
-    }[  # type: ignore
-        args.accel_strategy
-    ]
+    }[args.accel_strategy]
 
     trainer = L.Trainer(
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
-        # callbacks=[checkpoint_cb, generate_cb],
         callbacks=[checkpoint_cb],
+        # callbacks=(
+        #     [checkpoint_cb, generate_cb]
+        #     if not args.accel_strategy == "fsdp"
+        #     else [checkpoint_cb]
+        # ),
         logger=get_wandb_logger(exp_name),
         precision="bf16-mixed",
-        # gradient_clip_val=args.grad_clip_val,
-        # fast_dev_run=True,
-        # overfit_batches=1,
-        # accelerator=args.accel,
         accumulate_grad_batches=args.accum_grad_batches,
     )
 
@@ -284,18 +276,11 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
-    trainer.test(ckpt_path="best", dataloaders=test_dataloader)
-
-    # # Test (compatible with FSDP)
-    # printo(f"Testing model...")
-    # torch.cuda.empty_cache()  # free shards before reload
-    # test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
-    # best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
-    # with test_trainer.init_module(empty_init=True):
-    #     # creation of the model is fast
-    #     # and depending on the strategy allocates no memory, or uninitialized memory
-    #     test_model = LModel.load_from_checkpoint(best_ckpt)
-    #     test_trainer.test(test_model, dataloaders=test_dataloader)
+    # # Succeeds:
+    # trainer.test(
+    #     ckpt_path="best",
+    #     dataloaders=test_dataloader,
+    # )
 
 
 if __name__ == "__main__":
