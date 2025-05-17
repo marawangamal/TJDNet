@@ -61,18 +61,9 @@ class LModel(L.LightningModule):
         self.save_hyperparameters(kwargs)
 
     def configure_model(self):
-        # create all your layers here
+        # IMPORTANT: This function must be idempotent (i.e., calling it multiple times should not change self.model)
         if self.model is None:  # Model might be already created in load_from_checkpoint
             self.model, _ = get_model_and_tokenizer(args)
-
-    # @classmethod
-    # def load_from_checkpoint(cls, checkpoint_path, *args, **kwargs):
-    #     checkpoint = torch.load(checkpoint_path, *args, **kwargs)
-    #     hp_params = checkpoint["hyper_parameters"]
-    #     model = cls(**hp_params)
-    #     # model.configure_model()
-    #     model.load_state_dict(checkpoint["state_dict"], strict=True)
-    #     return model
 
     def training_step(self, batch, batch_idx):
         output = self.model(**batch)
