@@ -37,7 +37,7 @@ def train_forward(
     """Forward pass for training mode."""
     # Forward pass
     # mem_check("before model.forward")
-    outputs = model.forward(input_ids, labels=input_ids)
+    outputs = model.forward(input_ids, input_ids=input_ids)
     # mem_check("after model.forward")
     loss = outputs["loss"]
 

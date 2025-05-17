@@ -20,7 +20,7 @@ class TJDHuggingFace(TJD):
         auto_model_kwargs: dict,
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
-        **kwargs
+        **kwargs,
     ):
 
         # Determine model_head dimensions
@@ -29,9 +29,13 @@ class TJDHuggingFace(TJD):
         self.hf_auto_model_kwargs = auto_model_kwargs
         self.hf_train_mode = train_mode
         lm_head = temp_model.lm_head
+        print(f"***Ininitializing lm_head")
         if hasattr(lm_head, "weight"):
             vocab_size = lm_head.weight.size(0)
             embedding_size = lm_head.weight.size(1)
+            print(
+                f"***Ininitializing lm_head with vocab_size: {vocab_size} and embedding_size: {embedding_size}"
+            )
         else:
             raise ValueError("lm_head does not have a weight attribute.")
 

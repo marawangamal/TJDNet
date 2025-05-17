@@ -317,16 +317,6 @@ class TJD(ABC, torch.nn.Module):
         self._run_checks(input_validation_checks)
         # ====
 
-        # Check if the model is in training mode
-        if labels is None:
-            # return self.generate(
-            #     input_ids=input_ids,
-            #     **kwargs,
-            # )
-            raise ValueError(
-                "Labels must be provided for training. Use `generate` method for inference."
-            )
-
         reduce_fn = {
             "mean": torch.mean,
             "sum": torch.sum,
@@ -341,7 +331,7 @@ class TJD(ABC, torch.nn.Module):
         )  # (B, T, D), (B, T, D)
 
         # 1. Create targets
-        y_true = get_windowed_input_ids_v2(labels, horizon=self.horizon).reshape(
+        y_true = get_windowed_input_ids_v2(input_ids, horizon=self.horizon).reshape(
             B, -1, H
         )  # (B, T-H, H)
 
@@ -372,7 +362,7 @@ class TJD(ABC, torch.nn.Module):
             log_probs_lm_head = self.lm_head(h_targ[:, :-1])  # (B, T-1, V)
             # (B, T) -> (B, T-1)
             y_true = get_windowed_input_ids_v2(
-                labels,
+                input_ids,
                 horizon=1,
             ).squeeze(-1)
             loss_lm_head = (

@@ -24,7 +24,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
+from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS, DATASETS
 from tjdnet.distributions._tjdist import TJDist
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.average_meter import AverageMeter
@@ -69,6 +69,7 @@ class LModel(L.LightningModule):
             self.model, _ = get_model_and_tokenizer(args)
 
     def training_step(self, batch, batch_idx):
+        # check if any ids are negative
         output = self.model(**batch)
         self.log(
             "train_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
@@ -181,6 +182,13 @@ def main(args):
         input_seq_len=args.seq_len,
         max_num_samples=args.max_num_samples,
     )
+
+    # New data:
+    # lm_dataset = DATASETS[args.dataset](
+    #     tokenizer=lmodel.tokenizer,
+    #     seq_len=args.seq_len,
+    #     max_num_samples=args.max_num_samples,
+    # ).dataset
 
     # No pad token needed since all samples are of same length
     # if tokenizer.pad_token is None:

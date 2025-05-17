@@ -109,10 +109,12 @@ def process_train_dataset(dataset, tokenizer, input_seq_len=512):
         remove_columns=["text", "prompt"],
     )
     # TODO: maybe it can have a [SEP] token
-    # BUG: removed grouping here, otherwise the model gets trained to start a new q after an answer
+    dataset = dataset.map(lambda x: group_texts(x, input_seq_len), batched=True)
     dataset = dataset.map(
-        lambda x: group_texts(x, input_seq_len),
-        batched=True,
+        lambda x: {
+            **x,
+            "labels": x["input_ids"].copy(),  # Copy input_ids to labels
+        }
     )
     return dataset
 
