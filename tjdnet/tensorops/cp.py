@@ -40,7 +40,7 @@ def select_margin_cp_tensor_decoder_batched(
     assert len(cp_params.shape) == 4, "CP params tensor must be $D (batched)"
     assert len(ops.shape) == 2, "Invalid ops tensor: must be 2D (batched)"
     assert (ops >= -2).all() and (
-        ops < cp_params.size(3)
+        ops < cp_decoder.size(-1)
     ).all(), "Invalid ops tensor: must be in range [-2, vocab_size)"
     assert ops.size(0) == cp_params.size(0), "Batch size mismatch"
 
@@ -84,7 +84,7 @@ def select_margin_cp_tensor_decoder_batched(
                 update.unsqueeze(-1),  # (B', d, 1)
             ).squeeze(-1)
 
-            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf = torch.ones(batch_size, device=cp_params.device, dtype=cp_params.dtype)
             if use_scale_factors:
                 sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
             scale_factors.append(sf)
@@ -95,7 +95,7 @@ def select_margin_cp_tensor_decoder_batched(
         # Marginalize
         if mask_margin.any():
             update = core_margins[mask_margin, :, t]  # (B', R)
-            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf = torch.ones(batch_size, device=cp_params.device, dtype=cp_params.dtype)
             if use_scale_factors:
                 sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
             scale_factors.append(sf)

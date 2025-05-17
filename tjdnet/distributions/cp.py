@@ -28,7 +28,9 @@ class CPDist(TJDist):
             in_features=config.in_dim,
             out_features=config.hidden_dim * config.rank * config.horizon,
         )
-        self.decoder = torch.nn.Linear(config.hidden_dim, config.vocab_size)
+        self.decoder = torch.nn.Parameter(
+            torch.randn(config.hidden_dim, config.vocab_size)
+        )
 
     @classmethod
     def from_linear(
@@ -67,7 +69,7 @@ class CPDist(TJDist):
     def get_params(self, x: torch.Tensor, **kwargs):
         params = self.pos_func(self.w(x))  # (B, RHd)
         return params.reshape(
-            -1, self.rank, self.horizon, self.vocab_size
+            -1, self.rank, self.horizon, self.config.hidden_dim
         ), self.pos_func(self.decoder)
 
     def sample(

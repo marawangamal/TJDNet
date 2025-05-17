@@ -25,7 +25,12 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.average_meter import AverageMeter
-from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
+from utils.helpers import (
+    get_auto_tokenizer,
+    get_git_info,
+    get_model_and_tokenizer,
+    get_model_and_tokenizer_nowrap,
+)
 from utils.arguments_v2 import parse_args
 from utils.lightning_callbacks.generate import GenerateCallback
 from utils.experiment_naming import get_experiment_name
@@ -110,8 +115,7 @@ class LModel(L.LightningModule):
     # === Debug (memory) ===
     def on_train_batch_start(self, batch, batch_idx):
         # print memory usage
-        if batch_idx in [0, 10, 20, 30, 40]:
-            self._log_memory("before_forward")
+        self._log_memory("before_forward")
         return super().on_train_batch_start(batch, batch_idx)
 
     def _log_memory(self, phase: str):

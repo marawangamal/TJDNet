@@ -36,6 +36,7 @@ class AbstractDist(ABC, torch.nn.Module):
         self.vocab_size = config.vocab_size
         self.horizon = config.horizon
         self.rank = config.rank
+        self.config = config
 
     def get_horizon(self, horizon: Optional[int]):
         horizon = self.horizon if horizon is None else horizon
