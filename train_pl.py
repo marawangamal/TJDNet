@@ -24,7 +24,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS, DATASETS
+from dataloaders import DATASETS
 from tjdnet.distributions._tjdist import TJDist
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.average_meter import AverageMeter
@@ -58,7 +58,7 @@ class LModel(L.LightningModule):
         self.args = Namespace(**kwargs)
         self.tokenizer = get_auto_tokenizer(self.args.model)
         self.model: TJD = None  # type: ignore
-        self.ct = CHAT_TEMPLATES[self.args.dataset]
+        self.dataset = DATASETS[self.args.dataset](tokenizer=self.tokenizer)
         self.eos = self.tokenizer.eos_token
         self.test_ameter = AverageMeter()
         self.save_hyperparameters(kwargs)
@@ -81,6 +81,7 @@ class LModel(L.LightningModule):
         self.log(
             "eval_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
         )
+        return output["loss"]
 
     def test_step(self, batch, batch_idx):
         outputs, ardict = self.model.generate(
@@ -95,7 +96,7 @@ class LModel(L.LightningModule):
         # Compute accuracy
         y_pred_str = self.tokenizer.batch_decode(outputs)
         y_pred = torch.tensor(
-            [self.ct.parse_answer(y, self.tokenizer.eos_token) for y in y_pred_str],  # type: ignore
+            [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
             device=outputs.device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
@@ -114,9 +115,21 @@ class LModel(L.LightningModule):
     # === Debug (memory) ===
     def on_train_batch_start(self, batch, batch_idx):
         # print memory usage
-        if batch_idx in [0, 10, 20, 30, 40]:
-            self._log_memory("before_forward")
+        self._log_memory("before_forwardt")
         return super().on_train_batch_start(batch, batch_idx)
+
+    def on_validation_batch_start(self, batch, batch_idx, dataloader_idx=0):
+        self._log_memory("before_forwarde")
+        return super().on_validation_batch_start(batch, batch_idx, dataloader_idx)
+
+    # Max mem happens after backward and before optimizer step
+    def on_after_backward(self):
+        self._log_memory("after_backward")
+        return super().on_after_backward()
+
+    def on_before_zero_grad(self, *args, **kwargs):
+        self._log_memory("before_zero_grad")
+        return super().on_before_zero_grad(*args, **kwargs)
 
     def _log_memory(self, phase: str):
         if torch.cuda.is_available():
@@ -177,18 +190,18 @@ def main(args):
     lmodel = LModel(**vars(args))
 
     # Data
-    lm_dataset = DATASET_LOADERS[args.dataset](
-        tokenizer=lmodel.tokenizer,
-        input_seq_len=args.seq_len,
-        max_num_samples=args.max_num_samples,
-    )
+    # lm_dataset = DATASET_LOADERS[args.dataset](
+    #     tokenizer=lmodel.tokenizer,
+    #     input_seq_len=args.seq_len,
+    #     max_num_samples=args.max_num_samples,
+    # )
 
     # New data:
-    # lm_dataset = DATASETS[args.dataset](
-    #     tokenizer=lmodel.tokenizer,
-    #     seq_len=args.seq_len,
-    #     max_num_samples=args.max_num_samples,
-    # ).dataset
+    lm_dataset = DATASETS[args.dataset](
+        tokenizer=lmodel.tokenizer,
+        seq_len=args.seq_len,
+        max_num_samples=args.max_num_samples,
+    ).load_data()
 
     # No pad token needed since all samples are of same length
     # if tokenizer.pad_token is None:
@@ -200,25 +213,25 @@ def main(args):
         return_tensors="pt",
     )
     train_dataloader = DataLoader(
-        lm_dataset["train"],
+        lm_dataset["train"],  # type: ignore
         batch_size=args.batch_size,
         shuffle=True,
         collate_fn=collator,
-        num_workers=4,
-        persistent_workers=True,
+        # num_workers=4,
+        # persistent_workers=True,
     )
     eval_dataloader = DataLoader(
-        lm_dataset["eval"],
+        lm_dataset["eval"],  # type: ignore
         batch_size=args.batch_size,
         collate_fn=collator,
-        num_workers=4,
-        persistent_workers=True,
+        # num_workers=4,
+        # persistent_workers=True,
     )
 
     test_dataloader = DataLoader(
-        lm_dataset["test"],
+        lm_dataset["test"],  # type: ignore
         batch_size=1,
-        num_workers=4,
+        # num_workers=4,
         collate_fn=identity_collator,
     )
 
@@ -230,9 +243,7 @@ def main(args):
         mode="min",
         save_top_k=1,
     )
-    generate_cb = GenerateCallback(
-        prompt=CHAT_TEMPLATES[args.dataset].get_sample_prompt()
-    )
+    generate_cb = GenerateCallback(prompt=DATASETS[args.dataset].get_sample_prompt())
 
     # Memory breakdown
     params = sum(p.numel() for p in lmodel.parameters())
@@ -259,6 +270,8 @@ def main(args):
             auto_wrap_policy=policy,
             sharding_strategy="FULL_SHARD",
             mixed_precision=MixedPrecision(param_dtype=torch.bfloat16),
+            # cpu_offload=True,
+            activation_checkpointing_policy={TJDist},
         ),
     }[args.accel_strategy]
 
@@ -266,7 +279,11 @@ def main(args):
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
-        callbacks=[checkpoint_cb],
+        callbacks=(
+            [checkpoint_cb, generate_cb]
+            if args.accel_strategy != "fsdp"
+            else checkpoint_cb
+        ),
         logger=get_wandb_logger(exp_name),
         precision="bf16",
         accumulate_grad_batches=args.accum_grad_batches,
@@ -278,6 +295,11 @@ def main(args):
         eval_dataloader,
         ckpt_path=ckpt_path,
     )
+    if not args.accel_strategy == "fsdp":
+        trainer.test(
+            ckpt_path="best",
+            dataloaders=test_dataloader,
+        )
 
 
 if __name__ == "__main__":

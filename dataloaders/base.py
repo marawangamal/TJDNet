@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from datasets import DatasetDict
 
@@ -15,8 +15,13 @@ class AbstractDataset(ABC):
         self.tokenizer = tokenizer
         self.seq_len = seq_len
         self.eos: str = tokenizer.eos_token  # type: ignore
-        self.dataset: DatasetDict = self.load_data()
         self.max_num_samples = max_num_samples
+
+    @classmethod
+    @abstractmethod
+    def get_sample_prompt(cls) -> str:
+        """Get a sample prompt for the dataset"""
+        pass
 
     @abstractmethod
     def parse_answer(self, generation: str) -> float:
@@ -96,6 +101,3 @@ class AbstractDataset(ABC):
             remove_columns=["text"],
         )
         return dataset
-
-    def __call__(self):
-        return self.dataset

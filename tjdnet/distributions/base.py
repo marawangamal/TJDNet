@@ -6,7 +6,6 @@ from tjdnet.distributions._tjdist import (
     TJDist,
     BaseDistConfig,
 )
-from tjdnet.utils import sample_topk
 
 
 class BaseDist(TJDist):
@@ -69,14 +68,17 @@ class BaseDist(TJDist):
         x: torch.Tensor,  # (B, T, D)
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int] = None,
+        return_logits: bool = False,
         **kwargs,
     ):
         if horizon and horizon > 1:
             raise ValueError("Horizon must be 1 for base distribution")
         model_head_params = self.get_params(x)  # (B, V)
         y_hat = sample_fn(model_head_params).unsqueeze(1)  # (B, 1)
-        py = model_head_params.unsqueeze(1)
-        return y_hat, py  # (B, 1), (B, 1, V)
+        py = model_head_params.unsqueeze(1)  # (B, 1, V)
+        if return_logits:
+            return y_hat, py
+        return y_hat, py / py.sum(dim=-1, keepdim=True)
 
     def evaluate(
         self,
