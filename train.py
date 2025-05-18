@@ -42,12 +42,8 @@ from transformers import (
 )
 
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
-from dataloaders import CHAT_TEMPLATES, DATASET_LOADERS
-from dataloaders._base import BaseChatTemplate
+from dataloaders import DATASETS
 from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accuracy import compute_accuracy
 from utils.arguments import parse_args
@@ -130,14 +126,12 @@ class TJDTrainer(Trainer):
         self,
         test_dataset: torch.utils.data.Dataset,
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
-        chat_template: BaseChatTemplate,
         generation_config: TJDGenerationConfig,
         on_converge_callback_cs=None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.test_dataset = test_dataset
-        self.chat_template = chat_template
         self.tokenizer = tokenizer
         self.generation_config = generation_config
         self.on_converge_callback_cs = on_converge_callback_cs
@@ -161,7 +155,6 @@ class TJDTrainer(Trainer):
                 model=self.model,  # type: ignore
                 tokenizer=self.tokenizer,  # type: ignore
                 dataset=self.test_dataset,  # type: ignore
-                chat_template=self.chat_template,
                 generation_config=self.generation_config,
                 max_iters=10,
             )
@@ -318,17 +311,16 @@ def main():
 
     # model = FSDP(model, auto_wrap_policy=wrap_policy)
 
-    chat_template = CHAT_TEMPLATES[args.dataset]
+    # chat_template = CHAT_TEMPLATES[args.dataset]
     printo(f"Model: {model.__class__.__name__}")
     printo(f"Tokenizer: {tokenizer.__class__.__name__}")
 
     # Datasets
-    lm_dataset = DATASET_LOADERS[args.dataset](
+    lm_dataset = DATASETS[args.dataset](
         tokenizer=tokenizer,
         input_seq_len=args.seq_len,
         max_num_samples=args.max_num_samples,
-        print_stats=local_rank == 0,
-    )
+    ).load_data()
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     def on_converge_callback_cs(metrics):
@@ -471,7 +463,6 @@ def main():
         # Evaluation
         tokenizer=tokenizer,
         test_dataset=lm_dataset["test"] if args.compute_acc else None,  # type: ignore
-        chat_template=chat_template,
         generation_config=TJDGenerationConfig(
             do_sample=args.do_sample,
             horizon=args.horizon,

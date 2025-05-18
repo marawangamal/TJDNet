@@ -58,7 +58,7 @@ class LModel(L.LightningModule):
         self.args = Namespace(**kwargs)
         self.tokenizer = get_auto_tokenizer(self.args.model)
         self.model: TJD = None  # type: ignore
-        self.dataset = DATASETS[self.args.dataset](tokenizer=self.tokenizer, **kwargs)
+        self.dataset = DATASETS[self.args.dataset](tokenizer=self.tokenizer)
         self.eos = self.tokenizer.eos_token
         self.test_ameter = AverageMeter()
         self.save_hyperparameters(kwargs)
@@ -81,6 +81,7 @@ class LModel(L.LightningModule):
         self.log(
             "eval_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
         )
+        return output["loss"]
 
     def test_step(self, batch, batch_idx):
         outputs, ardict = self.model.generate(
@@ -114,9 +115,21 @@ class LModel(L.LightningModule):
     # === Debug (memory) ===
     def on_train_batch_start(self, batch, batch_idx):
         # print memory usage
-        if batch_idx in [0, 10, 20, 30, 40]:
-            self._log_memory("before_forward")
+        self._log_memory("before_forwardt")
         return super().on_train_batch_start(batch, batch_idx)
+
+    def on_validation_batch_start(self, batch, batch_idx, dataloader_idx=0):
+        self._log_memory("before_forwarde")
+        return super().on_validation_batch_start(batch, batch_idx, dataloader_idx)
+
+    # Max mem happens after backward and before optimizer step
+    def on_after_backward(self):
+        self._log_memory("after_backward")
+        return super().on_after_backward()
+
+    def on_before_zero_grad(self, *args, **kwargs):
+        self._log_memory("before_zero_grad")
+        return super().on_before_zero_grad(*args, **kwargs)
 
     def _log_memory(self, phase: str):
         if torch.cuda.is_available():
@@ -204,21 +217,21 @@ def main(args):
         batch_size=args.batch_size,
         shuffle=True,
         collate_fn=collator,
-        num_workers=4,
-        persistent_workers=True,
+        # num_workers=4,
+        # persistent_workers=True,
     )
     eval_dataloader = DataLoader(
         lm_dataset["eval"],  # type: ignore
         batch_size=args.batch_size,
         collate_fn=collator,
-        num_workers=4,
-        persistent_workers=True,
+        # num_workers=4,
+        # persistent_workers=True,
     )
 
     test_dataloader = DataLoader(
         lm_dataset["test"],  # type: ignore
         batch_size=1,
-        num_workers=4,
+        # num_workers=4,
         collate_fn=identity_collator,
     )
 
@@ -257,6 +270,8 @@ def main(args):
             auto_wrap_policy=policy,
             sharding_strategy="FULL_SHARD",
             mixed_precision=MixedPrecision(param_dtype=torch.bfloat16),
+            # cpu_offload=True,
+            activation_checkpointing_policy={TJDist},
         ),
     }[args.accel_strategy]
 
@@ -264,7 +279,11 @@ def main(args):
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
-        callbacks=[checkpoint_cb],
+        callbacks=(
+            [checkpoint_cb, generate_cb]
+            if args.accel_strategy != "fsdp"
+            else checkpoint_cb
+        ),
         logger=get_wandb_logger(exp_name),
         precision="bf16",
         accumulate_grad_batches=args.accum_grad_batches,

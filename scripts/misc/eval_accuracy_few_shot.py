@@ -37,7 +37,7 @@ from dataloaders.sharegpt import load_sharegpt
 from dataloaders.syn_number_bases import load_syn_num_base_data
 from dataloaders.syn_numbers import load_syn_num_data
 from dataloaders.stemp_v1 import load_syn_temp_data
-from dataloaders.wikitext import load_wikitext_data
+from dataloaders.old.wikitext import load_wikitext_data
 from utils.experiment_naming import get_experiment_name
 
 

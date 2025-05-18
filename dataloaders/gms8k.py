@@ -5,7 +5,7 @@ from datasets import load_dataset, DatasetDict
 class GSM8k(AbstractDataset):
     template = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
 
-    def __init__(self, tokenizer, seq_len=512):
+    def __init__(self, tokenizer, seq_len=512, **kwargs):
         super().__init__(tokenizer, seq_len)
 
     def parse_answer(self, generation: str) -> float:
