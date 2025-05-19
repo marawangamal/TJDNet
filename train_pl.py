@@ -28,7 +28,12 @@ from dataloaders import DATASETS
 from tjdnet.distributions._tjdist import TJDist
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.average_meter import AverageMeter
-from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
+from utils.helpers import (
+    get_auto_tokenizer,
+    get_git_info,
+    get_model_and_tokenizer,
+    get_model_and_tokenizer_nowrap,
+)
 from utils.arguments_v2 import parse_args
 from utils.lightning_callbacks.generate import GenerateCallback
 from utils.experiment_naming import get_experiment_name
@@ -66,22 +71,29 @@ class LModel(L.LightningModule):
     def configure_model(self):
         # IMPORTANT: This function must be idempotent (i.e., calling it multiple times should not change self.model)
         if self.model is None:  # Model might be already created in load_from_checkpoint
-            self.model, _ = get_model_and_tokenizer(args)
+            # self.model, _ = get_model_and_tokenizer(self.args)
+            self.model, _ = get_model_and_tokenizer(self.args)
 
     def training_step(self, batch, batch_idx):
         # check if any ids are negative
         output = self.model(**batch)
-        self.log(
-            "train_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
-        )
-        return output["loss"]
+        # === TJD model
+        loss = output["loss"]
+        # === HF model
+        # loss = output.loss
+        self.log("train_loss", loss, prog_bar=True)
+
+        return loss
 
     def validation_step(self, batch, batch_idx):
-        output = self.model(**batch)
-        self.log(
-            "eval_loss", output["loss"], prog_bar=True, on_epoch=True, sync_dist=True
-        )
-        return output["loss"]
+        with torch.no_grad():
+            output = self.model(**batch)
+        # === TJD model
+        loss = output["loss"]
+        # === HF model
+        # loss = output.loss
+        self.log("eval_loss", loss, prog_bar=True)
+        return loss
 
     def test_step(self, batch, batch_idx):
         outputs, ardict = self.model.generate(
@@ -132,6 +144,7 @@ class LModel(L.LightningModule):
         return super().on_before_zero_grad(*args, **kwargs)
 
     def _log_memory(self, phase: str):
+        return
         if torch.cuda.is_available():
             alloc = torch.cuda.memory_allocated() / 1024**3
             # reserved = torch.cuda.memory_reserved() / 1024**3
@@ -190,20 +203,13 @@ def main(args):
     lmodel = LModel(**vars(args))
 
     # Data
-    # lm_dataset = DATASET_LOADERS[args.dataset](
-    #     tokenizer=lmodel.tokenizer,
-    #     input_seq_len=args.seq_len,
-    #     max_num_samples=args.max_num_samples,
-    # )
-
-    # New data:
     lm_dataset = DATASETS[args.dataset](
         tokenizer=lmodel.tokenizer,
         seq_len=args.seq_len,
         max_num_samples=args.max_num_samples,
     ).load_data()
 
-    # No pad token needed since all samples are of same length
+    # NOTE: no pad token needed since all samples are of same length
     # if tokenizer.pad_token is None:
     #     tokenizer.pad_token = tokenizer.eos_token
 
@@ -217,21 +223,22 @@ def main(args):
         batch_size=args.batch_size,
         shuffle=True,
         collate_fn=collator,
-        # num_workers=4,
+        num_workers=0,
+        # NOTE: persistent_workers=True is not supported in FSDP
         # persistent_workers=True,
     )
     eval_dataloader = DataLoader(
         lm_dataset["eval"],  # type: ignore
-        batch_size=args.batch_size,
+        batch_size=max(args.batch_size // 2, 1),
         collate_fn=collator,
-        # num_workers=4,
+        num_workers=0,
         # persistent_workers=True,
     )
 
     test_dataloader = DataLoader(
         lm_dataset["test"],  # type: ignore
         batch_size=1,
-        # num_workers=4,
+        num_workers=0,
         collate_fn=identity_collator,
     )
 
@@ -272,10 +279,13 @@ def main(args):
             mixed_precision=MixedPrecision(param_dtype=torch.bfloat16),
             # cpu_offload=True,
             activation_checkpointing_policy={TJDist},
+            limit_all_gathers=True,  # Important for evaluation
+            state_dict_type="sharded",
         ),
     }[args.accel_strategy]
 
     trainer = L.Trainer(
+        fast_dev_run=args.fast_dev_run,  # for debugging
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
@@ -300,6 +310,8 @@ def main(args):
             ckpt_path="best",
             dataloaders=test_dataloader,
         )
+    if torch.cuda.is_available():
+        trainer.print(torch.cuda.memory_summary())
 
 
 if __name__ == "__main__":

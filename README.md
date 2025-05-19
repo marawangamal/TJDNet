@@ -81,18 +81,19 @@ Eval accuracy: 1.0
 
 To fine-tune Llama using the Canonical Polyadic (CP) head, run this command (best checkpoint will be saved under `checkpoints`)
 ```bash 
-accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py \
+python train_pl.py \
+    --accel_strategy fsdp \
     --dataset gsm8k \
     --model meta-llama/Llama-3.2-3B-Instruct \
-    --epochs 50 \
-    --batch_size 8 \ 
-    --seq_len 128 \ 
-    --lr 1e-5 \ 
-    --model_head cp \ 
-    --hidden_dim 5120 \ 
-    --horizon 2 \ 
-    --horizon_eval 2 \ 
-    --rank 16
+    --epochs 10 \
+    --batch_size 8 \
+    --seq_len 128 \
+    --lr 5e-5 \
+    --model_head cp \
+    --hidden_dim 8192 \
+    --horizon 2 \
+    --rank 2 \
+    --use_memory_efficient_loss
 ```
 
 ## Evaluation

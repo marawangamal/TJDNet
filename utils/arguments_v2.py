@@ -210,6 +210,12 @@ def parse_args():
         help="Whether to run the test set.",
         default=False,
     )
+    parser.add_argument(
+        "--fast_dev_run",
+        action="store_true",
+        help="Whether to run a single batch for debugging.",
+        default=False,
+    )
 
     args = parser.parse_args()
     validate_args(args)
@@ -227,3 +233,7 @@ def validate_args(args):
     for rule in rules:
         if not rule["condition"]():
             raise ValueError(rule["message"])
+
+
+# python train_pl.py --accel_strategy ddp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 10 --batch_size 1 --accum_grad_batches 8 --seq_len 128 --lr 5e-5 --model_head base --rank 1 --horizon 1
+# python train_pl.py --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 10 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head base --rank 1 --horizon 1
