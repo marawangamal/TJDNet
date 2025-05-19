@@ -92,7 +92,7 @@ class LModel(L.LightningModule):
         loss = output["loss"]
         # === HF model
         # loss = output.loss
-        self.log("eval_loss", loss, prog_bar=True)
+        self.log("eval_loss", loss, prog_bar=True, sync_dist=True)
         return loss
 
     def test_step(self, batch, batch_idx):
