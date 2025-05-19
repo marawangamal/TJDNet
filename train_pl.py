@@ -125,26 +125,11 @@ class LModel(L.LightningModule):
         return [optimizer], [scheduler]
 
     # === Debug (memory) ===
-    def on_train_batch_start(self, batch, batch_idx):
-        # print memory usage
-        self._log_memory("before_forwardt")
-        return super().on_train_batch_start(batch, batch_idx)
-
-    def on_validation_batch_start(self, batch, batch_idx, dataloader_idx=0):
-        self._log_memory("before_forwarde")
-        return super().on_validation_batch_start(batch, batch_idx, dataloader_idx)
-
-    # Max mem happens after backward and before optimizer step
-    def on_after_backward(self):
-        self._log_memory("after_backward")
-        return super().on_after_backward()
-
     def on_before_zero_grad(self, *args, **kwargs):
         self._log_memory("before_zero_grad")
         return super().on_before_zero_grad(*args, **kwargs)
 
     def _log_memory(self, phase: str):
-        return
         if torch.cuda.is_available():
             alloc = torch.cuda.memory_allocated() / 1024**3
             # reserved = torch.cuda.memory_reserved() / 1024**3
@@ -192,11 +177,13 @@ def main(args):
         **{k: v for k, v in vars(args).items() if k not in SILENT_ARGS}
     )
     exp_name = get_experiment_name(vars(filtered_args))
-    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "last.ckpt")
+    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
     if not osp.exists(ckpt_path):
         ckpt_path = None
-    print(
-        "Training from scratch." if ckpt_path is None else f"Resuming from {ckpt_path}"
+    printo(
+        "Training from scratch."
+        if ckpt_path is None
+        else f"Found checkpoint @ {ckpt_path}"
     )
 
     # Model
@@ -276,10 +263,10 @@ def main(args):
         "fsdp": FSDPStrategy(
             auto_wrap_policy=policy,
             sharding_strategy="FULL_SHARD",
-            mixed_precision=MixedPrecision(param_dtype=torch.bfloat16),
+            # mixed_precision=MixedPrecision(param_dtype=torch.bfloat16),
             # cpu_offload=True,
-            activation_checkpointing_policy={TJDist},
-            limit_all_gathers=True,  # Important for evaluation
+            # activation_checkpointing_policy={TJDist},
+            # limit_all_gathers=True,  # Important for evaluation
             state_dict_type="sharded",
         ),
     }[args.accel_strategy]
@@ -295,7 +282,7 @@ def main(args):
             else checkpoint_cb
         ),
         logger=get_wandb_logger(exp_name),
-        precision="bf16",
+        precision="bf16-true",
         accumulate_grad_batches=args.accum_grad_batches,
     )
 
