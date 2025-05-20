@@ -1,7 +1,7 @@
 """Train a TJD model using PyTorch Lightning.
 
 Example:
-    python train_pl.py --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10
+    python main.py train --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10
     python train_pl.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 1 --seq_len 8 --lr 5e-5 --model_head base --horizon 1 --rank 1
 
 """
@@ -9,10 +9,13 @@ Example:
 import os
 import os.path as osp
 from argparse import Namespace
+from typing import Optional, Union
 
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
+from pytorch_lightning.utilities import rank_zero_only
+
 
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from transformers.models.gpt2.modeling_gpt2 import GPT2Block
@@ -22,6 +25,7 @@ import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
+from wandb.util import generate_id
 
 from dataloaders import DATASETS
 from tjdnet.distributions._tjdist import TJDist
@@ -115,7 +119,12 @@ class LModel(L.LightningModule):
         corr = (y_pred == batch["labels"]).float().sum()
         self.test_ameter.update(corr, len(batch["input_ids"]))
         self.log(
-            "test_acc", self.test_ameter.avg, prog_bar=True, on_step=True, on_epoch=True
+            "test_acc",
+            self.test_ameter.avg,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
         )
 
     def configure_optimizers(self):
@@ -126,6 +135,16 @@ class LModel(L.LightningModule):
             num_training_steps=self.trainer.estimated_stepping_batches,
         )
         return [optimizer], [scheduler]
+
+    def configure_gradient_clipping(
+        self,
+        optimizer,
+        gradient_clip_val: Optional[Union[int, float]] = None,
+        gradient_clip_algorithm: Optional[str] = None,
+    ) -> None:
+        assert gradient_clip_algorithm in ("norm", None), gradient_clip_algorithm
+        if gradient_clip_val is not None:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), gradient_clip_val)
 
     # === Debug (memory) ===
     def on_before_zero_grad(self, *args, **kwargs):
@@ -211,13 +230,15 @@ class LDataModule(L.LightningDataModule):
         return collator
 
 
-def get_wandb_logger(exp_name: str):
+@rank_zero_only
+def get_wandb_logger(exp_name: str, wandb_id=None):
     git_info = get_git_info()
     suffix = "main" if git_info.get("branch") == "main" else "dev"
     project_name = f"tjdnet-{suffix}"
     wandb_logger = WandbLogger(
         project=project_name,
         name=exp_name,
+        id=wandb_id,  # Add this line to specify the run ID
         resume="allow",
     )
     return wandb_logger
@@ -228,6 +249,13 @@ def printo(*args, **kwargs):
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if local_rank == 0:
         print(*args, **kwargs)
+
+
+@rank_zero_only
+def generate_wandb_id():
+    wandb_id = generate_id()
+    print(f"Generated new wandb id: {wandb_id}")
+    return wandb_id
 
 
 # Define a simple identity collator for single samples
@@ -248,56 +276,25 @@ def train(args):
     )
     exp_name = get_experiment_name(vars(filtered_args))
     ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
-    if not osp.exists(ckpt_path):
+    wandb_id = None
+    if osp.exists(ckpt_path):
+        wandb_id = torch.load(ckpt_path, map_location="cpu")["hyper_parameters"][
+            "wandb_id"
+        ]
+        printo(f"Found checkpoint @ {ckpt_path}, wandb ID: {wandb_id}")
+    else:
         ckpt_path = None
-    printo(
-        "Training from scratch."
-        if ckpt_path is None
-        else f"Found checkpoint @ {ckpt_path}"
-    )
+        wandb_id = generate_wandb_id()
+        args.wandb_id = wandb_id
+        printo("Training from scratch.")
+
+    wandb_logger = get_wandb_logger(exp_name, wandb_id=wandb_id)
 
     # Model
     lmodel = LModel(**vars(args))
 
-    # # Data
-    # lm_dataset = DATASETS[args.dataset](
-    #     tokenizer=lmodel.tokenizer,
-    #     seq_len=args.seq_len,
-    #     max_num_samples=args.max_num_samples,
-    # ).load_data()
-
-    # NOTE: no pad token needed since all samples are of same length
-    # if tokenizer.pad_token is None:
-    #     tokenizer.pad_token = tokenizer.eos_token
-
-    # collator = DataCollatorForLanguageModeling(
-    #     tokenizer=lmodel.tokenizer,
-    #     mlm=False,  # we’re doing causal-LM, not masked-LM
-    #     return_tensors="pt",
-    # )
-    # train_dataloader = DataLoader(
-    #     lm_dataset["train"],  # type: ignore
-    #     batch_size=args.batch_size,
-    #     shuffle=True,
-    #     collate_fn=collator,
-    #     num_workers=0,
-    #     # NOTE: persistent_workers=True is not supported in FSDP
-    #     # persistent_workers=True,
-    # )
-    # eval_dataloader = DataLoader(
-    #     lm_dataset["eval"],  # type: ignore
-    #     batch_size=max(args.batch_size // 2, 1),
-    #     collate_fn=collator,
-    #     num_workers=0,
-    #     # persistent_workers=True,
-    # )
-
-    # test_dataloader = DataLoader(
-    #     lm_dataset["test"],  # type: ignore
-    #     batch_size=1,
-    #     num_workers=0,
-    #     collate_fn=identity_collator,
-    # )
+    # Data
+    ldata = LDataModule(**vars(args))
 
     # Callbacks
     checkpoint_cb = ModelCheckpoint(
@@ -342,21 +339,21 @@ def train(args):
             if args.accel_strategy != "fsdp"
             else checkpoint_cb
         ),
-        logger=get_wandb_logger(exp_name),
-        precision="bf16-true",
+        logger=wandb_logger,
+        precision="bf16-mixed",
         accumulate_grad_batches=args.accum_grad_batches,
         gradient_clip_val=1,
     )
 
     trainer.fit(
         lmodel,
-        datamodule=LDataModule(**vars(args)),
+        datamodule=ldata,
         ckpt_path=ckpt_path,
     )
     if not args.accel_strategy == "fsdp":
         trainer.test(
             ckpt_path="best",
-            datamodule=LDataModule(**vars(args)),
+            datamodule=ldata,
         )
     if torch.cuda.is_available():
         trainer.print(torch.cuda.memory_summary())
@@ -370,7 +367,7 @@ def eval(args):
     generate_cb = GenerateCallback(
         prompt=DATASETS[exp_args.dataset].get_sample_prompt()
     )
-    trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
+    trainer = L.Trainer(accelerator="gpu", devices=1, callbacks=[generate_cb])
     ldata = LDataModule(**vars(exp_args))
     trainer.test(lmodel, dataloaders=ldata)
     return
