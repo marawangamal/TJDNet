@@ -20,7 +20,10 @@ class GenerateCallback(Callback):
                 model.device
             ),
             generation_config=TJDGenerationConfig(
-                max_new_tokens=128, do_sample=True, top_k=200
+                max_new_tokens=128,
+                do_sample=True,
+                top_k=200,
+                eos_token_id=pl_module.tokenizer.eos_token_id,
             ),
         )
         generated_text = pl_module.tokenizer.decode(output[0])

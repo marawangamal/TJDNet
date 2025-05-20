@@ -259,45 +259,45 @@ def train(args):
     # Model
     lmodel = LModel(**vars(args))
 
-    # Data
-    lm_dataset = DATASETS[args.dataset](
-        tokenizer=lmodel.tokenizer,
-        seq_len=args.seq_len,
-        max_num_samples=args.max_num_samples,
-    ).load_data()
+    # # Data
+    # lm_dataset = DATASETS[args.dataset](
+    #     tokenizer=lmodel.tokenizer,
+    #     seq_len=args.seq_len,
+    #     max_num_samples=args.max_num_samples,
+    # ).load_data()
 
     # NOTE: no pad token needed since all samples are of same length
     # if tokenizer.pad_token is None:
     #     tokenizer.pad_token = tokenizer.eos_token
 
-    collator = DataCollatorForLanguageModeling(
-        tokenizer=lmodel.tokenizer,
-        mlm=False,  # we’re doing causal-LM, not masked-LM
-        return_tensors="pt",
-    )
-    train_dataloader = DataLoader(
-        lm_dataset["train"],  # type: ignore
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=collator,
-        num_workers=0,
-        # NOTE: persistent_workers=True is not supported in FSDP
-        # persistent_workers=True,
-    )
-    eval_dataloader = DataLoader(
-        lm_dataset["eval"],  # type: ignore
-        batch_size=max(args.batch_size // 2, 1),
-        collate_fn=collator,
-        num_workers=0,
-        # persistent_workers=True,
-    )
+    # collator = DataCollatorForLanguageModeling(
+    #     tokenizer=lmodel.tokenizer,
+    #     mlm=False,  # we’re doing causal-LM, not masked-LM
+    #     return_tensors="pt",
+    # )
+    # train_dataloader = DataLoader(
+    #     lm_dataset["train"],  # type: ignore
+    #     batch_size=args.batch_size,
+    #     shuffle=True,
+    #     collate_fn=collator,
+    #     num_workers=0,
+    #     # NOTE: persistent_workers=True is not supported in FSDP
+    #     # persistent_workers=True,
+    # )
+    # eval_dataloader = DataLoader(
+    #     lm_dataset["eval"],  # type: ignore
+    #     batch_size=max(args.batch_size // 2, 1),
+    #     collate_fn=collator,
+    #     num_workers=0,
+    #     # persistent_workers=True,
+    # )
 
-    test_dataloader = DataLoader(
-        lm_dataset["test"],  # type: ignore
-        batch_size=1,
-        num_workers=0,
-        collate_fn=identity_collator,
-    )
+    # test_dataloader = DataLoader(
+    #     lm_dataset["test"],  # type: ignore
+    #     batch_size=1,
+    #     num_workers=0,
+    #     collate_fn=identity_collator,
+    # )
 
     # Callbacks
     checkpoint_cb = ModelCheckpoint(
@@ -345,18 +345,18 @@ def train(args):
         logger=get_wandb_logger(exp_name),
         precision="bf16-true",
         accumulate_grad_batches=args.accum_grad_batches,
+        gradient_clip_val=1,
     )
 
     trainer.fit(
         lmodel,
-        train_dataloader,
-        eval_dataloader,
+        datamodule=LDataModule(**vars(args)),
         ckpt_path=ckpt_path,
     )
     if not args.accel_strategy == "fsdp":
         trainer.test(
             ckpt_path="best",
-            dataloaders=test_dataloader,
+            datamodule=LDataModule(**vars(args)),
         )
     if torch.cuda.is_available():
         trainer.print(torch.cuda.memory_summary())
@@ -380,17 +380,6 @@ if __name__ == "__main__":
     args = parse_args()
 
     if args.cmd == "train":
-        train(args)  # ← your existing train() function
+        train(args)
     elif args.cmd == "test":
-        eval(args)  # ← your existing eval() / test() function
-
-
-# accelerate launch:
-# [MEMORY - batch 10 (before forward)]
-#   Allocated: 13.45 GB
-#   Reserved:  13.49 GB
-#   Peak:      30.25 GB
-#   0%|         | 18/113792 [00:29<49:57:19,  1.58s/it]^CW0517 11:28:38.256250 3339902
-
-# lightning:
-#   0%|         | 24/28448 [01:10<23:11:35,  0.34it/s, v_num=ph0c, before_forward_allocated=13.50, before_forward_peak=22.40, train_loss_step=84.40]
+        eval(args)
