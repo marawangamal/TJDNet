@@ -99,7 +99,8 @@ python train_pl.py \
 ## Evaluation
 To run evaluation (compute accuracy) run the following command
 ```bash 
-python scripts/eval_acc.py -c <checkpoint_path>
+python -m lightning.pytorch.utilities.consolidate_checkpoint path/to/my/checkpoint
+python train_pl.py test --ckpt path/to/my/checkpoint
 ```
 
 ## Scripts

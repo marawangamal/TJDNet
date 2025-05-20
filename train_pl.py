@@ -13,7 +13,6 @@ from argparse import Namespace
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
-from torch.distributed.fsdp import MixedPrecision
 
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from transformers.models.gpt2.modeling_gpt2 import GPT2Block
@@ -34,7 +33,7 @@ from utils.helpers import (
     get_model_and_tokenizer,
     get_model_and_tokenizer_nowrap,
 )
-from utils.arguments_v2 import parse_args
+from utils.arguments import parse_args
 from utils.lightning_callbacks.generate import GenerateCallback
 from utils.experiment_naming import get_experiment_name
 
@@ -53,6 +52,7 @@ SILENT_ARGS = [
     # Accelerator
     "accel_strategy",
     "test",
+    "cmd",
 ]
 
 
@@ -101,6 +101,7 @@ class LModel(L.LightningModule):
                 max_new_tokens=self.args.max_new_tokens,
                 do_sample=self.args.do_sample,
                 top_k=self.args.top_k,
+                eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
             ),
             **batch,
         )
@@ -113,7 +114,9 @@ class LModel(L.LightningModule):
         )
         corr = (y_pred == batch["labels"]).float().sum()
         self.test_ameter.update(corr, len(batch["input_ids"]))
-        self.log("test_acc", self.test_ameter.avg, prog_bar=True, on_epoch=True)
+        self.log(
+            "test_acc", self.test_ameter.avg, prog_bar=True, on_step=True, on_epoch=True
+        )
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
@@ -139,6 +142,73 @@ class LModel(L.LightningModule):
             for k, v in dct.items():
                 self.log(k, v, prog_bar=True)
             torch.cuda.reset_peak_memory_stats()
+
+
+class LDataModule(L.LightningDataModule):
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.tokenizer = get_auto_tokenizer(kwargs["model"])
+        self.batch_size = kwargs.get("batch_size", 1)
+        self.seq_len = kwargs.get("seq_len", 8)
+        self.max_num_samples = kwargs.get("max_num_samples", None)
+        self.ds_name = kwargs.get("dataset", "stemp")
+
+    def setup(self, stage: str):
+        self.lm_dataset = DATASETS[self.ds_name](
+            tokenizer=self.tokenizer,
+            seq_len=self.seq_len,
+            max_num_samples=self.max_num_samples,
+        ).load_data()
+        self.train_ds, self.eval_ds, self.test_ds = (
+            self.lm_dataset["train"],
+            self.lm_dataset["eval"],
+            self.lm_dataset["test"],
+        )
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_ds,  # type: ignore
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=self._collator_train(),
+            num_workers=0,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.eval_ds,  # type: ignore
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=self._collator_train(),
+            num_workers=0,
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_ds,  # type: ignore
+            batch_size=1,
+            num_workers=0,
+            collate_fn=self._collator_test(),
+        )
+
+    def _collator_test(self):
+        # return batch[0]
+        # stack all tensors across keys
+        def collator(batch):
+            collated_batch = {}
+            for key in batch[0].keys():
+                collated_batch[key] = torch.stack([torch.tensor(b[key]) for b in batch])
+            return collated_batch
+
+        return collator
+
+    def _collator_train(self):
+        collator = DataCollatorForLanguageModeling(
+            tokenizer=self.tokenizer,
+            mlm=False,  # we’re doing causal-LM, not masked-LM
+            return_tensors="pt",
+        )
+        return collator
 
 
 def get_wandb_logger(exp_name: str):
@@ -170,7 +240,7 @@ def identity_collator(batch):
     return collated_batch
 
 
-def main(args):
+def train(args):
     # Setup
     L.seed_everything(42)
     filtered_args = Namespace(
@@ -246,15 +316,6 @@ def main(args):
     printo(f"Params: {params / 1e9:.3f} B parameters │  {params_memory_gb:.2f} GB ")
     printo("==============================\n")
 
-    # Test only
-    if args.test:
-        printo(f"Testing model...")
-        best_ckpt = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
-        test_trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
-        test_model = LModel.load_from_checkpoint(best_ckpt)
-        test_trainer.test(test_model, dataloaders=test_dataloader)
-        return
-
     # Train
     policy = {LlamaDecoderLayer, GPT2Block, TJDist}
     strategy = {
@@ -301,9 +362,27 @@ def main(args):
         trainer.print(torch.cuda.memory_summary())
 
 
+def eval(args):
+    printo(f"Testing model...")
+    # Load args from checkpoint
+    lmodel = LModel.load_from_checkpoint(args.ckpt)
+    exp_args = Namespace(**lmodel.hparams)
+    generate_cb = GenerateCallback(
+        prompt=DATASETS[exp_args.dataset].get_sample_prompt()
+    )
+    trainer = L.Trainer(strategy="auto", callbacks=[generate_cb])
+    ldata = LDataModule(**vars(exp_args))
+    trainer.test(lmodel, dataloaders=ldata)
+    return
+
+
 if __name__ == "__main__":
     args = parse_args()
-    main(args)
+
+    if args.cmd == "train":
+        train(args)  # ← your existing train() function
+    elif args.cmd == "test":
+        eval(args)  # ← your existing eval() / test() function
 
 
 # accelerate launch:

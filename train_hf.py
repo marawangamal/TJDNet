@@ -46,7 +46,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from dataloaders import DATASETS
 from tjdnet.models.tjd import TJDGenerationConfig
 from utils.accuracy import compute_accuracy
-from utils.arguments import parse_args
+from utils.arguments_hf import parse_args
 from utils.monitor import log_memory
 from utils.monitor import calculate_model_memory_breakdown
 from utils.experiment_naming import get_experiment_name

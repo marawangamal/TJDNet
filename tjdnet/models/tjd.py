@@ -209,7 +209,7 @@ class TJD(ABC, torch.nn.Module):
                     #     dim=1,
                     # )
                     mask_active = ~torch.any(
-                        y_out == generation_config.eos_token_id, dim=1
+                        y_out == torch.tensor(generation_config.eos_token_id), dim=1
                     )
 
                 # Exit if all sequences are done
