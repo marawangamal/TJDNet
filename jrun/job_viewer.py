@@ -1,5 +1,7 @@
+import json
 import sqlite3
 from jrun._base import JobDB
+from jrun.interfaces import JobSpec
 
 
 class JobViewer(JobDB):
@@ -45,3 +47,26 @@ class JobViewer(JobDB):
             print(f"{job_id:<10} {name:<25} {job_statuses.get(job_id):<10}")
 
         conn.close()
+
+    def list_jobs(self) -> list[JobSpec]:
+        """List all jobs in the database."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Get all jobs
+        cursor.execute("SELECT * FROM jobs")
+        jobs = cursor.fetchall()
+        conn.close()
+
+        return [
+            JobSpec(
+                job_id=row[0],
+                command=row[1],
+                preamble=row[2],
+                group_name=row[3],
+                depends_on=json.loads(
+                    row[4] if row[4] else "[]"
+                ),  # Convert JSON text to list
+            )
+            for row in jobs
+        ]

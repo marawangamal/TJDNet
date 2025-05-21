@@ -4,45 +4,17 @@ Simple test for jrun package.
 This script tests the basic functionality of jrun by submitting a simple job.
 """
 
+import json
 import os
 import unittest
 from unittest.mock import patch, MagicMock
 
 from jrun.job_submitter import JobSubmitter
+from jrun.job_viewer import JobViewer
 
 
 class TestJrunSimple(unittest.TestCase):
     """Simple test for jrun package."""
-
-    def setUp(self):
-        """Set up the test by creating a test YAML file."""
-        # Create temporary test.yaml file
-        with open("test.yaml", "w") as f:
-            f.write(
-                """
-# Define reusable preamble templates
-preambles:
-  base:
-    - "#!/bin/bash"
-    - "#SBATCH --partition=debug"
-    - "#SBATCH --output=test-%j.out"
-    - "#SBATCH --error=test-%j.err"
-  
-  gpu:
-    - "#SBATCH --gres=gpu:1"
-    - "#SBATCH --mem=8G"
-
-groups:
-  - name: test-group
-    sequentialjobs:
-      - job:
-          preamble: base
-          command: "echo 'First job'"
-      - job:
-          preamble: gpu
-          command: "echo 'Second job'"
-"""
-            )
 
     def tearDown(self):
         """Clean up after the test."""
@@ -62,7 +34,7 @@ groups:
             MagicMock(read=MagicMock(return_value="Submitted batch job 12345")),
             MagicMock(read=MagicMock(return_value="Submitted batch job 12346")),
         ]
-        # Initialize components
+        viewer = JobViewer("test.db")
         submitter = JobSubmitter("test.db")
         root = {
             "group": {
@@ -122,19 +94,14 @@ groups:
         self.assertIn("sbatch", first_call_args)
 
         # Verify jobs are in the database
-        # jobs = tracker.list_jobs()
-        # self.assertEqual(len(jobs), 2)
-
-        # Verify job statuses
-        # job_ids_list = jobs["job_id"].tolist()
-        # self.assertIn("12345", job_ids_list)
-        # self.assertIn("12346", job_ids_list)
+        jobs = viewer.list_jobs()
+        job_ids_list = [job.job_id for job in jobs]
+        self.assertIn("12345", job_ids_list)
+        self.assertIn("12346", job_ids_list)
 
         # Verify second job depends on first job
-        # second_job_row = jobs[jobs["job_id"] == "12346"]
-        # if not second_job_row.empty:
-        #     dependencies = second_job_row["dependencies"].iloc[0]
-        #     self.assertIn("12345", dependencies)
+        dependencies = jobs[1].depends_on
+        self.assertIn("12345", dependencies)
 
         print("Test completed successfully!")
 

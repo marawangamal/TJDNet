@@ -3,6 +3,8 @@
 ###############################################################################
 
 
+import datetime
+import json
 import os
 import sqlite3
 from typing import Callable, Dict, Optional, Union
@@ -48,8 +50,32 @@ class JobDB:
         conn.commit()
         conn.close()
 
-    def add_record(self, rec: JobSpec):
-        pass
+    def add_record(self, rec: JobSpec) -> None:
+        """Insert a new job row (fails if job_id already exists)."""
+        now = datetime.datetime.utcnow().isoformat(timespec="seconds")
+
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO jobs (
+                    job_id, command, preamble, group_name,
+                    depends_on, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(rec.job_id),
+                    rec.command,
+                    rec.preamble,
+                    rec.group_name,
+                    json.dumps(rec.depends_on),  # store list as JSON text
+                    # inverse: json.loads(rec.depends_on),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
 
     def update_record(self, rec: JobSpec):
         pass
