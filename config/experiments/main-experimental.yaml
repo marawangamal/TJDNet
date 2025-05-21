@@ -31,9 +31,9 @@ preambles:
 groups:
 
   - name: "main-experimental"
-    parallel: 
+    paralleljobs: 
       # Run base model 
-      - sequential:
+      - sequentialjobs:
         - parallellsweep:
           sweep:
             - lr:
@@ -51,7 +51,7 @@ groups:
             command: "python scripts/tag_best_model.py --optimize_by lr --job_id {{JOB_ID}}"
 
       # Run cp model 
-      - sequential:
+      - sequentialjobs:
         - parallellsweep:
           sweep:
             - lr:
