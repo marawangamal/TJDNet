@@ -1,4 +1,5 @@
 from tjdnet.distributions import TJD_DISTS
+from lightning.fabric.plugins.precision.precision import _PRECISION_INPUT
 
 
 import argparse
@@ -45,6 +46,23 @@ def add_train_args(parser: argparse.ArgumentParser):
         type=int,
         default=1,
         help="Number of batches to accumulate gradients over.",
+    )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="32-true",
+        choices=[
+            "16-true",
+            "16-mixed",
+            "bf16-true",
+            "bf16-mixed",
+            "32-true",
+            "64-true",
+            "64",
+            "32",
+            "16",
+            "bf16",
+        ],
     )
 
     # ---------------

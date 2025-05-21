@@ -29,51 +29,53 @@ preambles:
     - "#SBATCH --time=1:00:00"
 
 groups:
-  # Question: "Does umel=true match umel=false performance?"
-  # Answer: ...
-  - name: verification-use_memory_efficient_loss
-    sequentialjobs:
-      - paralleljobs:
-        - sequentialjobs: 
-          # e.g., 3-layer deep jobrunner_id = aaa-bbb-ccc
-          - job:
-              preamble: train
-              command: accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2 --jobrunner_id {{EXP_ID}} --tag {{GROUP_NAME}}
-          - job:
-              preamble: eval
-              command: python scripts/eval_acc.py --jobrunner_id {{EXP_ID}}
-        - sequentialjobs: 
-          - job:
-              preamble: train
-              command: accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head cp --hidden_dim 8192 --horizon 2 --horizon_eval 2 --rank 2 --use_memory_efficient_loss --jobrunner_id {{EXP_ID}} --tag {{GROUP_NAME}}
-          - job:
-              preamble: eval
-              command: python scripts/eval_acc.py --jobrunner_id {{EXP_ID}}
-      # e.g, 1-layer deep jobrunner_id = aaa
-      - job:
-          preamble: report
-          # might not need to pass jobrunner_id, tag the umel.py should just lookup exps relevant to it.
-          command: python scripts/plots/umel.py --jobrunner_id {{EXP_ID}} --tag {{GROUP_NAME}}
 
-  - name: tuning-hidden_dim
-    # Question: "Does the hidden_dim affect the performance of the model?"
-    # Answer: ...
-    # Question: "Does the lr need re-tuning when changing the hidden_dim?"
-    # Answer: ...
-    sequentialjobs:
-      - parallellsweep:
-        sweep:
-          - name: hidden_dim
-            values: [2, 4, 8]
-          - lr:
-            values: [1e-5, 5e-5, 1e-4]
-        sequentialjobs:
-          - job:
-              preamble: train
-              command: accelerate launch --use_fsdp --config_file configs/fsdp/fsdp_4gpus.yaml train.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {{lr}} --model_head cp --hidden_dim {{hidden_dim}} --horizon 2 --horizon_eval 2 --rank 2 --jobrunner_id {{EXP_ID}} --tag {{GROUP_NAME}}
-          - job:
-              preamble: eval
-              command: python scripts/eval_acc.py --jobrunner_id {{EXP_ID}}
-      - job:
-          preamble: report
-          command: python scripts/plots/hd.py --jobrunner_id {{EXP_ID}}
+  - name: "main-experimental"
+    parallel: 
+      # Run base model 
+      - sequential:
+        - parallellsweep:
+          sweep:
+            - lr:
+              values: [1e-5, 5e-5, 1e-4]
+          sequentialjobs:
+            - job: # job_id = aaa-bbb-ccc
+                preamble: train
+                command: "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 32 --batch_size 8 --seq_len 128 --lr {{lr}} --model_head base --rank 1 --horizon 1 --job_id {{JOB_ID}} --tag {{GROUP_NAME}}"
+            - job:
+                preamble: eval
+                command: "python main.py test --job_id {{JOB_ID}}"
+        # Choose best model base on eval_acc.py
+        - job: # job_id = aaa-bbb
+            preamble: eval
+            command: "python scripts/tag_best_model.py --optimize_by lr --job_id {{JOB_ID}}"
+
+      # Run cp model 
+      - sequential:
+        - parallellsweep:
+          sweep:
+            - lr:
+              values: [1e-5, 5e-5, 1e-4]
+            - rank:
+              values: [1, 2, 4]
+            - horizon:  
+              values: [1, 2, 4]
+          sequentialjobs:
+            - job: # job_id = aaa-bbb-ccc
+                preamble: train
+                command: "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 32 --batch_size 8 --seq_len 128 --lr {{lr}} --model_head cp --rank {{rank}} --horizon {{horizon}} --job_id {{JOB_ID}} --tag {{GROUP_NAME}}"
+        
+        # Choose best model base on eval_acc.py
+        - job: # job_id = aaa-bbb
+            preamble: eval
+            command: "python scripts/tag_best_model.py --group_by rank horizon --optimize eval_loss --job_id {{JOB_ID}}"
+
+        # Consolidate fsdp shards if needed 
+        - job: # job_id = aaa-bbb
+            preamble: eval
+            command: "bash consolidate_ckpt.sh --job_id {{JOB_ID}}"
+
+        # Run evaluation on the best model
+        - job:
+            preamble: eval
+            command: "python main.py test --job_id {{JOB_ID}}"

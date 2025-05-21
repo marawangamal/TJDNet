@@ -57,6 +57,8 @@ SILENT_ARGS = [
     "accel_strategy",
     "test",
     "cmd",
+    "wandb_id",
+    "experiment_name",
 ]
 
 
@@ -118,14 +120,7 @@ class LModel(L.LightningModule):
         )
         corr = (y_pred == batch["labels"]).float().sum()
         self.test_ameter.update(corr, len(batch["input_ids"]))
-        self.log(
-            "test_acc",
-            self.test_ameter.avg,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            sync_dist=True,
-        )
+        self.log("test_acc", corr, prog_bar=True)
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
@@ -268,14 +263,16 @@ def identity_collator(batch):
     return collated_batch
 
 
+def filter_kwargs(**kwargs):
+    # Filter out args that are not needed for the experiment
+    return {k: v for k, v in kwargs.items() if k not in SILENT_ARGS}
+
+
 def train(args):
     # Setup
     L.seed_everything(42)
-    filtered_args = Namespace(
-        **{k: v for k, v in vars(args).items() if k not in SILENT_ARGS}
-    )
-    exp_name = get_experiment_name(vars(filtered_args))
-    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
+    exp_name_filtered = get_experiment_name(filter_kwargs(**vars(args)))
+    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name_filtered, "best.ckpt")
     wandb_id = None
     if osp.exists(ckpt_path):
         wandb_id = torch.load(ckpt_path, map_location="cpu")["hyper_parameters"][
@@ -286,9 +283,10 @@ def train(args):
         ckpt_path = None
         wandb_id = generate_wandb_id()
         args.wandb_id = wandb_id
+        args.experiment_name = exp_name_filtered
         printo("Training from scratch.")
 
-    wandb_logger = get_wandb_logger(exp_name, wandb_id=wandb_id)
+    wandb_logger = get_wandb_logger(exp_name_filtered, wandb_id=wandb_id)
 
     # Model
     lmodel = LModel(**vars(args))
@@ -298,7 +296,7 @@ def train(args):
 
     # Callbacks
     checkpoint_cb = ModelCheckpoint(
-        dirpath=osp.join(EXPERIMENTS_DIR, exp_name),
+        dirpath=osp.join(EXPERIMENTS_DIR, exp_name_filtered),
         filename="best",
         monitor="eval_loss",
         mode="min",
@@ -333,16 +331,17 @@ def train(args):
         fast_dev_run=args.fast_dev_run,  # for debugging
         strategy=strategy,
         max_epochs=args.epochs,
-        default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name),
+        default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name_filtered),
         callbacks=(
             [checkpoint_cb, generate_cb]
             if args.accel_strategy != "fsdp"
             else checkpoint_cb
         ),
         logger=wandb_logger,
-        precision="bf16-mixed",
+        # precision="bf16-mixed",
         accumulate_grad_batches=args.accum_grad_batches,
         gradient_clip_val=1,
+        precision=args.precision,
     )
 
     trainer.fit(
@@ -350,24 +349,28 @@ def train(args):
         datamodule=ldata,
         ckpt_path=ckpt_path,
     )
-    if not args.accel_strategy == "fsdp":
-        trainer.test(
-            ckpt_path="best",
-            datamodule=ldata,
-        )
+    # if not args.accel_strategy == "fsdp":
+    #     trainer.test(
+    #         ckpt_path="best",
+    #         datamodule=ldata,
+    #     )
     if torch.cuda.is_available():
         trainer.print(torch.cuda.memory_summary())
 
 
 def eval(args):
     printo(f"Testing model...")
-    # Load args from checkpoint
     lmodel = LModel.load_from_checkpoint(args.ckpt)
     exp_args = Namespace(**lmodel.hparams)
     generate_cb = GenerateCallback(
         prompt=DATASETS[exp_args.dataset].get_sample_prompt()
     )
-    trainer = L.Trainer(accelerator="gpu", devices=1, callbacks=[generate_cb])
+    wandb_id = lmodel.hparams["wandb_id"]
+    exp_name = lmodel.hparams["experiment_name"]
+    wandb_logger = get_wandb_logger(exp_name, wandb_id=wandb_id)
+    trainer = L.Trainer(
+        accelerator="gpu", devices=1, callbacks=[generate_cb], logger=wandb_logger
+    )
     ldata = LDataModule(**vars(exp_args))
     trainer.test(lmodel, dataloaders=ldata)
     return
