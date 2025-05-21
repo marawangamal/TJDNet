@@ -95,7 +95,7 @@ class JobDB:
             if isinstance(job_id, float) and job_id != job_id:
                 return "NaN"
             else:
-                return int(job_id)
+                return str(job_id)
 
         statuses = {}
         for job_id in [fmt_job_id(job_id) for job_id in job_ids]:

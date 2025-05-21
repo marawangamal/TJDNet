@@ -4,7 +4,6 @@ Simple test for jrun package.
 This script tests the basic functionality of jrun by submitting a simple job.
 """
 
-import json
 import os
 import unittest
 from unittest.mock import patch, MagicMock
