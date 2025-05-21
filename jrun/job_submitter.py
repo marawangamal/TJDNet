@@ -1,3 +1,4 @@
+from argparse import Namespace
 import itertools
 import os
 import random
@@ -9,7 +10,7 @@ from typing import Any, Dict
 
 import yaml
 from jrun._base import JobDB
-from jrun.interfaces import JobSpec
+from jrun.interfaces import JobSpec, PJob
 
 JOB_RE = re.compile(r"Submitted batch job (\d+)")
 
@@ -49,7 +50,8 @@ class JobSubmitter(JobDB):
             result = os.popen(f"sbatch {script_path}").read()
             job_id = self._parse_job_id(result)
             print(f"Submitted job with ID {job_id}")
-            self.add_record(JobSpec(**job_spec.to_dict(), job_id=job_id))
+            job_spec.job_id = job_id
+            self.add_record(JobSpec(**job_spec.to_dict()))
             return job_id
         finally:
             # Clean up the temporary file
@@ -73,26 +75,29 @@ class JobSubmitter(JobDB):
         dry: bool = False,
         depends_on: list[int] = [],
         group_name: str = "",
+        submitted_jobs: list[int] = [],
     ):
         """Recursively walk the job tree and submit jobs."""
 
         # Base case (single leaf)
-        if hasattr(node, "command"):
+        if node.get("job", None) is not None:
+            parsed_job = PJob(**node["job"])
             # Leaf node
             # generate rand job id int
             job_id = random.randint(100000, 999999)
             job = JobSpec(
                 job_id=job_id,
                 group_name=node.get("name", group_name),
-                command=node["command"],
-                preamble=preamble_map.get(node["preamble"], ""),
+                command=parsed_job.command,
+                preamble=preamble_map.get(parsed_job.preamble, ""),
                 depends_on=[str(_id) for _id in depends_on],
             )
             if dry:
                 print(f"DRY-RUN: {job.to_script()}")
-                return [job_id]
             else:
-                return [self._submit_jobspec(job)]
+                job_id = self._submit_jobspec(job)
+            submitted_jobs.append(job_id)
+            return [job_id]
 
         # Base case (sweep)
         elif node["type"] == "sweep":
@@ -116,9 +121,10 @@ class JobSubmitter(JobDB):
                 )
                 if dry:
                     print(f"DRY-RUN: {job.to_script()}")
-                    return [job_id]
                 else:
-                    return [self._submit_jobspec(job)]
+                    job_id = self._submit_jobspec(job)
+                submitted_jobs.append(job_id)
+                return [job_id]
 
         # Recursive case:
         elif node["type"] == "sequential":
@@ -126,7 +132,11 @@ class JobSubmitter(JobDB):
             depends_on = []
             for entry in node["jobs"]:
                 job_ids = self.walk(
-                    entry, dry=dry, preamble_map=preamble_map, depends_on=depends_on
+                    entry,
+                    dry=dry,
+                    preamble_map=preamble_map,
+                    depends_on=depends_on,
+                    submitted_jobs=submitted_jobs,
                 )
                 if job_ids:
                     depends_on.extend(job_ids)
@@ -135,8 +145,14 @@ class JobSubmitter(JobDB):
             # Parallel group
             for entry in node["jobs"]:
                 self.walk(
-                    entry, dry=dry, preamble_map=preamble_map, depends_on=depends_on
+                    entry,
+                    dry=dry,
+                    preamble_map=preamble_map,
+                    depends_on=depends_on,
+                    submitted_jobs=submitted_jobs,
                 )
+
+        return submitted_jobs
 
     def sbatch(self, args: list):
         # Call sbatch with the provided arguments

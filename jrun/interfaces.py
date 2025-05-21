@@ -37,3 +37,16 @@ class JobSpec:
         script_lines.append(self.command)
 
         return "\n".join(script_lines)
+
+
+@dataclass
+class PJob:
+    preamble: str
+    command: str
+
+
+@dataclass
+class PGroup:
+    type: str
+    jobs: List[Dict[str, Any]]
+    sweep: Dict[str, List[Any]] = field(default_factory=dict)
