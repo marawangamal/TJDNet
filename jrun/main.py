@@ -22,14 +22,20 @@ def parse_args():
 
     # jrun sbatch ... (thin passthrough)
     p_sbatch = sub.add_parser("sbatch", help="Pass args straight to sbatch")
-    p_sbatch.add_argument(
-        "sbatch_args", nargs=argparse.REMAINDER, help="Anything after sbatch"
-    )
-    args = parser.parse_args()
+    p_sbatch.add_argument("--db", default="jrun.db", help="SQLite DB path")
+
+    # ---------- Passthough for sbatch ----------
+    args, unknown = parser.parse_known_args()
+
+    if args.cmd == "sbatch":
+        args.sbatch_args = unknown  # forward everything
+    elif unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+
     return args
 
 
-if __name__ == "__main__":
+def main():
     args = parse_args()
     if args.cmd == "submit":
         jr = JobSubmitter(args.db)
@@ -43,3 +49,7 @@ if __name__ == "__main__":
     else:
         print("Unknown command")
         exit(1)
+
+
+if __name__ == "__main__":
+    main()

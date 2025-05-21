@@ -3,8 +3,8 @@ from jrun._base import JobDB
 
 
 class JobViewer(JobDB):
-    def __init__(self, job):
-        self.job = job
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def visualize(self):
         pass
@@ -17,7 +17,7 @@ class JobViewer(JobDB):
 
         # Get basic job information
         cursor.execute(
-            "SELECT job_id, name, group command FROM jobs ORDER BY updated_at DESC"
+            "SELECT job_id, group_name command FROM jobs ORDER BY updated_at DESC"
         )
         jobs = cursor.fetchall()
 

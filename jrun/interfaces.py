@@ -7,24 +7,18 @@ from typing import List, Dict, Any
 
 
 @dataclass
-class JobRecord:
+class JobSpec:
     """Specification for a SLURM job."""
 
-    job_id: str
+    job_id: int
     command: str
     preamble: str
-    group: str = ""
-    depends_on: List[str] = field(default_factory=list)
-    params: Dict[str, Any] = field(default_factory=dict)
+    group_name: str
+    depends_on: List[str]
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the dataclass instance to a dictionary."""
         return asdict(self)
-
-
-@dataclass
-class JobSpec(JobRecord):
-    job_id: str = ""
 
     def to_script(self) -> str:
         """Convert job spec to a SLURM script.

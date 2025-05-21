@@ -1,22 +1,33 @@
 import os
+import re
+import shlex
+import subprocess
 import tempfile
 from jrun._base import JobDB
-from jrun.interfaces import JobRecord, JobSpec
+from jrun.interfaces import JobSpec
+
+JOB_RE = re.compile(r"Submitted batch job (\d+)")
 
 
 class JobSubmitter(JobDB):
-    """Submit jobs to a SLURM cluster with support for dependencies and job sequences."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-    def __init__(self, db_path: str = "~/.cache/jobrunner/jobs.db"):
-        super().__init__(db_path)
+    def _parse_job_id(self, result: str) -> int:
+        # job_id = result.split(" ")[-1].strip()
+        # if not job_id:
+        #     raise ValueError("Failed to parse job ID from sbatch output.")
+        # return job_id
+        # Typical line: "Submitted batch job 123456"
+        m = JOB_RE.search(result)
+        if m:
+            jobid = int(m.group(1))
+            print(f"→ jobid = {jobid}")
+            return jobid
+        else:
+            raise RuntimeError(f"Could not parse job id from sbatch output:\n{result}")
 
-    def _parse_job_id(self, result: str) -> str:
-        job_id = result.split(" ")[-1].strip()
-        if job_id is None:
-            raise ValueError("Failed to parse job ID from sbatch output.")
-        return job_id
-
-    def _submit_jobspec(self, job_spec: JobSpec) -> str:
+    def _submit_jobspec(self, job_spec: JobSpec) -> int:
         """Submit a single job to SLURM and return the job ID.
 
         Args:
@@ -33,7 +44,7 @@ class JobSubmitter(JobDB):
             result = os.popen(f"sbatch {script_path}").read()
             job_id = self._parse_job_id(result)
             print(f"Submitted job with ID {job_id}")
-            self.add_record(JobRecord(**job_spec.to_dict(), job_id=job_id))
+            self.add_record(JobSpec(**job_spec.to_dict(), job_id=job_id))
             return job_id
         finally:
             # Clean up the temporary file
@@ -42,16 +53,18 @@ class JobSubmitter(JobDB):
     def submit(self, file: str, dry: bool = False):
         pass
 
-    def sbatch(self, sbatch_args: list):
+    def sbatch(self, args: list):
         # Call sbatch with the provided arguments
-        result = os.popen(f"sbatch {' '.join(sbatch_args)}").read()
+        result = subprocess.run(
+            ["sbatch"] + args, check=True, capture_output=True, text=True
+        ).stdout.strip()
         job_id = self._parse_job_id(result)
-        print(f"Submitted job with ID {job_id}")
         self.add_record(
-            JobRecord(
+            JobSpec(
                 job_id=job_id,
-                group="sbatch",
-                command=" ".join(sbatch_args),
+                group_name="sbatch",
+                command=" ".join(args),
                 preamble="",
+                depends_on=[],
             )
         )

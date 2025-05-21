@@ -7,7 +7,7 @@ import os
 import sqlite3
 from typing import Callable, Dict, Optional, Union
 
-from jrun.interfaces import JobRecord
+from jrun.interfaces import JobSpec
 
 
 class JobDB:
@@ -35,27 +35,12 @@ class JobDB:
             """
         CREATE TABLE IF NOT EXISTS jobs (
             job_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            group TEXT,
             command TEXT NOT NULL,
             preamble TEXT NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            dependencies TEXT,
-            params TEXT
-        )
-        """
-        )
-
-        # Create job dependencies table if it doesn't exist
-        cursor.execute(
-            """
-        CREATE TABLE IF NOT EXISTS job_dependencies (
-            job_id TEXT,
+            group_name TEXT NOT NULL,
             depends_on TEXT,
-            PRIMARY KEY (job_id, depends_on),
-            FOREIGN KEY (job_id) REFERENCES jobs (job_id)
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
         """
         )
@@ -63,13 +48,13 @@ class JobDB:
         conn.commit()
         conn.close()
 
-    def add_record(self, rec: JobRecord):
+    def add_record(self, rec: JobSpec):
         pass
 
-    def update_record(self, rec: JobRecord):
+    def update_record(self, rec: JobSpec):
         pass
 
-    def delete_record(self, rec: JobRecord):
+    def delete_record(self, rec: JobSpec):
         pass
 
     @staticmethod

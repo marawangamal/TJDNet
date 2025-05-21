@@ -25,13 +25,11 @@ setup(
         "pyyaml>=6.0",  # For YAML configuration
         "pandas>=1.5.0",  # For data handling
         "matplotlib>=3.5.0",  # For visualization
-        "networkx>=2.8.0",  # For dependency graphs
-        "sqlite3>=2.6.0",  # For database (if not in standard library)
     ],
     entry_points={
         "console_scripts": [
             "jobrunner = jobrunner.main:main",  # Original entry point
-            "jrun = jrun.cli:main",  # New entry point for the renamed package
+            "jrun = jrun.main:main",  # New entry point for the renamed package
         ],
     },
 )
