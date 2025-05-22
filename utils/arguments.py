@@ -233,6 +233,18 @@ def add_train_args(parser: argparse.ArgumentParser):
         help="Whether to run a single batch for debugging.",
         default=False,
     )
+    parser.add_argument(
+        "--slurm_job_id",
+        type=int,
+        help="Slurm job ID for lookup.",
+        default=None,
+    )
+    parser.add_argument(
+        "--group_id",
+        type=str,
+        help="Group ID for jrun.",
+        default=None,
+    )
 
 
 def add_test_args(parser: argparse.ArgumentParser):
@@ -243,7 +255,7 @@ def add_test_args(parser: argparse.ArgumentParser):
         "--ckpt",
         type=str,
         help="Path to the checkpoint to evaluate.",
-        required=True,
+        default=None,
     )
     parser.add_argument(
         "--batch_size",
@@ -273,6 +285,16 @@ def add_test_args(parser: argparse.ArgumentParser):
         "--do_sample",
         action="store_true",
         default=False,
+    )
+
+    # ---
+    # MISC
+    # ---
+    parser.add_argument(
+        "--group_id",
+        type=str,
+        help="Group ID for jrun.",
+        default=None,
     )
 
 

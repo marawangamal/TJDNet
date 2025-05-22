@@ -59,6 +59,8 @@ SILENT_ARGS = [
     "cmd",
     "wandb_id",
     "experiment_name",
+    "slurm_job_id",
+    "group_id",
 ]
 
 
@@ -360,6 +362,30 @@ def train(args):
 
 def eval(args):
     printo(f"Testing model...")
+
+    # Get ckpt path
+    ckpt = None
+    if args.ckpt is not None:
+        ckpt = args.ckpt
+    elif args.group_id is not None:
+        for exp in os.listdir(EXPERIMENTS_DIR):
+            # Filter by .best file
+            if not osp.exists(osp.join(EXPERIMENTS_DIR, exp, ".best")):
+                continue
+
+            # Filter by group_id
+            hparams = torch.load(
+                osp.join(EXPERIMENTS_DIR, exp, "best.ckpt", "meta.pt"),
+                map_location="cpu",
+            )["hyper_parameters"]
+
+            if hparams["group_id"] == args.group_id:
+                ckpt = osp.join(EXPERIMENTS_DIR, exp, "best.ckpt")
+                printo(f"Found checkpoint @ {ckpt}")
+                break
+    else:
+        raise ValueError("No checkpoint found. Please provide a valid checkpoint.")
+
     lmodel = LModel.load_from_checkpoint(args.ckpt)
     exp_args = Namespace(**lmodel.hparams)
     generate_cb = GenerateCallback(
