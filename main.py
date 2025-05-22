@@ -1,15 +1,15 @@
 """Train a TJD model using PyTorch Lightning.
 
 Example:
-    python main.py train --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10
-    python train_pl.py --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 1 --seq_len 8 --lr 5e-5 --model_head base --horizon 1 --rank 1
+    python main.py train  --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10
+    python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --max_num_samples 10 --batch_size 1 --seq_len 8 --lr 5e-5 --model_head base --horizon 1 --rank 1
 
 """
 
 import os
 import os.path as osp
 from argparse import Namespace
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import torch
 from torch import optim
@@ -277,7 +277,10 @@ def train(args):
     ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name_filtered, "best.ckpt")
     wandb_id = None
     if osp.exists(ckpt_path):
-        wandb_id = torch.load(ckpt_path, map_location="cpu")["hyper_parameters"][
+        hp_path = osp.join(ckpt_path)
+        if osp.isdir(ckpt_path):
+            hp_path = osp.join(ckpt_path, "meta.pt")
+        wandb_id = torch.load(hp_path, map_location="cpu")["hyper_parameters"][
             "wandb_id"
         ]
         printo(f"Found checkpoint @ {ckpt_path}, wandb ID: {wandb_id}")
@@ -288,6 +291,7 @@ def train(args):
         args.experiment_name = exp_name_filtered
         printo("Training from scratch.")
 
+    printo(f"GROUP ID: {args.group_id}")
     wandb_logger = get_wandb_logger(exp_name_filtered, wandb_id=wandb_id)
 
     # Model
@@ -360,46 +364,135 @@ def train(args):
         trainer.print(torch.cuda.memory_summary())
 
 
+def find_checkpoints_by_group(group_id: str, group_level: int = 0) -> List[str]:
+    """Find all best checkpoints matching group_id."""
+    ckpts = []
+    for exp in os.listdir(EXPERIMENTS_DIR):
+        best_file = osp.join(EXPERIMENTS_DIR, exp, ".best")
+        if not osp.exists(best_file):
+            continue
+
+        ckpt_path = osp.join(EXPERIMENTS_DIR, exp, "best.ckpt")
+        is_fsdp = osp.isdir(ckpt_path)
+
+        # Load hyperparameters
+        meta_path = osp.join(ckpt_path, "meta.pt") if is_fsdp else ckpt_path
+        hparams = torch.load(meta_path, map_location="cpu")["hyper_parameters"]
+
+        # Check group_id match
+        if "group_id" in hparams:
+            exp_group = hparams["group_id"].split("-")[group_level]
+            target_group = group_id.split("-")[group_level]
+
+            if exp_group == target_group:
+                final_path = ckpt_path + ".consolidated" if is_fsdp else ckpt_path
+                ckpts.append((final_path, exp))
+
+    return ckpts
+
+
 def eval(args):
-    printo(f"Testing model...")
+    printo("Testing model...")
 
-    # Get ckpt path
-    ckpt = None
-    if args.ckpt is not None:
-        ckpt = args.ckpt
-    elif args.group_id is not None:
-        for exp in os.listdir(EXPERIMENTS_DIR):
-            # Filter by .best file
-            if not osp.exists(osp.join(EXPERIMENTS_DIR, exp, ".best")):
-                continue
-
-            # Filter by group_id
-            hparams = torch.load(
-                osp.join(EXPERIMENTS_DIR, exp, "best.ckpt", "meta.pt"),
-                map_location="cpu",
-            )["hyper_parameters"]
-
-            if hparams["group_id"] == args.group_id:
-                ckpt = osp.join(EXPERIMENTS_DIR, exp, "best.ckpt")
-                printo(f"Found checkpoint @ {ckpt}")
-                break
+    # Determine checkpoint paths
+    if args.ckpt:
+        ckpt_paths = [(args.ckpt, "single")]
+    elif args.group_id:
+        ckpt_paths = find_checkpoints_by_group(args.group_id, args.group_level)
+        if not ckpt_paths:
+            raise ValueError(f"No checkpoints found for group_id: {args.group_id}")
+        printo(f"Found {len(ckpt_paths)} checkpoints to test")
     else:
-        raise ValueError("No checkpoint found. Please provide a valid checkpoint.")
+        raise ValueError("Must provide either --ckpt or --group_id")
 
-    lmodel = LModel.load_from_checkpoint(args.ckpt)
-    exp_args = Namespace(**lmodel.hparams)
-    generate_cb = GenerateCallback(
-        prompt=DATASETS[exp_args.dataset].get_sample_prompt()
-    )
-    wandb_id = lmodel.hparams["wandb_id"]
-    exp_name = lmodel.hparams["experiment_name"]
-    wandb_logger = get_wandb_logger(exp_name, wandb_id=wandb_id)
-    trainer = L.Trainer(
-        accelerator="gpu", devices=1, callbacks=[generate_cb], logger=wandb_logger
-    )
-    ldata = LDataModule(**vars(exp_args))
-    trainer.test(lmodel, dataloaders=ldata)
-    return
+    # Test each checkpoint
+    for ckpt_path, exp_name in ckpt_paths:
+        printo(f"\n=== Testing {exp_name} ===")
+
+        # Load model and setup
+        lmodel = LModel.load_from_checkpoint(ckpt_path)
+        exp_args = Namespace(**lmodel.hparams)
+
+        # Setup trainer
+        generate_cb = GenerateCallback(
+            prompt=DATASETS[exp_args.dataset].get_sample_prompt()
+        )
+
+        logger = get_wandb_logger(exp_args.experiment_name, wandb_id=exp_args.wandb_id)
+        trainer = L.Trainer(
+            accelerator="gpu", devices=1, callbacks=[generate_cb], logger=logger
+        )
+
+        # Test
+        ldata = LDataModule(**vars(exp_args))
+        trainer.test(lmodel, datamodule=ldata)
+
+
+# def eval(args):
+#     printo(f"Testing model...")
+
+#     # Get ckpt path
+#     ckpt = None
+
+#     # Pass in ckpt
+#     if args.ckpt is not None:
+#         ckpt = args.ckpt
+
+#     # Lookup ckpt by group_id
+#     elif args.group_id is not None:
+#         for exp in os.listdir(EXPERIMENTS_DIR):
+
+#             # Filter: only experiments with .best file (faster to check)
+#             if not osp.exists(osp.join(EXPERIMENTS_DIR, exp, ".best")):
+#                 continue
+
+#             # Filter: first experiment with matching group_id
+#             ckpt_mode = (
+#                 "fsdp"
+#                 if osp.isdir(osp.join(EXPERIMENTS_DIR, exp, "best.ckpt"))
+#                 else "default"
+#             )
+#             hparams_ckpt = {
+#                 "fsdp": osp.join(EXPERIMENTS_DIR, exp, "best.ckpt", "meta.pt"),
+#                 "default": osp.join(EXPERIMENTS_DIR, exp, "best.ckpt"),
+#             }[ckpt_mode]
+#             hparams = torch.load(
+#                 osp.join(hparams_ckpt),
+#                 map_location="cpu",
+#             )["hyper_parameters"]
+
+#             # Apply filter
+#             if (
+#                 "group_id" in hparams
+#                 and args.group_id.split("-")[args.group_level]
+#                 == hparams["group_id"].split("-")[args.group_level]
+#             ):
+#                 ckpt = {
+#                     "fsdp": osp.join(EXPERIMENTS_DIR, exp, "best.ckpt.consolidated"),
+#                     "default": osp.join(EXPERIMENTS_DIR, exp, "best.ckpt"),
+#                 }[ckpt_mode]
+#                 printo(f"Found checkpoint @ {ckpt}")
+#                 break
+#     else:
+#         raise ValueError("No checkpoint found. Please provide a valid checkpoint.")
+
+#     if ckpt is None:
+#         raise ValueError("No checkpoint found. Please provide a valid checkpoint.")
+
+#     lmodel = LModel.load_from_checkpoint(ckpt)
+#     exp_args = Namespace(**lmodel.hparams)
+#     generate_cb = GenerateCallback(
+#         prompt=DATASETS[exp_args.dataset].get_sample_prompt()
+#     )
+#     wandb_id = lmodel.hparams["wandb_id"]
+#     exp_name = lmodel.hparams["experiment_name"]
+#     wandb_logger = get_wandb_logger(exp_name, wandb_id=wandb_id)
+#     trainer = L.Trainer(
+#         accelerator="gpu", devices=1, callbacks=[generate_cb], logger=wandb_logger
+#     )
+#     ldata = LDataModule(**vars(exp_args))
+#     trainer.test(lmodel, dataloaders=ldata)
+#     return
 
 
 if __name__ == "__main__":

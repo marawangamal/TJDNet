@@ -1,3 +1,4 @@
+from networkx import d_separated
 from dataloaders.base import AbstractDataset
 from datasets import load_dataset, DatasetDict
 
@@ -5,8 +6,8 @@ from datasets import load_dataset, DatasetDict
 class GSM8k(AbstractDataset):
     template = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
 
-    def __init__(self, tokenizer, seq_len=512, **kwargs):
-        super().__init__(tokenizer, seq_len)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def parse_answer(self, generation: str) -> float:
         try:
@@ -64,12 +65,21 @@ class GSM8k(AbstractDataset):
                 test_datasets[split], self.tokenizer
             )
 
-        return DatasetDict({**base_datasets, **test_datasets})
+        ds = DatasetDict({**base_datasets, **test_datasets})
+
+        # Limit the number of samples to 1000 for train and 100 for eval/test
+        if self.max_num_samples is not None:
+            for split in ds:
+                ds[split] = (
+                    ds[split].shuffle(seed=42).select(range(self.max_num_samples))
+                )
+
+        return ds
 
 
 if __name__ == "__main__":
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    gsm8k = GSM8k(tokenizer).load_data()
+    gsm8k = GSM8k(tokenizer, max_num_samples=100).load_data()
     print(gsm8k)

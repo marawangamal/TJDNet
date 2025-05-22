@@ -202,7 +202,7 @@ def add_train_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--max_num_samples",
         type=int,
-        default=10000,
+        default=None,
         help="Maximum number of samples to load from the dataset.",
     )
 
@@ -295,6 +295,12 @@ def add_test_args(parser: argparse.ArgumentParser):
         type=str,
         help="Group ID for jrun.",
         default=None,
+    )
+    parser.add_argument(
+        "--group_level",
+        type=int,
+        default=0,
+        help="Group level to filter the models",
     )
 
 

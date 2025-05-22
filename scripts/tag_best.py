@@ -1,74 +1,111 @@
+#!/usr/bin/env python3
 import argparse
 import os
-import os.path as osp
-
+import subprocess
+from collections import defaultdict
+from pathlib import Path
 import torch
 
 
+def load_experiment(exp_path):
+    """Load experiment eval_loss and hyperparams."""
+    ckpt_path = exp_path / "best.ckpt"
+    if not ckpt_path.exists():
+        return None
+
+    meta_path = ckpt_path / "meta.pt" if ckpt_path.is_dir() else ckpt_path
+    try:
+        ckpt = torch.load(meta_path, map_location="cpu")
+        hparams = ckpt["hyper_parameters"]
+
+        # Find ModelCheckpoint callback with eval_loss
+        for key, cb in ckpt.get("callbacks", {}).items():
+            if "ModelCheckpoint" in key and "eval_loss" in key:
+                return cb["best_model_score"], hparams
+        return None
+    except:
+        return None
+
+
 def main(args):
-    # Load the experiment directory
+    exp_dir = Path(args.experiments)
+
+    # Load and filter experiments
     experiments = {}
-    for exp in os.listdir(args.experiments):
-        ckpt_path = osp.join(args.experiments, exp, "best.ckpt")
-        if osp.isdir(ckpt_path):
-            ckpt = torch.load(osp.join(ckpt_path, "meta.pt"), map_location="cpu")
+    target_group = args.group_id.split("-")[args.group_level]
 
-            # Apply filter
-            if args.filter is not None:
-                hparams = ckpt["hyper_parameters"]
-                if (
-                    not args.filter_by in hparams
-                    # or hparams[args.filter_by] != args.filter
-                    # check if args.filter is substring of hparams[args.filter_by]
-                    or args.filter not in hparams[args.filter_by]
-                ):
-                    continue
+    for exp_path in exp_dir.iterdir():
+        if not exp_path.is_dir():
+            continue
 
-            # Add eval loss
-            eval_loss = ckpt["callbacks"][
-                "ModelCheckpoint{'monitor': 'eval_loss', 'mode': 'min', 'every_n_train_steps': 0, 'every_n_epochs': 1, 'train_time_interval': None}"
-            ]["best_model_score"]
-            experiments[exp] = eval_loss
+        data = load_experiment(exp_path)
+        if data is None:
+            continue
 
-    # Find best model
-    best_model = min(experiments, key=lambda k: experiments[k])
+        eval_loss, hparams = data
+        exp_group = hparams.get("group_id", "").split("-")
 
-    # Tag the best model (add  empty file named '.best' in the best model directory)
-    best_file_path = osp.join(args.experiments, best_model, ".best")
-    with open(best_file_path, "w") as f:
-        f.write(f"Best model: {best_model}\n")
-        f.write(f"Eval loss: {experiments[best_model]}\n")
-        f.write(f"Filter: {args.filter}\n")
-        f.write(f"Filter by: {args.filter_by}\n")
-        f.write(f"Tag: {args.tag}\n")
+        if (
+            len(exp_group) > args.group_level
+            and exp_group[args.group_level] == target_group
+        ):
+            experiments[exp_path.name] = (eval_loss, hparams)
 
-    # Remove .best from all other models in experiments (idempotentency)
-    for exp in experiments:
-        if exp != best_model:
-            best_file_path = osp.join(args.experiments, exp, ".best")
-            if osp.exists(best_file_path):
-                os.remove(best_file_path)
+    if not experiments:
+        print("No matching experiments found")
+        return
+
+    # Group experiments
+    if args.group_by:
+        groups = defaultdict(dict)
+        for name, (loss, hparams) in experiments.items():
+            key = str(hparams.get(args.group_by, "unknown"))
+            groups[key][name] = (loss, hparams)
+    else:
+        groups = {"all": experiments}
+
+    # Find and tag best in each group
+    best_models = set()
+    for group_name, group_exps in groups.items():
+        best_name = min(group_exps.keys(), key=lambda k: group_exps[k][0])
+        best_loss = group_exps[best_name][0]
+
+        # Tag best
+        with open(exp_dir / best_name / ".best", "w") as f:
+            f.write(f"Best model: {best_name}\nEval loss: {best_loss:.6f}\n")
+
+        # Consolidate if directory
+        ckpt_path = exp_dir / best_name / "best.ckpt"
+        if ckpt_path.is_dir():
+            subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "lightning.pytorch.utilities.consolidate_checkpoint",
+                    str(ckpt_path),
+                ],
+                capture_output=True,
+            )
+
+        best_models.add(best_name)
+        print(f"Best in {group_name}: {best_name} ({best_loss:.6f})")
+
+    # Remove .best from others
+    for name in experiments:
+        if name not in best_models:
+            best_file = exp_dir / name / ".best"
+            best_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tag the best model")
     parser.add_argument(
-        "--experiments",
-        type=str,
-        default="experiments",
-        help="Path to the experiments directory",
+        "--experiments", default="experiments", help="Experiments directory"
     )
     parser.add_argument(
-        "--filter",
-        type=str,
-        default=None,
-        help="Filter value",
+        "--group_level", type=int, default=0, help="Group level to filter"
     )
-    parser.add_argument(
-        "--filter_by",
-        type=str,
-        default="group_id",
-        help="Filter attribute",
-    )
-    args = parser.parse_args()
-    main(args)
+    parser.add_argument("--group_id", required=True, help="Group ID to filter")
+    parser.add_argument("--group_by", help="Tag best within each group_by attr")
+
+    main(parser.parse_args())
