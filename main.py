@@ -227,6 +227,27 @@ class LDataModule(L.LightningDataModule):
         return collator
 
 
+class SafeModelCheckpoint(ModelCheckpoint):
+    """ModelCheckpoint that converts all metrics to CPU tensors to avoid device conflicts."""
+
+    def check_monitor_top_k(self, trainer, current):
+        # Convert current to CPU tensor (not float - Lightning expects tensors)
+        if isinstance(current, torch.Tensor):
+            current = current.detach().cpu()
+        else:
+            current = torch.tensor(float(current))
+
+        # Convert stored scores to CPU tensors
+        for path in list(self.best_k_models.keys()):
+            val = self.best_k_models[path]
+            if isinstance(val, torch.Tensor):
+                self.best_k_models[path] = val.detach().cpu()
+            else:
+                self.best_k_models[path] = torch.tensor(float(val))
+
+        return super().check_monitor_top_k(trainer, current)
+
+
 @rank_zero_only
 def get_wandb_logger(exp_name: str, wandb_id=None):
     git_info = get_git_info()
@@ -301,7 +322,7 @@ def train(args):
     ldata = LDataModule(**vars(args))
 
     # Callbacks
-    checkpoint_cb = ModelCheckpoint(
+    checkpoint_cb = SafeModelCheckpoint(
         dirpath=osp.join(EXPERIMENTS_DIR, exp_name_filtered),
         filename="best",
         monitor="eval_loss",
@@ -426,73 +447,6 @@ def eval(args):
         # Test
         ldata = LDataModule(**vars(exp_args))
         trainer.test(lmodel, datamodule=ldata)
-
-
-# def eval(args):
-#     printo(f"Testing model...")
-
-#     # Get ckpt path
-#     ckpt = None
-
-#     # Pass in ckpt
-#     if args.ckpt is not None:
-#         ckpt = args.ckpt
-
-#     # Lookup ckpt by group_id
-#     elif args.group_id is not None:
-#         for exp in os.listdir(EXPERIMENTS_DIR):
-
-#             # Filter: only experiments with .best file (faster to check)
-#             if not osp.exists(osp.join(EXPERIMENTS_DIR, exp, ".best")):
-#                 continue
-
-#             # Filter: first experiment with matching group_id
-#             ckpt_mode = (
-#                 "fsdp"
-#                 if osp.isdir(osp.join(EXPERIMENTS_DIR, exp, "best.ckpt"))
-#                 else "default"
-#             )
-#             hparams_ckpt = {
-#                 "fsdp": osp.join(EXPERIMENTS_DIR, exp, "best.ckpt", "meta.pt"),
-#                 "default": osp.join(EXPERIMENTS_DIR, exp, "best.ckpt"),
-#             }[ckpt_mode]
-#             hparams = torch.load(
-#                 osp.join(hparams_ckpt),
-#                 map_location="cpu",
-#             )["hyper_parameters"]
-
-#             # Apply filter
-#             if (
-#                 "group_id" in hparams
-#                 and args.group_id.split("-")[args.group_level]
-#                 == hparams["group_id"].split("-")[args.group_level]
-#             ):
-#                 ckpt = {
-#                     "fsdp": osp.join(EXPERIMENTS_DIR, exp, "best.ckpt.consolidated"),
-#                     "default": osp.join(EXPERIMENTS_DIR, exp, "best.ckpt"),
-#                 }[ckpt_mode]
-#                 printo(f"Found checkpoint @ {ckpt}")
-#                 break
-#     else:
-#         raise ValueError("No checkpoint found. Please provide a valid checkpoint.")
-
-#     if ckpt is None:
-#         raise ValueError("No checkpoint found. Please provide a valid checkpoint.")
-
-#     lmodel = LModel.load_from_checkpoint(ckpt)
-#     exp_args = Namespace(**lmodel.hparams)
-#     generate_cb = GenerateCallback(
-#         prompt=DATASETS[exp_args.dataset].get_sample_prompt()
-#     )
-#     wandb_id = lmodel.hparams["wandb_id"]
-#     exp_name = lmodel.hparams["experiment_name"]
-#     wandb_logger = get_wandb_logger(exp_name, wandb_id=wandb_id)
-#     trainer = L.Trainer(
-#         accelerator="gpu", devices=1, callbacks=[generate_cb], logger=wandb_logger
-#     )
-#     ldata = LDataModule(**vars(exp_args))
-#     trainer.test(lmodel, dataloaders=ldata)
-#     return
 
 
 if __name__ == "__main__":
