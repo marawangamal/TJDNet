@@ -10,7 +10,7 @@ Speeding up language model inference via tensorized joint distributions. This co
 <i> Speeding up language model inference via tensorized joint distributions </i>
 
 
-<img src="assets/image.png" style="width: 500;" />
+<img src="config/assets/image.png" style="width: 500;" />
 <!-- <i>Speeding up language model inference via tensorized joint distributions.</i> -->
 
 <!-- <i> (Left) N forward passes to decode. (Right) TJDNet decoding uses Single forward
@@ -56,7 +56,7 @@ huggingface-cli login
 To verify that your installation and setup are correct train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
 
 ```bash
-python train.py --compute_acc
+python main.py train
 ```
 
 After training for 4 epochs (~5 minutes on a single 40GB GPU), you should observe **100% accuracy** on the stemp dataset and an output like this
@@ -81,7 +81,7 @@ Eval accuracy: 1.0
 
 To fine-tune Llama using the Canonical Polyadic (CP) head, run this command (best checkpoint will be saved under `checkpoints`)
 ```bash 
-python train_pl.py \
+python main.py train\
     --accel_strategy fsdp \
     --dataset gsm8k \
     --model meta-llama/Llama-3.2-3B-Instruct \
@@ -99,45 +99,9 @@ python train_pl.py \
 ## Evaluation
 To run evaluation (compute accuracy) run the following command
 ```bash 
-python scripts/eval_acc.py -c <checkpoint_path>
+python -m lightning.pytorch.utilities.consolidate_checkpoint path/to/my/checkpoint
+python main.py test --ckpt path/to/my/checkpoint
 ```
-
-## Scripts
-
-TJDNet provides several scripts for analysis and benchmarking:
-
-- `scripts/eval_acc.py`: Evaluate model accuracy
-- `scripts/eval_latency.py`: 
-- `scripts/plots/plot_output_dist_spectrum.py`: Visualize specturm of output token distribution
-- `scripts/plots/plot_lat_mem_rank_horizon.py`: Benchmark latency and memory vs. rank and horizon
-- `scripts/datasets/create_hf_tjdnet_ds.py`: Generate huggingface tjdnet model generation likelihoods dataset
-- `scripts/jobrunner.py`: SLURM job submission utility (Described in more detail below)
-
-Run any script with `--help` for usage information.
-
-
-### SLURM batch Job runner
-
-Use `scripts/jobrunner.py` to submit and track multiple experiments, particularly on clusters using the SLURM workload manager.
-
-* **Submit a single job:**
-    Wrap your full training or evaluation command string in quotes.
-    ```bash
-    python scripts/jobrunner.py --job "<your_full_command_here>"
-    ```
-
-* **Submit batch jobs from a config file:**
-    Define parameters for multiple jobs in a YAML file (see `config/train.yaml` for format).
-    ```bash
-    python scripts/jobrunner.py -f config/train.yaml
-    ```
-
-* **Check status of submitted jobs:**
-    ```bash
-    python scripts/jobrunner.py -s
-    ```
-
-*(Note: This job runner currently assumes a SLURM environment (`sbatch`, `squeue` commands).)*
 
 
 ### Generate Huggingface Dataset

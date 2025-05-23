@@ -202,6 +202,10 @@ class TJD(ABC, torch.nn.Module):
                     H, generation_config.max_new_tokens - t
                 )  # Handle case when < horizon tokens are left
 
+                if t >= 70:
+                    dummy = 1
+                    pass
+
                 mask_active = torch.ones(B, device=device).bool()
                 if generation_config.eos_token_id is not None:
                     # mask_active = ~torch.any(
@@ -209,7 +213,7 @@ class TJD(ABC, torch.nn.Module):
                     #     dim=1,
                     # )
                     mask_active = ~torch.any(
-                        y_out == generation_config.eos_token_id, dim=1
+                        y_out == torch.tensor(generation_config.eos_token_id), dim=1
                     )
 
                 # Exit if all sequences are done

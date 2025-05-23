@@ -1,4 +1,5 @@
 from tjdnet.distributions import TJD_DISTS
+from utils.helpers import validate_args
 
 
 import argparse
@@ -41,12 +42,6 @@ def parse_args():
         default=1.0,
         help="Gradient clipping value for training.",
     )
-    parser.add_argument(
-        "--accum_grad_batches",
-        type=int,
-        default=1,
-        help="Number of batches to accumulate gradients over.",
-    )
 
     # ---------------
     # Model init args
@@ -82,6 +77,13 @@ def parse_args():
         type=int,
         default=2,
         help="Horizon for TJD models. (E.g. if horizon=2 the model will make 2x less forward passes)",
+    )
+    parser.add_argument(
+        "--positivity_func",
+        type=str,
+        default="exp",
+        choices=["sq", "abs", "exp"],
+        help="Positivity function to use for MPSDist.",
     )
     parser.add_argument(
         "--init_method",
@@ -183,6 +185,45 @@ def parse_args():
     # ------------------
 
     parser.add_argument(
+        "--logging_strategy",
+        type=str,
+        default="epoch",
+        choices=["steps", "epoch"],
+        help="Logging strategy for the trainer.",
+    )
+    parser.add_argument(
+        "--logging_steps",
+        type=int,
+        default=1,
+        help="Logging frequency for the trainer.",
+    )
+    parser.add_argument(
+        "--eval_strategy",
+        type=str,
+        default="epoch",
+        choices=["steps", "epoch"],
+        help="Evaluation strategy for the trainer.",
+    )
+    parser.add_argument(
+        "--eval_steps",
+        type=int,
+        default=1,
+        help="Evaluation frequency for the trainer.",
+    )
+    parser.add_argument(
+        "--generate_strategy",
+        type=str,
+        default="epoch",
+        choices=["steps", "epoch", "no"],
+        help="Strategy for text generation during training",
+    )
+    parser.add_argument(
+        "--generate_steps",
+        type=int,
+        default=1000,
+        help="Number of steps between generations if strategy is 'steps'",
+    )
+    parser.add_argument(
         "--max_num_samples",
         type=int,
         default=10000,
@@ -199,41 +240,12 @@ def parse_args():
         default=False,
     )
     parser.add_argument(
-        "--accel_strategy",
+        "--wandb_project",
         type=str,
-        default="auto",
-        choices=["auto", "fsdp", "ddp", "deepspeed"],
-    )
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="Whether to run the test set.",
-        default=False,
-    )
-    parser.add_argument(
-        "--fast_dev_run",
-        action="store_true",
-        help="Whether to run a single batch for debugging.",
-        default=False,
+        default="tjdnet",
+        help="Wandb project prefix name.",
     )
 
     args = parser.parse_args()
     validate_args(args)
     return parser.parse_args()
-
-
-def validate_args(args):
-    rules = [
-        {
-            "message": "Cannot use fsdp strategy during testing.",
-            "condition": lambda: not (args.accel_strategy == "fsdp" and args.test),
-        }
-    ]
-
-    for rule in rules:
-        if not rule["condition"]():
-            raise ValueError(rule["message"])
-
-
-# python train_pl.py --accel_strategy ddp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 10 --batch_size 1 --accum_grad_batches 8 --seq_len 128 --lr 5e-5 --model_head base --rank 1 --horizon 1
-# python train_pl.py --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 10 --batch_size 8 --seq_len 128 --lr 5e-5 --model_head base --rank 1 --horizon 1

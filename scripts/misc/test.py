@@ -25,7 +25,7 @@ from transformers.models.gptj.modeling_gptj import (
     GPTJBlock,
 )
 
-from utils.arguments import parse_args  # Update this import based on your model
+from utils.arguments_hf import parse_args  # Update this import based on your model
 
 
 def setup_process_group():

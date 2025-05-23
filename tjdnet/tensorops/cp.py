@@ -52,9 +52,15 @@ def select_margin_cp_tensor_batched(
     # Get breakpoints for 1st free leg and 1st margin leg
     bp_free, bp_margin = get_breakpoints(ops)  # (batch_size,), (batch_size,)
 
-    res_left = torch.ones(batch_size, rank, device=cp_params.device)
-    res_right = torch.ones(batch_size, rank, device=cp_params.device)
-    res_free = torch.ones(batch_size, rank, vocab_size, device=cp_params.device)
+    res_left = torch.ones(
+        batch_size, rank, device=cp_params.device, dtype=cp_params.dtype
+    )
+    res_right = torch.ones(
+        batch_size, rank, device=cp_params.device, dtype=cp_params.dtype
+    )
+    res_free = torch.ones(
+        batch_size, rank, vocab_size, device=cp_params.device, dtype=cp_params.dtype
+    )
 
     core_margins = cp_params.sum(dim=-1)  # (B, R, T)
     scale_factors = []
@@ -73,7 +79,7 @@ def select_margin_cp_tensor_batched(
                 .reshape(-1, 1, 1)
                 .expand(-1, rank, -1),  # (B', R, 1)
             ).squeeze(-1)
-            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf = torch.ones(batch_size, device=cp_params.device, dtype=cp_params.dtype)
             if use_scale_factors:
                 sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
             scale_factors.append(sf)
@@ -84,7 +90,9 @@ def select_margin_cp_tensor_batched(
         # Marginalize
         if mask_margin.any():
             update = core_margins[mask_margin, :, t]  # (B', R)
-            sf = torch.ones(batch_size, device=cp_params.device)  # (B,)
+            sf = torch.ones(
+                batch_size, device=cp_params.device, dtype=cp_params.dtype
+            )  # (B,)
             if use_scale_factors:
                 sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
             scale_factors.append(sf)

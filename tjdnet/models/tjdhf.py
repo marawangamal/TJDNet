@@ -64,15 +64,15 @@ class TJDHuggingFace(TJD):
             backbone, lm_head = hfmodel.model, hfmodel.lm_head
 
         # Apply LoRA to backbone
-        # if self.hf_train_mode == "lora":
-        #     peft_config = LoraConfig(
-        #         task_type=TaskType.FEATURE_EXTRACTION,
-        #         inference_mode=False,
-        #         r=self.hf_lora_rank,
-        #         lora_alpha=32,
-        #         lora_dropout=0.1,
-        #     )
-        #     backbone = get_peft_model(backbone, peft_config)  # type: ignore
+        if self.hf_train_mode == "lora":
+            peft_config = LoraConfig(
+                task_type=TaskType.FEATURE_EXTRACTION,
+                inference_mode=False,
+                r=self.hf_lora_rank,
+                lora_alpha=32,
+                lora_dropout=0.1,
+            )
+            backbone = get_peft_model(backbone, peft_config)  # type: ignore
 
         self.config = hfmodel.config
 
