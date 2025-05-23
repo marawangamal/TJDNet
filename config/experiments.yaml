@@ -57,7 +57,10 @@ group:
               preamble: gpu4long
               sweep:
                 lr: [5e-4, 1e-4, 5e-5]
+              # MAIN
               sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 20 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+              # # DEBUG
+              # sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 1 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
 
           # group_id: aaa-ccc
           - job:
@@ -69,6 +72,10 @@ group:
               preamble: gpu4long
               command: "python main.py test --group_level 1 --group_id {group_id}"
 
+  ################################################
+  #      SPLIT SEARCH SPACE ACROSS PARTITIONS    #  
+  ################################################
+
     - group:
         type: sequential
         jobs:
@@ -76,15 +83,18 @@ group:
           - group:
               type: sweep
               preamble: gpu4
-              sweep: # 3x5x5=75
+              sweep: # 3x1x5=15
+                # MAIN
                 lr: [5e-4, 1e-4, 5e-5]
-                rank: [2, 4, 8, 16, 32]
+                rank: [8]
                 horizon: [2, 4, 8, 16, 32]
-                # DEBUG
+                # # DEBUG
                 # lr: [1e-4, 5e-5]
                 # rank: [8]
                 # horizon: [2]
               sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+              # # DEBUG
+              # sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 1 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
 
           # Identify best lrs for each (rank, horizon) combination
           - job:
@@ -93,6 +103,42 @@ group:
 
           - job:
               preamble: gpu4
+              command: "python main.py train --epochs 20 --extend --group_level 1 --group_id {group_id}"
+
+          # Run expensive test on best models
+          - job:
+              preamble: gpu4
+              command: "python main.py test --best_file_flag .best_extended --group_level 1 --group_id {group_id}" 
+
+
+
+    - group:
+        type: sequential
+        jobs:
+          #  Fast sweep over lr, rank, horizon
+          - group:
+              type: sweep
+              preamble: gpu4long
+              sweep: # 3x4x5=60
+                # MAIN
+                lr: [5e-4, 1e-4, 5e-5]
+                rank: [2, 4, 16, 32]
+                horizon: [2, 4, 8, 16, 32]
+                # # DEBUG
+                # lr: [1e-4, 5e-5]
+                # rank: [8]
+                # horizon: [2]
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+              # # DEBUG
+              # sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 1 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+
+          # Identify best lrs for each (rank, horizon) combination
+          - job:
+              preamble: cpu
+              command: "python scripts/tag_best.py --group_by rank horizon --group_level 1 --group_id {group_id}"
+
+          - job:
+              preamble: gpu4long
               command: "python main.py train --epochs 20 --extend --group_level 1 --group_id {group_id}"
 
           # Run expensive test on best models
