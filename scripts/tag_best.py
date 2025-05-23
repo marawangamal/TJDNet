@@ -84,16 +84,22 @@ def main(args):
 
         # Consolidate if directory
         ckpt_path = exp_dir / best_name / "best.ckpt"
-        if ckpt_path.is_dir() and args.consolidate:
-            subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "lightning.pytorch.utilities.consolidate_checkpoint",
-                    str(ckpt_path),
-                ],
-                capture_output=True,
-            )
+        if ckpt_path.is_dir():
+            if args.consolidate:
+                subprocess.run(
+                    [
+                        "python",
+                        "-m",
+                        "lightning.pytorch.utilities.consolidate_checkpoint",
+                        str(ckpt_path),
+                    ],
+                    capture_output=True,
+                )
+            elif args.delete_ckpts:
+                for item in ckpt_path.iterdir():
+                    if item.is_file() and item.suffix == ".distcp":
+                        item.unlink()
+                        print(f"Deleted distributed checkpoint: {item}")
 
         best_models.add(best_name)
         print(f"Best in {group_name}: {best_name} ({best_loss:.6f})")
@@ -123,6 +129,12 @@ if __name__ == "__main__":
         "--consolidate",
         action="store_true",
         help="Consolidate the best checkpoint if it is a directory",
+        default=False,
+    )
+    parser.add_argument(
+        "--delete_ckpts",
+        action="store_true",
+        help="Delete all checkpoints",
         default=False,
     )
 

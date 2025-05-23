@@ -10,6 +10,7 @@ from ast import Name
 import os
 import os.path as osp
 from argparse import Namespace
+import shutil
 import subprocess
 from typing import List, Optional, Union
 
@@ -66,6 +67,11 @@ SILENT_ARGS = [
     "group_level",
     "extend",
 ]
+
+
+#################################################################
+#                       Lightning Classes                       #
+#################################################################
 
 
 # define the LightningModule
@@ -252,6 +258,11 @@ class SafeModelCheckpoint(ModelCheckpoint):
         return super().check_monitor_top_k(trainer, current)
 
 
+#################################################################
+#                       Helpers                                 #
+#################################################################
+
+
 @rank_zero_only
 def get_wandb_logger(exp_name: str, wandb_id=None):
     git_info = get_git_info()
@@ -305,64 +316,85 @@ def print_args(args):
     printo(f"{line}\n")
 
 
-def lookup_experiments_by_group_id(
-    group_id: str, group_level: int = 0, best_exp_flag_filename=".best"
-) -> List[str]:
-    """Find all best checkpoints matching group_id at the specified group level."""
-    ckpts = []
-    for exp in os.listdir(EXPERIMENTS_DIR):
-        best_exp_flag_file = osp.join(EXPERIMENTS_DIR, exp, best_exp_flag_filename)
-        if not osp.exists(best_exp_flag_file):
-            continue
+#################################################################
+#                       CKPT HELPERS                            #
+#################################################################
 
-        print(f"Found best file @ {best_exp_flag_file}")
 
-        best_exp_ckpt_path = osp.join(EXPERIMENTS_DIR, exp, "best.ckpt")
-        is_fsdp = osp.isdir(best_exp_ckpt_path)
+def get_meta_path(exp_name: str):
+    # Get the meta path for the experiment
+    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
+    if osp.isdir(ckpt_path):
+        meta_path = osp.join(ckpt_path, "meta.pt")
+    else:
+        meta_path = ckpt_path
+    return meta_path
 
-        # Load hyperparameters
-        meta_path = (
-            osp.join(best_exp_ckpt_path, "meta.pt") if is_fsdp else best_exp_ckpt_path
-        )
+
+def get_hyper_parameters(exp_name: str):
+    # Get the hyper parameters for the experiment
+    meta_path = get_meta_path(exp_name)
+    if osp.exists(meta_path):
         hparams = torch.load(meta_path, map_location="cpu")["hyper_parameters"]
-
-        # Check group_id match
-        if "group_id" in hparams:
-            exp_group = hparams["group_id"].split("-")[group_level]
-            target_group = group_id.split("-")[group_level]
-
-            if exp_group == target_group:
-                final_path = (
-                    # best_exp_ckpt_path + ".consolidated"
-                    best_exp_ckpt_path
-                    if is_fsdp
-                    else best_exp_ckpt_path
-                )
-                ckpts.append((final_path, exp))
-
-    printo(f"Found {len(ckpts)} checkpoints for group_id: {group_id}")
-    printo(f"Checkpoints:")
-    for ckpt in ckpts:
-        printo(f"  - {ckpt[0]}")
-
-    return ckpts
+    else:
+        raise ValueError(f"Meta file not found: {meta_path}")
+    return hparams
 
 
-def consolidate_ckpt(exp_ckpt_path):
-    if osp.isdir(exp_ckpt_path):
-        if not osp.exists(exp_ckpt_path + ".consolidated"):
+def get_ckpt_path(exp_name: str):
+    # Get the checkpoint path for the experiment
+    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
+    ckpt_path_consolidated = None
+    if osp.isdir(ckpt_path):
+        if osp.exists(ckpt_path + ".consolidated"):
+            ckpt_path_consolidated = ckpt_path + ".consolidated"
+        else:
             # Convert
             subprocess.run(
                 [
                     "python",
                     "-m",
                     "lightning.pytorch.utilities.consolidate_checkpoint",
-                    str(exp_ckpt_path),
+                    str(ckpt_path),
                 ],
                 capture_output=True,
             )
-        return exp_ckpt_path + ".consolidated"
-    return exp_ckpt_path
+        ckpt_path_consolidated = ckpt_path + ".consolidated"
+    return ckpt_path, ckpt_path_consolidated
+
+
+def lookup_experiments_by_group_id(
+    group_id: str, group_level: int = 0, flag_filename=".best"
+) -> List[str]:
+    """Find all best checkpoints matching group_id at the specified group level."""
+    filtered_exps = []
+
+    for exp in os.listdir(EXPERIMENTS_DIR):
+        # Filter: skip if not .best
+        flag_file = osp.join(EXPERIMENTS_DIR, exp, flag_filename)
+        if not osp.exists(flag_file):
+            continue
+
+        # Filter: apply group_id, group_level
+        hparams = get_hyper_parameters(exp)
+        if "group_id" in hparams:
+            exp_group = hparams["group_id"].split("-")[group_level]
+            target_group = group_id.split("-")[group_level]
+
+            if exp_group == target_group:
+                filtered_exps.append(exp)
+
+    printo(f"Found {len(filtered_exps)} checkpoints for group_id: {group_id}")
+    printo(f"Checkpoints:")
+    for exp in filtered_exps:
+        printo(f"  - {exp}")
+
+    return filtered_exps
+
+
+#################################################################
+#                       train/test                              #
+#################################################################
 
 
 def train(args, save_best_exp_file_flag=False):
@@ -478,23 +510,23 @@ def test(args):
 
     # Build experiment checkpoint list
     if args.ckpt:
-        exps = [(args.ckpt, args.experiment_name)]
+        exps = [args.experiment_name]
     elif args.group_id:
         exps = lookup_experiments_by_group_id(
-            args.group_id, args.group_level, best_exp_flag_filename=args.best_file_flag
+            args.group_id, args.group_level, flag_filename=args.best_file_flag
         )
     else:
         raise ValueError("Must provide either --ckpt or --group_id")
 
     # Test each checkpoint
-    for exp_ckpt_path, exp_name in exps:
+    for exp_name in exps:
         printo(f"\n=== Testing {exp_name} ===")
-
-        # Consolidate checkpoint if needed
-        exp_ckpt_path_cons = consolidate_ckpt(exp_ckpt_path)
+        ckpt_path, ckpt_path_cons = get_ckpt_path(exp_name)
 
         # Load model and setup
-        lmodel = LModel.load_from_checkpoint(exp_ckpt_path_cons)
+        lmodel = LModel.load_from_checkpoint(
+            ckpt_path_cons if ckpt_path_cons else ckpt_path
+        )
         exp_args = Namespace(**lmodel.hparams)
 
         # Setup trainer
@@ -511,6 +543,16 @@ def test(args):
         ldata = LDataModule(**vars(exp_args))
         trainer.test(lmodel, datamodule=ldata)
 
+        # Delete model ckpt to free disk space
+        if args.delete_ckpt:
+            printo(f"Deleting checkpoint: {ckpt_path}")
+            for item in [ckpt_path_cons, ckpt_path]:
+                if item is not None and osp.exists(item):
+                    if osp.isdir(item):
+                        shutil.rmtree(item)
+                    else:
+                        os.remove(item)
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -518,14 +560,9 @@ if __name__ == "__main__":
     if args.cmd == "train":
         if args.extend:
             exps = lookup_experiments_by_group_id(args.group_id, args.group_level)
-            for exp in exps:
-                exp_ckpt_path, exp_name = exp
-
-                # Consolidate checkpoint if needed
-                exp_ckpt_path = consolidate_ckpt(exp_ckpt_path)
-                exp_args = torch.load(exp_ckpt_path, map_location="cpu")[
-                    "hyper_parameters"
-                ]
+            for exp_name in exps:
+                meta_path = get_meta_path(exp_name)
+                exp_args = torch.load(meta_path, map_location="cpu")["hyper_parameters"]
                 exp_args["epochs"] = args.epochs  # Override epochs
                 train(Namespace(**exp_args), save_best_exp_file_flag=True)
         else:

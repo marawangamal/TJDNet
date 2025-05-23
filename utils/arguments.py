@@ -320,6 +320,12 @@ def add_test_args(parser: argparse.ArgumentParser):
         help="Group ID for jrun.",
         default=".best",
     )
+    parser.add_argument(
+        "--delete_ckpt",
+        action="store_true",
+        help="Whether to delete the checkpoint after evaluation.",
+        default=False,
+    )
 
 
 def parse_args():
