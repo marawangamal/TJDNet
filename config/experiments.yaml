@@ -5,15 +5,15 @@ preambles:
     - "#SBATCH --output=slurm/slurm-%j.out"
     - "#SBATCH --error=slurm/slurm-%j.err"   
     # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    # - "#SBATCH --partition=short-unkillable"
-    # - "#SBATCH --gres=gpu:a100l:4"
-    # - "#SBATCH --mem=128G"
-    # - "#SBATCH --time=3:00:00"
-    # - "#SBATCH --cpus-per-task=12"
+    - "#SBATCH --partition=short-unkillable"
+    - "#SBATCH --gres=gpu:a100l:4"
+    - "#SBATCH --mem=128G"
+    - "#SBATCH --time=3:00:00"
+    - "#SBATCH --cpus-per-task=12"
     # =====================================
-    - "#SBATCH --partition=main"
-    - "#SBATCH --gres=gpu:rtx8000:2"
-    - "#SBATCH --mem=32G"
+    # - "#SBATCH --partition=main"
+    # - "#SBATCH --gres=gpu:rtx8000:2"
+    # - "#SBATCH --mem=32G"
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
     
     - "#SBATCH --nodes=1"
@@ -48,26 +48,26 @@ group:
   name: "main"
   type: parallel
   jobs:
-    # - group:
-    #     # group_id: aaa-bbb
-    #     type: sequential
-    #     jobs:
-    #       - group:
-    #           type: sweep
-    #           preamble: gpu4long
-    #           sweep:
-    #             lr: [5e-4, 1e-4, 5e-5]
-    #           sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 20 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+    - group:
+        # group_id: aaa-bbb
+        type: sequential
+        jobs:
+          - group:
+              type: sweep
+              preamble: gpu4long
+              sweep:
+                lr: [5e-4, 1e-4, 5e-5]
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 20 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
 
-    #       # group_id: aaa-ccc
-    #       - job:
-    #           preamble: cpu
-    #           command: "python scripts/tag_best.py --group_level 1 --group_id {group_id}"
+          # group_id: aaa-ccc
+          - job:
+              preamble: cpu
+              command: "python scripts/tag_best.py --group_level 1 --group_id {group_id}"
 
-    #       # group_id: aaa
-    #       - job:
-    #           preamble: gpu4long
-    #           command: "python main.py test --group_level 1 --group_id {group_id}"
+          # group_id: aaa
+          - job:
+              preamble: gpu4long
+              command: "python main.py test --group_level 1 --group_id {group_id}"
 
     - group:
         type: sequential
@@ -77,21 +77,20 @@ group:
               type: sweep
               preamble: gpu4
               sweep: # 3x5x5=75
-                # lr: [5e-4, 1e-4, 5e-5]
-                # rank: [2, 4, 8, 16, 32]
-                # horizon: [2, 4, 8, 16, 32]
+                lr: [5e-4, 1e-4, 5e-5]
+                rank: [2, 4, 8, 16, 32]
+                horizon: [2, 4, 8, 16, 32]
                 # DEBUG
-                lr: [1e-4, 5e-5]
-                rank: [8]
-                horizon: [2]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 1 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+                # lr: [1e-4, 5e-5]
+                # rank: [8]
+                # horizon: [2]
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
 
           # Identify best lrs for each (rank, horizon) combination
           - job:
               preamble: cpu
               command: "python scripts/tag_best.py --group_by rank horizon --group_level 1 --group_id {group_id}"
 
-          # Train best models longer (--extend flag will add .best_extended file)
           - job:
               preamble: gpu4
               command: "python main.py train --epochs 20 --extend --group_level 1 --group_id {group_id}"
