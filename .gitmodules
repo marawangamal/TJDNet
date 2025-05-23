@@ -1,3 +1,0 @@
-[submodule "eval/human-eval"]
-	path = eval/human-eval
-	url = git@github.com:marawangamal/human-eval.git
