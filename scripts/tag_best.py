@@ -43,7 +43,10 @@ def main(args):
             continue
 
         eval_loss, hparams = data
-        exp_group = hparams.get("group_id", "").split("-")
+        exp_group = hparams.get("group_id", "")
+        if not exp_group:
+            continue
+        exp_group = exp_group.split("-")
 
         if (
             len(exp_group) > args.group_level
@@ -59,7 +62,12 @@ def main(args):
     if args.group_by:
         groups = defaultdict(dict)
         for name, (loss, hparams) in experiments.items():
-            key = str(hparams.get(args.group_by, "unknown"))
+            # Create composite key from multiple group_by parameters
+            key_parts = []
+            for param in args.group_by:
+                value = hparams.get(param, "unknown")
+                key_parts.append(f"{param}={value}")
+            key = ", ".join(key_parts)
             groups[key][name] = (loss, hparams)
     else:
         groups = {"all": experiments}
@@ -76,7 +84,7 @@ def main(args):
 
         # Consolidate if directory
         ckpt_path = exp_dir / best_name / "best.ckpt"
-        if ckpt_path.is_dir():
+        if ckpt_path.is_dir() and args.consolidate:
             subprocess.run(
                 [
                     "python",
@@ -106,6 +114,16 @@ if __name__ == "__main__":
         "--group_level", type=int, default=0, help="Group level to filter"
     )
     parser.add_argument("--group_id", required=True, help="Group ID to filter")
-    parser.add_argument("--group_by", help="Tag best within each group_by attr")
+    parser.add_argument(
+        "--group_by",
+        nargs="+",
+        help="Tag best within each group_by attr (can specify multiple attributes)",
+    )
+    parser.add_argument(
+        "--consolidate",
+        action="store_true",
+        help="Consolidate the best checkpoint if it is a directory",
+        default=False,
+    )
 
     main(parser.parse_args())

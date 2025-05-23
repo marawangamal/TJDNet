@@ -1,22 +1,29 @@
 # test.yaml
 preambles:
-  gpu4-short:   
+  gpu4:   
     - "#!/bin/bash"
     - "#SBATCH --output=slurm/slurm-%j.out"
     - "#SBATCH --error=slurm/slurm-%j.err"   
-    - "#SBATCH --partition=short-unkillable"
-    - "#SBATCH --gres=gpu:a100l:4"
-    - "#SBATCH --cpus-per-task=12"
-    - "#SBATCH --mem=128G"
+    # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    # - "#SBATCH --partition=short-unkillable"
+    # - "#SBATCH --gres=gpu:a100l:4"
+    # - "#SBATCH --mem=128G"
+    # - "#SBATCH --time=3:00:00"
+    # - "#SBATCH --cpus-per-task=12"
+    # =====================================
+    - "#SBATCH --partition=main"
+    - "#SBATCH --gres=gpu:rtx8000:2"
+    - "#SBATCH --mem=32G"
+    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
+    
     - "#SBATCH --nodes=1"
-    - "#SBATCH --time=3:00:00"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
-  gpu4-long:   
+  gpu4long:   
     - "#!/bin/bash"
     - "#SBATCH --output=slurm/slurm-%j.out"
     - "#SBATCH --error=slurm/slurm-%j.err"   
-    - "#SBATCH --partition=short-unkillable"
+    - "#SBATCH --partition=long"
     - "#SBATCH --gres=gpu:a100l:4"
     - "#SBATCH --cpus-per-task=12"
     - "#SBATCH --mem=128G"
@@ -41,71 +48,60 @@ group:
   name: "main"
   type: parallel
   jobs:
-    - group:
-        # group_id: aaa-bbb
-        type: sequential
-        jobs:
-          - group:
-              type: sweep
-              preamble: gpu4-short
-              sweep:
-                lr: [5e-4, 1e-4, 5e-5]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+    # - group:
+    #     # group_id: aaa-bbb
+    #     type: sequential
+    #     jobs:
+    #       - group:
+    #           type: sweep
+    #           preamble: gpu4long
+    #           sweep:
+    #             lr: [5e-4, 1e-4, 5e-5]
+    #           sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 20 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
 
-          # group_id: aaa-ccc
-          - job:
-              preamble: cpu
-              command: "python scripts/tag_best.py --group_level 1 --group_id {group_id}"
+    #       # group_id: aaa-ccc
+    #       - job:
+    #           preamble: cpu
+    #           command: "python scripts/tag_best.py --group_level 1 --group_id {group_id}"
 
-          # group_id: aaa
-          - job:
-              preamble: gpu4-short
-              command: "python main.py test --group_level 1 --group_id {group_id}"
-
-    - group:
-        # group_id: aaa-bbb
-        type: sequential
-        jobs:
-          - group:
-              type: sweep
-              preamble: gpu4
-              sweep:
-                lr: [5e-4, 1e-4, 5e-5]
-                rank: [2, 4, 8, 16]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
-
-          # group_id: aaa-ccc
-          - job:
-              preamble: cpu
-              command: "python scripts/tag_best.py --group_level 1 --group_id {group_id}"
-
-          # group_id: aaa
-          - job:
-              preamble: gpu4
-              command: "python main.py test --group_level 1 --group_id {group_id}"
-
+    #       # group_id: aaa
+    #       - job:
+    #           preamble: gpu4long
+    #           command: "python main.py test --group_level 1 --group_id {group_id}"
 
     - group:
-        # group_id: aaa-bbb
         type: sequential
         jobs:
+          #  Fast sweep over lr, rank, horizon
           - group:
               type: sweep
               preamble: gpu4
-              sweep:
-                lr: [5e-4, 1e-4, 5e-5]
-                rank: [2, 4, 8, 16]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+              sweep: # 3x5x5=75
+                # lr: [5e-4, 1e-4, 5e-5]
+                # rank: [2, 4, 8, 16, 32]
+                # horizon: [2, 4, 8, 16, 32]
+                # DEBUG
+                lr: [1e-4, 5e-5]
+                rank: [8]
+                horizon: [2]
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 1 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
 
-          # group_id: aaa-ccc
+          # Identify best lrs for each (rank, horizon) combination
           - job:
               preamble: cpu
-              command: "python scripts/tag_best.py --group_by rank --group_level 1 --group_id {group_id}"
+              command: "python scripts/tag_best.py --group_by rank horizon --group_level 1 --group_id {group_id}"
 
-          # group_id: aaa
+          # Train best models longer (--extend flag will add .best_extended file)
           - job:
               preamble: gpu4
-              command: "python main.py test --group_by rank --group_level 1 --group_id {group_id}"
+              command: "python main.py train --epochs 20 --extend --group_level 1 --group_id {group_id}"
+
+          # Run expensive test on best models
+          - job:
+              preamble: gpu4
+              command: "python main.py test --best_file_flag .best_extended --group_level 1 --group_id {group_id}" 
 
 
 
+
+# jrun sbatch --partition=short-unkillable --gres=gpu:a100l:4 --cpus-per-task=12 --mem=128G --nodes=1 --time=3:00:00 --output=slurm/slurm-%j.out --error=slurm/slurm-%j.err --wrap="source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate; python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 2 --max_num_samples 1 --batch_size 8 --seq_len 128 --lr 1e-4 --model_head cp --rank 8 --horizon 4 --use_memory_efficient_loss"

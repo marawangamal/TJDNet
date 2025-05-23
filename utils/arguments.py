@@ -245,6 +245,18 @@ def add_train_args(parser: argparse.ArgumentParser):
         help="Group ID for jrun.",
         default=None,
     )
+    parser.add_argument(
+        "--group_level",
+        type=int,
+        default=0,
+        help="Group level to filter the models",
+    )
+    parser.add_argument(
+        "--extend",
+        action="store_true",
+        help="Whether to extend the model.",
+        default=False,
+    )
 
 
 def add_test_args(parser: argparse.ArgumentParser):
@@ -301,6 +313,12 @@ def add_test_args(parser: argparse.ArgumentParser):
         type=int,
         default=0,
         help="Group level to filter the models",
+    )
+    parser.add_argument(
+        "--best_file_flag",
+        type=str,
+        help="Group ID for jrun.",
+        default=".best",
     )
 
 
