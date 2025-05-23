@@ -305,6 +305,66 @@ def print_args(args):
     printo(f"{line}\n")
 
 
+def lookup_experiments_by_group_id(
+    group_id: str, group_level: int = 0, best_exp_flag_filename=".best"
+) -> List[str]:
+    """Find all best checkpoints matching group_id at the specified group level."""
+    ckpts = []
+    for exp in os.listdir(EXPERIMENTS_DIR):
+        best_exp_flag_file = osp.join(EXPERIMENTS_DIR, exp, best_exp_flag_filename)
+        if not osp.exists(best_exp_flag_file):
+            continue
+
+        print(f"Found best file @ {best_exp_flag_file}")
+
+        best_exp_ckpt_path = osp.join(EXPERIMENTS_DIR, exp, "best.ckpt")
+        is_fsdp = osp.isdir(best_exp_ckpt_path)
+
+        # Load hyperparameters
+        meta_path = (
+            osp.join(best_exp_ckpt_path, "meta.pt") if is_fsdp else best_exp_ckpt_path
+        )
+        hparams = torch.load(meta_path, map_location="cpu")["hyper_parameters"]
+
+        # Check group_id match
+        if "group_id" in hparams:
+            exp_group = hparams["group_id"].split("-")[group_level]
+            target_group = group_id.split("-")[group_level]
+
+            if exp_group == target_group:
+                final_path = (
+                    # best_exp_ckpt_path + ".consolidated"
+                    best_exp_ckpt_path
+                    if is_fsdp
+                    else best_exp_ckpt_path
+                )
+                ckpts.append((final_path, exp))
+
+    printo(f"Found {len(ckpts)} checkpoints for group_id: {group_id}")
+    printo(f"Checkpoints:")
+    for ckpt in ckpts:
+        printo(f"  - {ckpt[0]}")
+
+    return ckpts
+
+
+def consolidate_ckpt(exp_ckpt_path):
+    if osp.isdir(exp_ckpt_path):
+        if not osp.exists(exp_ckpt_path + ".consolidated"):
+            # Convert
+            subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "lightning.pytorch.utilities.consolidate_checkpoint",
+                    str(exp_ckpt_path),
+                ],
+                capture_output=True,
+            )
+        return exp_ckpt_path + ".consolidated"
+    return exp_ckpt_path
+
+
 def train(args, save_best_exp_file_flag=False):
     ##### Setup
     printo("Training model...")
@@ -411,66 +471,6 @@ def train(args, save_best_exp_file_flag=False):
         printo(
             f"Saved best extended flag @ {osp.join(EXPERIMENTS_DIR, exp_name_filtered, '.best_extended')}"
         )
-
-
-def lookup_experiments_by_group_id(
-    group_id: str, group_level: int = 0, best_exp_flag_filename=".best"
-) -> List[str]:
-    """Find all best checkpoints matching group_id at the specified group level."""
-    ckpts = []
-    for exp in os.listdir(EXPERIMENTS_DIR):
-        best_exp_flag_file = osp.join(EXPERIMENTS_DIR, exp, best_exp_flag_filename)
-        if not osp.exists(best_exp_flag_file):
-            continue
-
-        print(f"Found best file @ {best_exp_flag_file}")
-
-        best_exp_ckpt_path = osp.join(EXPERIMENTS_DIR, exp, "best.ckpt")
-        is_fsdp = osp.isdir(best_exp_ckpt_path)
-
-        # Load hyperparameters
-        meta_path = (
-            osp.join(best_exp_ckpt_path, "meta.pt") if is_fsdp else best_exp_ckpt_path
-        )
-        hparams = torch.load(meta_path, map_location="cpu")["hyper_parameters"]
-
-        # Check group_id match
-        if "group_id" in hparams:
-            exp_group = hparams["group_id"].split("-")[group_level]
-            target_group = group_id.split("-")[group_level]
-
-            if exp_group == target_group:
-                final_path = (
-                    # best_exp_ckpt_path + ".consolidated"
-                    best_exp_ckpt_path
-                    if is_fsdp
-                    else best_exp_ckpt_path
-                )
-                ckpts.append((final_path, exp))
-
-    printo(f"Found {len(ckpts)} checkpoints for group_id: {group_id}")
-    printo(f"Checkpoints:")
-    for ckpt in ckpts:
-        printo(f"  - {ckpt[0]}")
-
-    return ckpts
-
-
-def consolidate_ckpt(exp_ckpt_path):
-    if osp.isdir(exp_ckpt_path):
-        if not osp.exists(exp_ckpt_path + ".consolidated"):
-            # Convert
-            subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "lightning.pytorch.utilities.consolidate_checkpoint",
-                    str(exp_ckpt_path),
-                ],
-                capture_output=True,
-            )
-        return exp_ckpt_path + ".consolidated"
-    return exp_ckpt_path
 
 
 def test(args):

@@ -2,14 +2,12 @@ from setuptools import setup, find_packages
 
 setup(
     name="tjdnet",  # or whatever your project is called
-    version="0.1.0",
+    version="1.0.0",
     packages=find_packages(
         include=[
             "tjdnet*",  # your main library
-            "jobrunner*",  # CLI package
             "utils*",  # etc.
             "dataloaders*",
-            "jrun*",  # Add the new jrun package
         ]
     ),
     install_requires=[
@@ -26,10 +24,4 @@ setup(
         "pandas>=1.5.0",  # For data handling
         "matplotlib>=3.5.0",  # For visualization
     ],
-    entry_points={
-        "console_scripts": [
-            "jobrunner = jobrunner.main:main",  # Original entry point
-            "jrun = jrun.main:main",  # New entry point for the renamed package
-        ],
-    },
 )
