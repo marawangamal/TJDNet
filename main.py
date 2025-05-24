@@ -7,43 +7,37 @@ Example:
 """
 
 from ast import Name
+from collections import defaultdict
 import os
 import os.path as osp
 from argparse import Namespace
-import shutil
 import subprocess
 from typing import List, Optional, Union
 
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
-from pytorch_lightning.utilities import rank_zero_only
+from wandb.util import generate_id
 
-
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer
-from transformers.models.gpt2.modeling_gpt2 import GPT2Block
-from transformers import DataCollatorForLanguageModeling
-from transformers import get_linear_schedule_with_warmup
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import FSDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint
-from wandb.util import generate_id
+from pytorch_lightning.utilities import rank_zero_only
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
+from transformers.models.gpt2.modeling_gpt2 import GPT2Block
+from transformers import DataCollatorForLanguageModeling
+from transformers import get_linear_schedule_with_warmup
+
 
 from dataloaders import DATASETS
 from tjdnet.distributions._tjdist import TJDist
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
 from utils.average_meter import AverageMeter
-from utils.helpers import (
-    get_auto_tokenizer,
-    get_git_info,
-    get_model_and_tokenizer,
-    get_model_and_tokenizer_nowrap,
-)
-from utils.arguments import parse_args
+from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
 from utils.lightning_callbacks.generate import GenerateCallback
 from utils.experiment_naming import get_experiment_name
-
+from utils.arguments import parse_args
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -341,7 +335,25 @@ def get_hyper_parameters(exp_name: str):
     return hparams
 
 
-def get_ckpt_path(exp_name: str):
+def get_ckpt_file_paths(exp_name: str):
+    ckpt_paths = []
+    ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
+    if osp.isdir(ckpt_path):
+        for item in os.listdir(ckpt_path):
+            if item.endswith(".distcp"):
+                distcp_path = osp.join(ckpt_path, item)
+                ckpt_paths.append(distcp_path)
+
+    elif osp.exists(ckpt_path):
+        ckpt_paths.append(ckpt_path)
+
+    if osp.exists(ckpt_path + ".consolidated"):
+        ckpt_paths.append(ckpt_path + ".consolidated")
+
+    return ckpt_paths
+
+
+def get_ckpt_cons_path(exp_name: str):
     # Get the checkpoint path for the experiment
     ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
     ckpt_path_consolidated = None
@@ -363,17 +375,36 @@ def get_ckpt_path(exp_name: str):
     return ckpt_path, ckpt_path_consolidated
 
 
+def get_exp_eval_score(exp: str):
+    """Load experiment eval_loss and hyperparams."""
+    meta_path = get_meta_path(exp)
+    meta_ckpt = torch.load(meta_path, map_location="cpu")
+    for key, cb in meta_ckpt.get("callbacks", {}).items():
+        if "ModelCheckpoint" in key and "eval_loss" in key:
+            return cb["best_model_score"]
+    return None
+
+
+def remove_exp_ckpts(exp: str):
+    """Remove all checkpoints for the experiment."""
+    ckpt_paths = get_ckpt_file_paths(exp)
+    for ckpt_path in ckpt_paths:
+        os.remove(ckpt_path)
+        printo(f"Deleted {ckpt_path}")
+
+
 def lookup_experiments_by_group_id(
-    group_id: str, group_level: int = 0, flag_filename=".best"
+    group_id: str, group_level: int = 0, flag_filename=None
 ) -> List[str]:
     """Find all best checkpoints matching group_id at the specified group level."""
     filtered_exps = []
 
     for exp in os.listdir(EXPERIMENTS_DIR):
         # Filter: skip if not .best
-        flag_file = osp.join(EXPERIMENTS_DIR, exp, flag_filename)
-        if not osp.exists(flag_file):
-            continue
+        if flag_filename is not None:
+            flag_file = osp.join(EXPERIMENTS_DIR, exp, flag_filename)
+            if not osp.exists(flag_file):
+                continue
 
         # Filter: apply group_id, group_level
         hparams = get_hyper_parameters(exp)
@@ -393,7 +424,7 @@ def lookup_experiments_by_group_id(
 
 
 #################################################################
-#                       train/test                              #
+#                       train/test/tag                          #
 #################################################################
 
 
@@ -506,6 +537,7 @@ def train(args, save_best_exp_file_flag=False):
 
 
 def test(args):
+    """Test one or more models."""
     printo("Testing model...")
 
     # Build experiment checkpoint list
@@ -513,7 +545,7 @@ def test(args):
         exps = [args.experiment_name]
     elif args.group_id:
         exps = lookup_experiments_by_group_id(
-            args.group_id, args.group_level, flag_filename=args.best_file_flag
+            args.group_id, args.group_level, flag_filename=".best_extended"
         )
     else:
         raise ValueError("Must provide either --ckpt or --group_id")
@@ -521,7 +553,7 @@ def test(args):
     # Test each checkpoint
     for exp_name in exps:
         printo(f"\n=== Testing {exp_name} ===")
-        ckpt_path, ckpt_path_cons = get_ckpt_path(exp_name)
+        ckpt_path, ckpt_path_cons = get_ckpt_cons_path(exp_name)
 
         # Load model and setup
         lmodel = LModel.load_from_checkpoint(
@@ -545,13 +577,67 @@ def test(args):
 
         # Delete model ckpt to free disk space
         if args.delete_ckpt:
-            printo(f"Deleting checkpoint: {ckpt_path}")
-            for item in [ckpt_path_cons, ckpt_path]:
-                if item is not None and osp.exists(item):
-                    if osp.isdir(item):
-                        shutil.rmtree(item)
-                    else:
-                        os.remove(item)
+            remove_exp_ckpts(exp_name)
+
+
+def tag(args):
+    """Tag the best model in each group."""
+    exps = lookup_experiments_by_group_id(args.group_id, args.group_level)
+
+    # Get exp losses
+    exp_losses = dict()
+    for exp_name in exps:
+        exp_loss = get_exp_eval_score(exp_name)
+        hparams = get_hyper_parameters(exp_name)
+        if exp_losses is None:
+            printo(f"Skipping {exp_name} - no eval_loss")
+            continue
+        exp_losses[exp_name] = (exp_loss, hparams)
+
+    # Apply grouping
+    groups = defaultdict(dict)
+    if args.group_by:
+        for exp_name, (loss, hparams) in exp_losses.items():
+            key_parts = [
+                f"{param}={hparams.get(param, 'unknown')}" for param in args.group_by
+            ]
+            key = ", ".join(key_parts)
+            groups[key][exp_name] = loss
+    else:
+        # If no grouping specified, treat all experiments as one group
+        groups["all"] = {exp_name: loss for _, (loss, _) in exp_losses.items()}
+
+    # Best within each group
+    best_exps = set()
+    for group_name, group_exps in groups.items():
+
+        if not group_exps:
+            printo(f"No experiments in group {group_name}")
+            continue
+
+        # Find experiment with minimum loss (assuming lower is better)
+        best_exp = min(group_exps.items(), key=lambda x: x[1])[0]
+
+        best_exps.add(best_exp)
+        printo(f"Best model in group {group_name}: {best_exp}")
+
+        # Tag best model (i.e., create .best file)
+        best_path = osp.join(EXPERIMENTS_DIR, best_exp, ".best")
+        with open(best_path, "w") as f:
+            f.write(f"Best model in group {group_name}")
+
+    # Remove .best files from other models
+    for exp_name in exps:
+        if exp_name not in best_exps:
+            best_path = osp.join(EXPERIMENTS_DIR, exp_name, ".best")
+            if osp.exists(best_path):
+                os.remove(best_path)
+                printo(f"Removed .best file from {exp_name}")
+
+    # Delete model ckpt to free disk space
+    if args.delete_ckpt:
+        for exp_name in exps:
+            remove_exp_ckpts(exp_name)
 
 
 if __name__ == "__main__":
@@ -559,7 +645,9 @@ if __name__ == "__main__":
 
     if args.cmd == "train":
         if args.extend:
-            exps = lookup_experiments_by_group_id(args.group_id, args.group_level)
+            exps = lookup_experiments_by_group_id(
+                args.group_id, args.group_level, flag_filename=".best"
+            )
             for exp_name in exps:
                 meta_path = get_meta_path(exp_name)
                 exp_args = torch.load(meta_path, map_location="cpu")["hyper_parameters"]
@@ -569,3 +657,6 @@ if __name__ == "__main__":
             train(args)
     elif args.cmd == "test":
         test(args)
+
+    elif args.cmd == "tag":
+        tag(args)

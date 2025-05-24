@@ -315,16 +315,39 @@ def add_test_args(parser: argparse.ArgumentParser):
         help="Group level to filter the models",
     )
     parser.add_argument(
-        "--best_file_flag",
+        "--delete_ckpt",
+        action="store_true",
+        help="Whether to delete the checkpoint after evaluation.",
+        default=False,
+    )
+
+
+def add_tag_args(parser: argparse.ArgumentParser):
+    # ------------------
+    # Basic arguments
+    # ------------------
+    parser.add_argument(
+        "--group_id",
         type=str,
         help="Group ID for jrun.",
-        default=".best",
+        default=None,
+    )
+    parser.add_argument(
+        "--group_level",
+        type=int,
+        default=0,
+        help="Group level to filter the models",
     )
     parser.add_argument(
         "--delete_ckpt",
         action="store_true",
         help="Whether to delete the checkpoint after evaluation.",
         default=False,
+    )
+    parser.add_argument(
+        "--group_by",
+        nargs="+",
+        help="Tag best within each group_by attr (can specify multiple attributes)",
     )
 
 
@@ -339,8 +362,13 @@ def parse_args():
     train = sub.add_parser("train", parents=[], help="Fit the model")
     add_train_args(train)  # everything available
 
+    # ----- test -----
     test = sub.add_parser("test", parents=[], help="Evaluate a checkpoint")
     add_test_args(test)
+
+    # ----- tag -----
+    tag = sub.add_parser("tag", parents=[], help="Tag a checkpoint")
+    add_tag_args(tag)
 
     args = root.parse_args()
     # _validate_args(args)
