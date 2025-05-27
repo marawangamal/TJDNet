@@ -252,9 +252,15 @@ def add_train_args(parser: argparse.ArgumentParser):
         help="Group level to filter the models",
     )
     parser.add_argument(
-        "--extend",
+        "--lookup",
         action="store_true",
-        help="Whether to extend the model.",
+        help="Whether to lookup models in the group.",
+        default=False,
+    )
+    parser.add_argument(
+        "--delete_ckpt",
+        action="store_true",
+        help="Whether to delete the checkpoint after evaluation.",
         default=False,
     )
 
@@ -315,6 +321,12 @@ def add_test_args(parser: argparse.ArgumentParser):
         help="Group level to filter the models",
     )
     parser.add_argument(
+        "--lookup",
+        action="store_true",
+        help="Whether to delete the checkpoint after evaluation.",
+        default=False,
+    )
+    parser.add_argument(
         "--delete_ckpt",
         action="store_true",
         help="Whether to delete the checkpoint after evaluation.",
@@ -337,12 +349,6 @@ def add_tag_args(parser: argparse.ArgumentParser):
         type=int,
         default=0,
         help="Group level to filter the models",
-    )
-    parser.add_argument(
-        "--delete_ckpt",
-        action="store_true",
-        help="Whether to delete the checkpoint after evaluation.",
-        default=False,
     )
     parser.add_argument(
         "--group_by",
