@@ -28,7 +28,7 @@ class CPDist(TJDist):
         super().__init__(config)
 
     @classmethod
-    def from_linear(
+    def from_pretrained(
         cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
     ):
         """Create a CP distribution from a linear layer.

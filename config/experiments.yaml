@@ -168,23 +168,5 @@ group:
                     name: "test"
 
 
-          # ##### old
-          # # Use group with type loop
-          # # Train and test model if it is the .best_extended and not already tested
-          # # aaa-ccc-fff
-          # - job:
-          #     preamble: gpu4
-          #     command: "python main.py train --epochs 20 --extend --group_level 1 --group_id {group_id}"
-          #     name: "tbest"
-
-          # # Run expensive test on best models
-          # # aaa-ccc-ggg
-          # - job:
-          #     preamble: gpu4
-          #     command: "python main.py test --group_level 1 --group_id {group_id} --delete_ckpt" 
-          #     name: "test"
-          # ######
-
-
 # e.g., single job
 # jrun sbatch --partition=short-unkillable --gres=gpu:a100l:4 --cpus-per-task=12 --mem=128G --nodes=1 --time=3:00:00 --output=slurm/slurm-%j.out --error=slurm/slurm-%j.err --wrap="source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate; python main.py test --lookup --group_level 1 --group_id 676435-794227-459408-869771 --delete_ckpt"
