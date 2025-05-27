@@ -52,7 +52,7 @@ class CPBDist(AbstractDist):
         )
 
     @classmethod
-    def from_linear(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
         raise NotImplementedError(
             "from_linear method must be implemented in the subclass"
         )

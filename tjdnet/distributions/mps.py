@@ -71,7 +71,7 @@ class MPSDist(TJDist):
         )
 
     @classmethod
-    def from_linear(
+    def from_pretrained(
         cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
     ):
         """Create an MPS distribution from a linear layer.

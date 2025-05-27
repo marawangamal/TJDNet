@@ -56,7 +56,7 @@ class AbstractDist(ABC, torch.nn.Module):
 
     @classmethod
     @abstractmethod
-    def from_linear(
+    def from_pretrained(
         cls: Type[T], linear: torch.nn.Linear, config: BaseDistFromLinearConfig
     ) -> T:
         """Initialize the distribution from a linear layer.

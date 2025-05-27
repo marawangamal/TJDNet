@@ -76,7 +76,7 @@ class TJD(ABC, torch.nn.Module):
 
         # Initialize model head
         if config.init_method == "pretrained":
-            self.mhead = TJD_DISTS[config.model_head].from_linear(
+            self.mhead = TJD_DISTS[config.model_head].from_pretrained(
                 linear=self.lm_head,
                 config=BaseDistFromLinearConfig(
                     horizon=config.model_head_config.horizon,
