@@ -270,7 +270,7 @@ def add_test_args(parser: argparse.ArgumentParser):
     # Basic arguments
     # ------------------
     parser.add_argument(
-        "--ckpt",
+        "--experiment",
         type=str,
         help="Path to the checkpoint to evaluate.",
         default=None,

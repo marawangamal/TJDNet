@@ -1,9 +1,9 @@
 """Train a TJD model using PyTorch Lightning.
 
 Example:
-    python main.py train  --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10
+    python main.py train  --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10 --gen_mode speculative --loss_mode joint
     python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --max_num_samples 10 --batch_size 1 --seq_len 8 --lr 5e-5 --model_head base --horizon 1 --rank 1
-
+    python main.py test --experiment e4_bs1_sl8_l0_001_ws100_gcv1_0_agb1_p32_true_mdistilbert_distilgpt2_mhcp_hd128_r2_h2_imrandom_lmjoint_jll1_tmlora_lr32_umelFalse_dstemp_mns10_fdrFalse
 """
 
 from ast import Name
@@ -120,6 +120,8 @@ class LModel(L.LightningModule):
                 do_sample=self.args.do_sample,
                 top_k=self.args.top_k,
                 eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
+                # **Added**
+                gen_mode=self.args.gen_mode,
             ),
             **batch,
         )
@@ -131,19 +133,18 @@ class LModel(L.LightningModule):
             device=outputs.device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
-        self.test_ameter.update(corr, len(batch["input_ids"]))
         self.log("test_acc", corr, prog_bar=True)
 
-        # # **Added**
-        # tokens_accepted = ardict["tokens_accepted"]
-        # tokens_generated = ardict["tokens_generated"]
-        # self.test_ameter.update(
-        #     tokens_accepted / tokens_generated if tokens_generated > 0 else 0,
-        #     ardict["tokens_generated"],
-        # )
+        # **Added**
+        tokens_accepted = ardict["tokens_accepted"]
+        tokens_generated = ardict["tokens_generated"]
+        self.test_ameter.update(
+            tokens_accepted / tokens_generated if tokens_generated > 0 else 0,
+            ardict["tokens_generated"],
+        )
 
-    # def on_test_epoch_end(self):
-    #     self.log("test_acceptance_rate", self.test_ameter.avg, prog_bar=True)
+    def on_test_epoch_end(self):
+        self.log("test_acceptance_rate", self.test_ameter.avg, prog_bar=True)
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
@@ -579,11 +580,11 @@ def train(args, flag_filename=None):
         datamodule=ldata,
         ckpt_path=ckpt_path,
     )
-    # if not args.accel_strategy == "fsdp":
-    #     trainer.test(
-    #         ckpt_path="best",
-    #         datamodule=ldata,
-    #     )
+    if not args.accel_strategy == "fsdp":
+        trainer.test(
+            ckpt_path="best",
+            datamodule=ldata,
+        )
     if torch.cuda.is_available():
         trainer.print(torch.cuda.memory_summary())
 
@@ -602,8 +603,14 @@ def train(args, flag_filename=None):
         printo(f"Deleted checkpoints for {exp_name_filtered}")
 
 
-def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs):
-    # Check if the experiment exists
+def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, args=None):
+    overrideable_args = [
+        "do_sample",
+        "max_new_tokens",
+        "top_k",
+        "gen_mode",
+    ]
+
     if osp.exists(osp.join(EXPERIMENTS_DIR, exp_name, test_filename)):
         printo(f"Test results already exist for {exp_name}. Skipping.")
         return
@@ -612,7 +619,7 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
     ckpt_path = make_consolidated_ckpt(exp_name)
 
     # Load model and setup  # cfg=exp_name
-    lmodel = LModel.load_from_checkpoint(ckpt_path)
+    lmodel = LModel.load_from_checkpoint(ckpt_path, map_location="cpu")
     exp_args = Namespace(**lmodel.hparams)
 
     # Setup trainer
@@ -626,15 +633,7 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
     )
 
     # Test
-    overrideable_args = [
-        "max_new_tokens",
-        "do_sample",
-        "top_k",
-        "gen_mode",
-    ]
-    kwargs = {k: v for k, v in kwargs.items() if k in overrideable_args}
-    ekwargs = {**vars(exp_args), **kwargs}
-    ldata = LDataModule(**ekwargs)
+    ldata = LDataModule(**vars(exp_args))
     test_results = trainer.test(lmodel, datamodule=ldata)
 
     # Save test results
@@ -770,7 +769,7 @@ if __name__ == "__main__":
                     )
                     break
         else:
-            test(args.experiment_name, remove_ckpt=args.delete_ckpt)
+            test(args.experiment, remove_ckpt=args.delete_ckpt)
 
     elif args.cmd == "tag":
         tag(args)
