@@ -1,7 +1,7 @@
 """Train a TJD model using PyTorch Lightning.
 
 Example:
-    python main.py train  --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10
+    python main.py train  --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10 --gen_mode mixed --epochs 1
     python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --max_num_samples 10 --batch_size 1 --seq_len 8 --lr 5e-5 --model_head base --horizon 1 --rank 1
 
 """
@@ -12,7 +12,7 @@ import os
 import os.path as osp
 from argparse import Namespace
 import subprocess
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 
 import torch
 from torch import optim
@@ -114,25 +114,44 @@ class LModel(L.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        outputs, ardict = self.model.generate(
-            generation_config=TJDGenerationConfig(
-                max_new_tokens=self.args.max_new_tokens,
-                do_sample=self.args.do_sample,
-                top_k=self.args.top_k,
-                eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
-            ),
-            **batch,
+
+        gen_modes: List[Literal["draft", "base", "speculative"]] = (
+            [self.args.gen_mode]
+            if self.args.gen_mode in ["base", "draft", "speculative"]
+            else ["base", "draft", "speculative"]
         )
 
-        # Compute accuracy
-        y_pred_str = self.tokenizer.batch_decode(outputs)
-        y_pred = torch.tensor(
-            [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
-            device=outputs.device,
-        )
-        corr = (y_pred == batch["labels"]).float().sum()
-        self.test_ameter.update(corr, len(batch["input_ids"]))
-        self.log("test_acc", corr, prog_bar=True)
+        for gen_mode in gen_modes:
+            outputs, ardict = self.model.generate(
+                generation_config=TJDGenerationConfig(
+                    max_new_tokens=self.args.max_new_tokens,
+                    do_sample=self.args.do_sample,
+                    top_k=self.args.top_k,
+                    eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
+                    gen_mode=gen_mode,
+                ),
+                **batch,
+            )
+
+            # Compute accuracy
+            y_pred_str = self.tokenizer.batch_decode(outputs)
+            y_pred = torch.tensor(
+                [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
+                device=outputs.device,
+            )
+            corr = (y_pred == batch["labels"]).float().sum()
+            self.test_ameter.update(corr, len(batch["input_ids"]))
+            self.log(f"test_acc_{gen_mode}", corr, prog_bar=True)
+            if gen_mode == "speculative":
+                tokens_accepted = ardict["tokens_accepted"]
+                tokens_generated = ardict["tokens_generated"]
+                self.test_ameter.update(
+                    tokens_accepted / tokens_generated if tokens_generated > 0 else 0,
+                    ardict["tokens_generated"],
+                )
+
+    def on_test_epoch_end(self):
+        self.log("test_acceptance_rate", self.test_ameter.avg, prog_bar=True)
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
@@ -568,11 +587,11 @@ def train(args, flag_filename=None):
         datamodule=ldata,
         ckpt_path=ckpt_path,
     )
-    # if not args.accel_strategy == "fsdp":
-    #     trainer.test(
-    #         ckpt_path="best",
-    #         datamodule=ldata,
-    #     )
+    if not args.accel_strategy == "fsdp":
+        trainer.test(
+            ckpt_path="best",
+            datamodule=ldata,
+        )
     if torch.cuda.is_available():
         trainer.print(torch.cuda.memory_summary())
 
@@ -591,8 +610,8 @@ def train(args, flag_filename=None):
         printo(f"Deleted checkpoints for {exp_name_filtered}")
 
 
-def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME):
-
+def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs):
+    # Check if the experiment exists
     if osp.exists(osp.join(EXPERIMENTS_DIR, exp_name, test_filename)):
         printo(f"Test results already exist for {exp_name}. Skipping.")
         return
@@ -615,7 +634,15 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME):
     )
 
     # Test
-    ldata = LDataModule(**vars(exp_args))
+    overrideable_args = [
+        "max_new_tokens",
+        "do_sample",
+        "top_k",
+        "gen_mode",
+    ]
+    kwargs = {k: v for k, v in kwargs.items() if k in overrideable_args}
+    ekwargs = {**vars(exp_args), **kwargs}
+    ldata = LDataModule(**ekwargs)
     test_results = trainer.test(lmodel, datamodule=ldata)
 
     # Save test results
@@ -628,29 +655,6 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME):
     if remove_ckpt:
         remove_exp_ckpts(exp_name)
         printo(f"Deleted checkpoints for {exp_name}")
-
-
-# def test(args, flag_filename=BEST_FLAG_FILENAME):
-#     """Test one or more models."""
-#     printo("Testing model...")
-
-#     # Build experiment checkpoint list
-#     if args.ckpt:
-#         exps = [args.experiment_name]
-#     elif args.group_id:
-#         exps = lookup_experiments_by_group_id(
-#             args.group_id, args.group_level, flag_filename=flag_filename
-#         )
-#     else:
-#         raise ValueError("Must provide either --ckpt or --group_id")
-
-#     # Test each checkpoint
-#     for exp_name in exps:
-#         test_ckpt(exp_name)
-
-#     # Delete model ckpt to free disk space
-#     if args.delete_ckpt:
-#         remove_exp_ckpts(exp_name)
 
 
 def tag(args, flag_filename=PROSPECT_FLAG_FILENAME):

@@ -67,7 +67,7 @@ class STemp(AbstractDataset):
         return self.parse_answer(example["answer"])
 
     def load_data(self):
-        num_train_samples = self.max_num_samples if self.max_num_samples else 1000
+        num_train_samples = self.max_num_samples if self.max_num_samples else 10000
         num_test_samples = 100
         base_datasets = {
             "train": Dataset.from_generator(lambda: DataIterator(num_train_samples)),
