@@ -254,6 +254,7 @@ class TJD(ABC, torch.nn.Module):
                     accept_rate_metrics["tokens_accepted"] += n_accept
 
                 elif generation_config.gen_mode == "draft":
+                    # y_hat ~ p(y | x, y1:t-1)
                     y_hat, _ = self.mhead.sample(
                         h_last_draft,
                         horizon=H,

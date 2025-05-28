@@ -64,9 +64,9 @@ class CPDist(TJDist):
 
         # Initialize the parameters in obj.tensor_param_net
         # with the parameters from the linear layer
-        obj.param_func.decoder.weight.data = linear.weight.data
+        obj.param_func.decoder.weight.data = linear.weight.data  # type: ignore
         if use_bias_decoder:
-            obj.param_func.decoder.bias.data = linear.bias.data
+            obj.param_func.decoder.bias.data = linear.bias.data  # type: ignore
         return obj
 
     def get_params(self, x: torch.Tensor, **kwargs):

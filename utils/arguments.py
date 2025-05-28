@@ -189,7 +189,8 @@ def add_train_args(parser: argparse.ArgumentParser):
         "--gen_mode",
         type=str,
         default="draft",
-        choices=["base", "draft", "speculative"],
+        choices=["base", "draft", "speculative", "mixed"],
+        help="Generation mode for the model.",
     )
     parser.add_argument(
         "--compute_acc", action="store_true", help="Whether to compute accuracy"
@@ -332,6 +333,24 @@ def add_test_args(parser: argparse.ArgumentParser):
         help="Whether to delete the checkpoint after evaluation.",
         default=False,
     )
+    # parser.add_argument(
+    #     "--gen_mode",
+    #     type=str,
+    #     default="draft",
+    #     choices=["base", "draft", "speculative", "mixed"],
+    #     help="Generation mode for the model.",
+    # )
+
+
+# Loss modes:
+# 1. joint - train the model with joint loss (target + draft)
+# 2. draft - train the model with draft loss (draft only)
+
+# Gen modes:
+# 1. base - generate tokens one by one, no speculative decoding
+# 2. draft - generate tokens in blocks, no speculative decoding
+# 3. speculative - generate tokens in blocks, speculative decoding with draft model
+# 4. mixed - generate and log base, draft and speculative decoding results
 
 
 def add_tag_args(parser: argparse.ArgumentParser):
