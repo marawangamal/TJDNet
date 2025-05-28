@@ -8,8 +8,8 @@ from tjdnet.distributions._tjdist import (
     TJDist,
 )
 
+from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
-from tjdnet.utils import sample_topk
 
 
 class CPDist(TJDist):
@@ -41,23 +41,32 @@ class CPDist(TJDist):
             CPDist: CP distribution with the given configuration.
         """
 
-        n_emb, vocab_size = linear.weight.shape
+        vocab_size, hidden_dim = linear.weight.shape
+        use_bias_decoder = False
         if linear.bias is not None:
+            use_bias_decoder = True
             raise Warning("CPDist: Skiping bias initialization.")
+
+        param_net_conf = config.param_net.to_dict()
+        param_net_conf["hidden_dim"] = hidden_dim
+        param_net_conf["out_dim_decoder"] = vocab_size
+        param_net_conf["use_bias_decoder"] = use_bias_decoder
 
         obj = cls(
             config=BaseDistConfig(
                 vocab_size=vocab_size,
                 horizon=config.horizon,
                 rank=config.rank,
-                param_net=config.param_net,
+                param_net=TensorParamNetConfig(**param_net_conf),
             ),
             **kwargs,
         )
 
         # Initialize the parameters in obj.tensor_param_net
         # with the parameters from the linear layer
-        obj.param_func.linear.weight.data = linear.weight.data
+        obj.param_func.decoder.weight.data = linear.weight.data
+        if use_bias_decoder:
+            obj.param_func.decoder.bias.data = linear.bias.data
         return obj
 
     def get_params(self, x: torch.Tensor, **kwargs):

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal, Optional
 
 import torch
@@ -14,6 +14,8 @@ class TensorParamNetConfig:
         hidden_dim: Hidden layer dimension
         out_dim: Output dimension for tensor parameters
         positivity_func: Function ensuring parameter positivity ("sq", "abs", "exp")
+        use_bias_decoder: Whether to use a decoder layer
+        use_bias_encoder: Whether to use a bias in the encoder layer
     """
 
     in_dim: int = 768
@@ -22,6 +24,12 @@ class TensorParamNetConfig:
     out_dim_decoder: int = 1
     positivity_func: Literal["sq", "abs", "exp", "none"] = "exp"
     use_decoder: bool = True
+    use_bias_encoder: bool = True
+    use_bias_decoder: bool = True
+
+    def to_dict(self) -> dict:
+        """Convert the configuration to a dictionary."""
+        return asdict(self)
 
 
 class TensorParamNet(nn.Module):
