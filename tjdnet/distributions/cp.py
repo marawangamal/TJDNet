@@ -10,7 +10,6 @@ from tjdnet.distributions._tjdist import (
 
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
-from tjdnet.utils import sample_topk
 
 
 class CPDist(TJDist):
