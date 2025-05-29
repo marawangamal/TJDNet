@@ -1,7 +1,7 @@
 """Train a TJD model using PyTorch Lightning.
 
 Example:
-    python main.py train  --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10 --gen_mode mixed --epochs 1
+    python main.py train  --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10 --init_method pretrained
     python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --max_num_samples 10 --batch_size 1 --seq_len 8 --lr 5e-5 --model_head base --horizon 1 --rank 1
 
 """
@@ -466,7 +466,7 @@ def lookup_experiments_by_group_id(
 
         # Filter: apply group_id, group_level
         hparams = get_hyper_parameters(exp)
-        if "group_id" in hparams:
+        if "group_id" in hparams and hparams["group_id"] is not None:
             exp_group = hparams["group_id"].split("-")[group_level]
             target_group = group_id.split("-")[group_level]
 
@@ -503,8 +503,9 @@ def train(args, flag_filename=None):
         meta_ckpt = torch.load(meta_path, map_location="cpu")
         if meta_ckpt.get("epoch", 0) >= args.epochs - 1:
             printo(
-                f"Experiment {exp_name_filtered} already completed {meta_ckpt.get('epochs', 0)} epochs. Skipping."
+                f"Experiment {exp_name_filtered} already completed {meta_ckpt.get('epoch', 0)} epochs. Skipping."
             )
+            maybe_update_args(args, exp_name_filtered)
             return
 
     if len(get_ckpt_file_paths(exp_name_filtered)) > 0:
@@ -518,8 +519,6 @@ def train(args, flag_filename=None):
         args.wandb_id = wandb_id
         args.experiment_name = exp_name_filtered
         printo("Training from scratch.")
-
-    maybe_update_args(args, exp_name_filtered)
 
     ##### End of Setup
 
@@ -608,6 +607,9 @@ def train(args, flag_filename=None):
         # Delete model ckpt to free disk space
         remove_exp_ckpts(exp_name_filtered)
         printo(f"Deleted checkpoints for {exp_name_filtered}")
+
+    # Add another update args
+    maybe_update_args(args, exp_name_filtered)
 
 
 def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs):
