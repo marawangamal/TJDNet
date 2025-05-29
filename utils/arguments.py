@@ -1,5 +1,4 @@
 from tjdnet.distributions import TJD_DISTS
-from lightning.fabric.plugins.precision.precision import _PRECISION_INPUT
 
 
 import argparse
@@ -100,6 +99,7 @@ def add_train_args(parser: argparse.ArgumentParser):
         default=2,
         help="Horizon for TJD models. (E.g. if horizon=2 the model will make 2x less forward passes)",
     )
+    # TODO: rename to init_mode
     parser.add_argument(
         "--init_method",
         type=str,

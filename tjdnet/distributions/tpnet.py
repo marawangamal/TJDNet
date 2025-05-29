@@ -44,10 +44,16 @@ class TensorParamNet(nn.Module):
         }[config.positivity_func]
         self.tpnet_config = config
         self.w = torch.nn.Linear(
-            config.in_dim, config.out_dim_encoder * config.hidden_dim
+            config.in_dim,
+            config.out_dim_encoder * config.hidden_dim,
+            bias=config.use_bias_encoder,
         )
         self.decoder = (
-            nn.Linear(config.hidden_dim, config.out_dim_decoder)
+            nn.Linear(
+                config.hidden_dim,
+                config.out_dim_decoder,
+                bias=config.use_bias_decoder,
+            )
             if config.use_decoder
             else None
         )
