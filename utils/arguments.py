@@ -333,13 +333,13 @@ def add_test_args(parser: argparse.ArgumentParser):
         help="Whether to delete the checkpoint after evaluation.",
         default=False,
     )
-    # parser.add_argument(
-    #     "--gen_mode",
-    #     type=str,
-    #     default="draft",
-    #     choices=["base", "draft", "speculative", "mixed"],
-    #     help="Generation mode for the model.",
-    # )
+    parser.add_argument(
+        "--gen_mode",
+        type=str,
+        default="draft",
+        choices=["base", "draft", "speculative", "mixed"],
+        help="Generation mode for the model.",
+    )
 
 
 # Loss modes:

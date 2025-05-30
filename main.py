@@ -826,6 +826,7 @@ if __name__ == "__main__":
                     osp.join(EXPERIMENTS_DIR, new_exp_name, BEST_FLAG_FILENAME)
                 ):
                     train(Namespace(**exp_kwargs), flag_filename=BEST_FLAG_FILENAME)
+                    # only train one experiment
                     break
         else:
             train(args)
@@ -845,9 +846,10 @@ if __name__ == "__main__":
                         remove_ckpt=args.delete_ckpt,
                         test_filename=TEST_FILENAME,
                     )
+                    # only test one experiment
                     break
         else:
-            test(args.experiment_name, remove_ckpt=args.delete_ckpt)
+            test(args.experiment_name, remove_ckpt=args.delete_ckpt, **vars(args))
 
     elif args.cmd == "tag":
         tag(args)
