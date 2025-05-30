@@ -1,23 +1,46 @@
-"""Train a TJD model using PyTorch Lightning.
+"""Train and evaluate TJD models using PyTorch Lightning.
 
-Example:
-    python main.py train  --model distilbert/distilgpt2 --batch_size 1 --seq_len 8 --max_num_samples 10 --init_method pretrained
-    python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --max_num_samples 10 --batch_size 1 --seq_len 8 --lr 5e-5 --model_head base --horizon 1 --rank 1
+Supports distributed training, experiment tracking with WandB, and automated
+checkpoint management. Organizes experiments by groups for easy comparison.
 
+Commands:
+    train   Train a TJD model
+    test    Evaluate trained models on test data
+    tag     Mark best performing models within groups
+
+Examples:
+    # Basic training
+    python main.py train --model distilbert/distilgpt2 --batch_size 1 --seq_len 8
+
+    # Distributed training
+    python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct
+
+    # Test
+    python main.py test --experiment_name my_experiment
+
+    # Tag -- tags best model within a `group_id`
+    python main.py tag --group_id xxx-xxx-xxx-xxx
+
+    # Test (w/ lookup) -- test tagged experiments
+    python main.py test --lookup --group_id xxx-xxx-xxx-xxx
 """
 
 from ast import Name
 from collections import defaultdict
 import os
 import os.path as osp
+
 from argparse import Namespace
 import subprocess
+import time
 from typing import List, Literal, Optional, Union
 
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
 from wandb.util import generate_id
+import torchmetrics as tm
+
 
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
@@ -26,14 +49,15 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from pytorch_lightning.utilities import rank_zero_only
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from transformers.models.gpt2.modeling_gpt2 import GPT2Block
-from transformers import DataCollatorForLanguageModeling
-from transformers import get_linear_schedule_with_warmup
+from transformers import (
+    DataCollatorForLanguageModeling,
+    get_linear_schedule_with_warmup,
+)
 
 
 from dataloaders import DATASETS
 from tjdnet.distributions._tjdist import TJDist
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
-from utils.average_meter import AverageMeter
 from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
 from utils.lightning_callbacks.generate import GenerateCallback
 from utils.experiment_naming import get_experiment_name
@@ -82,15 +106,54 @@ class LModel(L.LightningModule):
         self.tokenizer = get_auto_tokenizer(self.args.model)
         self.model: TJD = None  # type: ignore
         self.dataset = DATASETS[self.args.dataset](tokenizer=self.tokenizer)
-        self.eos = self.tokenizer.eos_token
-        self.test_ameter = AverageMeter()
+        self.eos = self.tokenizer.eos_token  # TODO: remove, unused
+
+        # Configure metrics
+        def make_meter_dict():
+            return torch.nn.ModuleDict(
+                {
+                    k: tm.MeanMetric()
+                    for k in ("draft", "base", "speculative", "acceptance_rate")
+                }
+            )
+
+        self.metrics = torch.nn.ModuleDict(
+            {
+                "H": make_meter_dict(),
+                "1": make_meter_dict(),
+            }
+        )
+
         self.save_hyperparameters(kwargs)
+
+    # ==== Configuration
 
     def configure_model(self):
         # IMPORTANT: This function must be idempotent (i.e., calling it multiple times should not change self.model)
         if self.model is None:  # Model might be already created in load_from_checkpoint
             # self.model, _ = get_model_and_tokenizer(self.args)
             self.model, _ = get_model_and_tokenizer(self.args)
+
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=self.args.warmup_steps,
+            num_training_steps=self.trainer.estimated_stepping_batches,
+        )
+        return [optimizer], [scheduler]
+
+    def configure_gradient_clipping(
+        self,
+        optimizer,
+        gradient_clip_val: Optional[Union[int, float]] = None,
+        gradient_clip_algorithm: Optional[str] = None,
+    ) -> None:
+        assert gradient_clip_algorithm in ("norm", None), gradient_clip_algorithm
+        if gradient_clip_val is not None:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), gradient_clip_val)
+
+    # ==== Training / Evaluation
 
     def training_step(self, batch, batch_idx):
         # check if any ids are negative
@@ -113,66 +176,75 @@ class LModel(L.LightningModule):
         self.log("eval_loss", loss, prog_bar=True, sync_dist=True)
         return loss
 
-    def test_step(self, batch, batch_idx):
+    # ===== Testing
 
-        gen_modes: List[Literal["draft", "base", "speculative"]] = (
-            [self.args.gen_mode]
-            if self.args.gen_mode in ["base", "draft", "speculative"]
-            else ["base", "draft", "speculative"]
+    def _get_hlabels(self) -> List[Literal["H", "1"]]:
+        return ["H", "1"] if self.args.gen_mode == "mixed" else ["H"]
+
+    def _get_gen_modes(self) -> List[Literal["draft", "base", "speculative"]]:
+        return (
+            ["draft", "base", "speculative"]
+            if self.args.gen_mode == "mixed"
+            else [self.args.gen_mode]
         )
 
-        for gen_mode in gen_modes:
-            outputs, ardict = self.model.generate(
-                generation_config=TJDGenerationConfig(
-                    max_new_tokens=self.args.max_new_tokens,
-                    do_sample=self.args.do_sample,
-                    top_k=self.args.top_k,
-                    eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
-                    gen_mode=gen_mode,
-                ),
-                **batch,
-            )
+    def _generate_and_test(
+        self, batch, gen_mode: Literal["draft", "base", "speculative"], horizon: int
+    ):
+        outputs, ardict = self.model.generate(
+            generation_config=TJDGenerationConfig(
+                max_new_tokens=self.args.max_new_tokens,
+                do_sample=self.args.do_sample,
+                top_k=self.args.top_k,
+                eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
+                gen_mode=gen_mode,
+                horizon=horizon,
+            ),
+            **batch,
+        )
 
-            # Compute accuracy
-            y_pred_str = self.tokenizer.batch_decode(outputs)
-            y_pred = torch.tensor(
-                [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
-                device=outputs.device,
-            )
-            corr = (y_pred == batch["labels"]).float().sum()
-            self.test_ameter.update(corr, len(batch["input_ids"]))
-            self.log(f"test_acc_{gen_mode}", corr, prog_bar=True)
-            if gen_mode == "speculative":
-                tokens_accepted = ardict["tokens_accepted"]
-                tokens_generated = ardict["tokens_generated"]
-                self.test_ameter.update(
-                    tokens_accepted / tokens_generated if tokens_generated > 0 else 0,
-                    ardict["tokens_generated"],
+        # Compute accuracy
+        y_pred_str = self.tokenizer.batch_decode(outputs)
+        y_pred = torch.tensor(
+            [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
+            device=outputs.device,
+        )
+        corr = (y_pred == batch["labels"]).float().sum()
+        return {
+            "corr": corr,
+            "tokens_accepted": ardict["tokens_accepted"],
+            "tokens_generated": ardict["tokens_generated"],
+        }
+
+    def test_step(self, batch, _):
+        for hlabel in self._get_hlabels():
+            for gmode in self._get_gen_modes():
+                horizon = 1 if hlabel == "1" else self.args.horizon
+                out = self._generate_and_test(batch, gmode, horizon)
+
+                # accuracy ----------------------------------------------------
+                self.metrics[hlabel][gmode].update(  # type: ignore
+                    out["corr"] / len(batch["input_ids"]), len(batch["input_ids"])
                 )
 
+                # acceptance --------------------------------------------------
+                if gmode == "speculative":
+                    denom = out["tokens_generated"]
+                    ar = (out["tokens_accepted"] / denom) if denom else 0.0
+                    self.metrics[hlabel]["acceptance_rate"].update(ar, denom)  # type: ignore
+
     def on_test_epoch_end(self):
-        self.log("test_acceptance_rate", self.test_ameter.avg, prog_bar=True)
-
-    def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=self.args.warmup_steps,
-            num_training_steps=self.trainer.estimated_stepping_batches,
-        )
-        return [optimizer], [scheduler]
-
-    def configure_gradient_clipping(
-        self,
-        optimizer,
-        gradient_clip_val: Optional[Union[int, float]] = None,
-        gradient_clip_algorithm: Optional[str] = None,
-    ) -> None:
-        assert gradient_clip_algorithm in ("norm", None), gradient_clip_algorithm
-        if gradient_clip_val is not None:
-            torch.nn.utils.clip_grad_norm_(self.parameters(), gradient_clip_val)
+        for hlabel in self._get_hlabels():
+            for gmode in self._get_gen_modes():
+                # Log metrics
+                self.log(
+                    f"test_h{hlabel}_{gmode}_acc",
+                    self.metrics[hlabel][gmode].compute(),  # type: ignore
+                    prog_bar=True,
+                )
 
     # === Debug (memory) ===
+
     def on_before_zero_grad(self, *args, **kwargs):
         self._log_memory("before_zero_grad")
         return super().on_before_zero_grad(*args, **kwargs)
@@ -338,10 +410,26 @@ def print_args(args):
 def maybe_update_args(args, exp_name: str):
     # save args to meta_path if it exists
     meta_path = get_meta_path(exp_name)
+    attempts = 3
+    max_retries = 10
+    retry_delay = 2  # seconds
     if osp.exists(meta_path):
-        meta_ckpt = torch.load(meta_path, map_location="cpu")
-        meta_ckpt["hyper_parameters"].update(vars(args))
-        torch.save(meta_ckpt, meta_path)
+        for attempt in range(attempts):
+            try:
+                meta_ckpt = torch.load(meta_path, map_location="cpu")
+                meta_ckpt["hyper_parameters"].update(vars(args))
+                torch.save(meta_ckpt, meta_path)
+                printo(f"Updated args in meta file {meta_path}")
+            except (RuntimeError, OSError) as e:
+                if attempt < max_retries - 1:
+                    printo(
+                        f"Failed to load checkpoint (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
+                    printo(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    printo(f"Failed to update args after {max_retries} attempts: {e}")
+                    return
 
 
 #################################################################
@@ -609,6 +697,8 @@ def train(args, flag_filename=None):
         printo(f"Deleted checkpoints for {exp_name_filtered}")
 
     # Add another update args
+    # small delay to ensure the file is written
+    time.sleep(5)
     maybe_update_args(args, exp_name_filtered)
 
 

@@ -1,0 +1,48 @@
+# test.yaml
+preambles:
+  gpu1:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=main"
+    - "#SBATCH --gres=gpu:rtx8000:1"
+    - "#SBATCH --mem=32G"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
+
+
+# MAIN: meta-llama/Llama-3.2-3B-Instruct
+# DEBUG: distilbert/distilgpt2
+
+# Root group executed in sequence
+group:
+  # aaa
+  name: "main"
+  type: parallel
+  jobs:
+
+  ################################################
+  #      SPLIT SEARCH SPACE ACROSS PARTITIONS    #  
+  ################################################
+
+    - group:
+        # aaa-bbb
+        name: "cp"
+        type: sequential
+        jobs:
+          # aaa-bbb-aaa-XXXX
+          - group:
+              type: parallel
+              name: "sweep"
+              jobs:
+                - group:
+                    type: sweep
+                    preamble: gpu1
+                    sweep: # 3x1x5=15
+                      lr: [1e-3]
+                      rank: [2]
+                      horizon: [2]
+                      max_num_samples: [1000, 5000, 10000]
+                    sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 15 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --delete_ckpt"
+

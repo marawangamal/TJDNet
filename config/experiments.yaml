@@ -1,5 +1,25 @@
 # test.yaml
 preambles:
+
+  gpu1:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=main"
+    - "#SBATCH --gres=gpu:rtx8000:1"
+    - "#SBATCH --mem=32G"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
+  cpub:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long"
+    - "#SBATCH --mem=32G"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
   gpu4:   
     - "#!/bin/bash"
     - "#SBATCH --output=slurm/slurm-%j.out"
@@ -15,7 +35,6 @@ preambles:
     # - "#SBATCH --gres=gpu:rtx8000:2"
     # - "#SBATCH --mem=32G"
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
-    
     - "#SBATCH --nodes=1"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
@@ -40,6 +59,8 @@ preambles:
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
 
+
+
 # MAIN: meta-llama/Llama-3.2-3B-Instruct
 # DEBUG: distilbert/distilgpt2
 
@@ -54,52 +75,52 @@ group:
   #                 BASE                         #  
   ################################################
 
-    # - group:
-    #     # aaa-aaa
-    #     name: "base"
-    #     type: sequential
-    #     jobs:
-    #       #  1. Sweep over lr, rank, horizon
-    #       # aaa-aaa-aaa-XXXX
-    #       - group:
-    #           type: parallel
-    #           name: "sweep"
-    #           jobs:
-    #             - group:
-    #                 type: sweep
-    #                 preamble: gpu4long
-    #                 sweep: # 3x4x5=60
-    #                   lr: [5e-4, 1e-4, 5e-5]
-    #                 sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
+    - group:
+        # aaa-aaa
+        name: "base"
+        type: sequential
+        jobs:
+          #  1. Sweep over lr, rank, horizon
+          # aaa-aaa-aaa-XXXX
+          - group:
+              type: parallel
+              name: "sweep"
+              jobs:
+                - group:
+                    type: sweep
+                    preamble: gpu4long
+                    sweep: # 3x4x5=60
+                      lr: [5e-4, 1e-4, 5e-5]
+                    sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id}"
 
-    #       # 2. Tag best model for each (rank, horizon) combination
-    #       # aaa-aaa-bbb
-    #       - job:
-    #           # Creates a <experiment_name>/.prospect file
-    #           preamble: cpu
-    #           command: "python main.py tag --group_by rank horizon --group_level 1 --group_id {group_id}"
-    #           name: "tag"
+          # 2. Tag best model for each (rank, horizon) combination
+          # aaa-aaa-bbb
+          - job:
+              # Creates a <experiment_name>/.prospect file
+              preamble: cpu
+              command: "python main.py tag --group_by rank horizon --group_level 1 --group_id {group_id}"
+              name: "tag"
       
 
-    #       # 3. Run training/testing on best models
-    #       # aaa-aaa-ccc-XXXX
-    #       - group:
-    #           type: loop
-    #           loop_count: 1
-    #           jobs: 
-    #             # aaa-aaa-ccc-aaa
-    #             # Creates a <experiment_name>/.best file
-    #             - job:
-    #                 preamble: gpu4long
-    #                 command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
-    #                 name: "tbest"
+          # 3. Run training/testing on best models
+          # aaa-aaa-ccc-XXXX
+          - group:
+              type: loop
+              loop_count: 1
+              jobs: 
+                # aaa-aaa-ccc-aaa
+                # Creates a <experiment_name>/.best file
+                - job:
+                    preamble: gpu4long
+                    command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
+                    name: "tbest"
 
-    #             # Run expensive test on best models
-    #             # aaa-aaa-ccc-bbb
-    #             - job:
-    #                 preamble: gpu4
-    #                 command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt" 
-    #                 name: "test"
+                # Run expensive test on best models
+                # aaa-aaa-ccc-bbb
+                - job:
+                    preamble: gpu4
+                    command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode mixed" 
+                    name: "test"
 
 
   ################################################
@@ -120,7 +141,7 @@ group:
               # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
                 - group:
                     type: sweep
-                    preamble: gpu4
+                    preamble: cpub
                     sweep: # 3x1x5=15
                       lr: [1e-3, 5e-4, 1e-4, 5e-5]
                       rank: [16]
@@ -128,7 +149,7 @@ group:
                     sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
                 - group:
                     type: sweep
-                    preamble: gpu4long
+                    preamble: cpub
                     sweep: # 3x4x5=60
                       lr: [1e-3, 5e-4, 1e-4, 5e-5]
                       rank: [2, 4]
@@ -184,7 +205,7 @@ group:
                 # aaa-bbb-ccc-bbb
                 - job:
                     preamble: gpu4
-                    command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt" 
+                    command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode mixed" 
                     name: "test"
 
 
