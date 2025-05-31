@@ -164,7 +164,7 @@ group:
                 # # =====================================                
                 - group:
                     type: sweep
-                    preamble: gpu4
+                    preamble: cpub
                     sweep: # 3x4x5=60
                       lr: [1e-3, 1e-4]
                       rank: [8]
@@ -194,7 +194,7 @@ group:
                 # aaa-bbb-ccc-aaa
                 # Creates a <experiment_name>/.best file
                 - job:
-                    preamble: gpu4long
+                    preamble: gpu4
                     command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
                     name: "tbest"
 

@@ -416,7 +416,9 @@ def maybe_update_args(args, exp_name: str):
     if osp.exists(meta_path):
         for attempt in range(attempts):
             try:
-                meta_ckpt = torch.load(meta_path, map_location="cpu")
+                meta_ckpt = torch.load(
+                    meta_path, map_location="cpu", weights_only=False
+                )
                 meta_ckpt["hyper_parameters"].update(vars(args))
                 torch.save(meta_ckpt, meta_path)
                 printo(f"Updated args in meta file {meta_path}")
@@ -828,6 +830,8 @@ if __name__ == "__main__":
                     train(Namespace(**exp_kwargs), flag_filename=BEST_FLAG_FILENAME)
                     # only train one experiment
                     break
+                else:
+                    printo(f"Experiment {new_exp_name} already trained. Skipping.")
         else:
             train(args)
     elif args.cmd == "test":
@@ -848,6 +852,9 @@ if __name__ == "__main__":
                     )
                     # only test one experiment
                     break
+                else:
+                    printo(f"Experiment {prosepect_exp_name} already tested. Skipping.")
+
         else:
             test(args.experiment_name, remove_ckpt=args.delete_ckpt, **vars(args))
 
