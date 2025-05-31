@@ -189,7 +189,14 @@ def add_train_args(parser: argparse.ArgumentParser):
         "--gen_mode",
         type=str,
         default="draft",
-        choices=["base", "draft", "speculative", "mixed"],
+        choices=[
+            "base",
+            "draft",
+            "speculative",
+            "draft_multi_horizon",
+            "base_multi_horizon",
+            "mixed",
+        ],
         help="Generation mode for the model.",
     )
     parser.add_argument(
@@ -337,7 +344,14 @@ def add_test_args(parser: argparse.ArgumentParser):
         "--gen_mode",
         type=str,
         default="draft",
-        choices=["base", "draft", "speculative", "mixed"],
+        choices=[
+            "base",
+            "draft",
+            "speculative",
+            "draft_multi_horizon",
+            "base_multi_horizon",
+            "mixed",
+        ],
         help="Generation mode for the model.",
     )
 

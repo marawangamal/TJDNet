@@ -70,7 +70,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%(levelname)s - %(message)s",  # Much simpler format
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
@@ -188,14 +188,20 @@ class LModel(L.LightningModule):
     # ===== Testing
 
     def _get_hlabels(self) -> List[Literal["H", "1"]]:
-        return ["H", "1"] if self.args.gen_mode == "mixed" else ["H"]
+        opts: dict[str, List[Literal["H", "1"]]] = {
+            "mixed": ["H", "1"],
+            "draft_multi_horizon": ["H", "1"],
+            "base_multi_horizon": ["H", "1"],
+        }
+        return opts.get(self.args.gen_mode, ["H"])
 
     def _get_gen_modes(self) -> List[Literal["draft", "base", "speculative"]]:
-        return (
-            ["draft", "base", "speculative"]
-            if self.args.gen_mode == "mixed"
-            else [self.args.gen_mode]
-        )
+        opts: dict[str, List[Literal["draft", "base", "speculative"]]] = {
+            "draft_multi_horizon": ["draft"],
+            "base_multi_horizon": ["base"],
+            "mixed": ["draft", "base", "speculative"],
+        }
+        return opts.get(self.args.gen_mode, [self.args.gen_mode])
 
     def _generate_and_test(
         self, batch, gen_mode: Literal["draft", "base", "speculative"], horizon: int
@@ -581,7 +587,14 @@ def remove_exp_ckpts(exp: str):
     try:
         ckpt_paths = get_ckpt_file_paths(exp)
         for ckpt_path in ckpt_paths:
-            if osp.exists(ckpt_path):
+            if ckpt_path.endswith("best.ckpt"):
+                # remove only the params
+                ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+                if "state_dict" in ckpt:
+                    del ckpt["state_dict"]
+                    torch.save(ckpt, ckpt_path)
+                    logger.info(f"Removed state_dict from checkpoint: {ckpt_path}")
+            elif osp.exists(ckpt_path):
                 os.remove(ckpt_path)
                 logger.info(f"Deleted checkpoint: {ckpt_path}")
         logger.info(f"Successfully removed all checkpoints for experiment: {exp}")
@@ -740,7 +753,7 @@ def train(args, flag_filename=None):
     logger.info(f"Training completed in {training_time}")
 
     # Testing
-    if not args.accel_strategy == "fsdp":
+    if not args.accel_strategy == "fsdp" and args.compute_acc:
         logger.info("Starting evaluation on test set...")
         trainer.test(ckpt_path="best", datamodule=ldata)
 
