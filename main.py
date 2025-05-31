@@ -47,7 +47,7 @@ import torchmetrics as tm
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import FSDPStrategy
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.utilities import rank_zero_only
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from transformers.models.gpt2.modeling_gpt2 import GPT2Block
@@ -702,6 +702,15 @@ def train(args, flag_filename=None):
         save_top_k=1,
     )
     generate_cb = GenerateCallback(prompt=DATASETS[args.dataset].get_sample_prompt())
+    early_stopping_cb = EarlyStopping(
+        monitor="eval_loss",
+        patience=3,
+        mode="min",
+        check_finite=True,
+    )
+    callbacks = [checkpoint_cb, early_stopping_cb]
+    if not args.accel_strategy == "fsdp":
+        callbacks.append(generate_cb)
 
     # Memory analysis
     params = sum(p.numel() for p in lmodel.parameters())
@@ -732,11 +741,7 @@ def train(args, flag_filename=None):
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name_filtered),
-        callbacks=(
-            [checkpoint_cb, generate_cb]
-            if args.accel_strategy != "fsdp"
-            else checkpoint_cb
-        ),
+        callbacks=callbacks,
         logger=wandb_logger,
         accumulate_grad_batches=args.accum_grad_batches,
         gradient_clip_val=1,
@@ -1039,6 +1044,7 @@ if __name__ == "__main__":
                             best_exp_name,
                             remove_ckpt=args.delete_ckpt,
                             test_filename=TEST_FILENAME,
+                            **vars(args),
                         )
                         break
                     else:

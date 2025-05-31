@@ -1,25 +1,6 @@
 # test.yaml
 preambles:
 
-  gpu1:   
-    - "#!/bin/bash"
-    - "#SBATCH --output=slurm/slurm-%j.out"
-    - "#SBATCH --error=slurm/slurm-%j.err"   
-    - "#SBATCH --partition=main"
-    - "#SBATCH --gres=gpu:rtx8000:1"
-    - "#SBATCH --mem=32G"
-    - "#SBATCH --nodes=1"
-    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
-
-  cpub:   
-    - "#!/bin/bash"
-    - "#SBATCH --output=slurm/slurm-%j.out"
-    - "#SBATCH --error=slurm/slurm-%j.err"   
-    - "#SBATCH --partition=long"
-    - "#SBATCH --mem=32G"
-    - "#SBATCH --nodes=1"
-    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
-
   gpu4:
     - "#!/bin/bash"
     - "#SBATCH --output=slurm/slurm-%j.out"
@@ -58,7 +39,14 @@ preambles:
     - "#SBATCH --mem=8G"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
-
+  cpub:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long"
+    - "#SBATCH --mem=32G"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
 
 # MAIN: meta-llama/Llama-3.2-3B-Instruct
