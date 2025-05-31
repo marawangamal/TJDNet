@@ -29,6 +29,8 @@ from ast import Name
 from collections import defaultdict
 import os
 import os.path as osp
+import logging
+from datetime import datetime
 
 from argparse import Namespace
 import subprocess
@@ -64,6 +66,14 @@ from utils.experiment_naming import get_experiment_name
 from utils.arguments import parse_args
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 EXPERIMENTS_DIR = "experiments"
 SILENT_ARGS = [
@@ -125,16 +135,23 @@ class LModel(L.LightningModule):
         )
 
         self.save_hyperparameters(kwargs)
+        logger.info(
+            f"Initialized LModel with dataset: {self.args.dataset}, model: {self.args.model}"
+        )
 
     # ==== Configuration
 
     def configure_model(self):
         # IMPORTANT: This function must be idempotent (i.e., calling it multiple times should not change self.model)
         if self.model is None:  # Model might be already created in load_from_checkpoint
-            # self.model, _ = get_model_and_tokenizer(self.args)
+            logger.info("Configuring model...")
             self.model, _ = get_model_and_tokenizer(self.args)
+            logger.info(f"Model configured: {type(self.model).__name__}")
 
     def configure_optimizers(self):
+        logger.info(
+            f"Configuring optimizer with lr={self.args.lr}, warmup_steps={self.args.warmup_steps}"
+        )
         optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
@@ -156,23 +173,15 @@ class LModel(L.LightningModule):
     # ==== Training / Evaluation
 
     def training_step(self, batch, batch_idx):
-        # check if any ids are negative
         output = self.model(**batch)
-        # === TJD model
         loss = output["loss"]
-        # === HF model
-        # loss = output.loss
         self.log("train_loss", loss, prog_bar=True)
-
         return loss
 
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
             output = self.model(**batch)
-        # === TJD model
         loss = output["loss"]
-        # === HF model
-        # loss = output.loss
         self.log("eval_loss", loss, prog_bar=True, sync_dist=True)
         return loss
 
@@ -216,34 +225,33 @@ class LModel(L.LightningModule):
             "tokens_generated": ardict["tokens_generated"],
         }
 
-    def test_step(self, batch, _):
+    def test_step(self, batch, batch_idx):
         for hlabel in self._get_hlabels():
             for gmode in self._get_gen_modes():
                 horizon = 1 if hlabel == "1" else self.args.horizon
                 out = self._generate_and_test(batch, gmode, horizon)
 
-                # accuracy ----------------------------------------------------
+                # accuracy
                 self.metrics[hlabel][gmode].update(  # type: ignore
                     out["corr"] / len(batch["input_ids"]), len(batch["input_ids"])
                 )
 
-                # acceptance --------------------------------------------------
+                # acceptance
                 if gmode == "speculative":
                     denom = out["tokens_generated"]
                     ar = (out["tokens_accepted"] / denom) if denom else 0.0
                     self.metrics[hlabel]["acceptance_rate"].update(ar, denom)  # type: ignore
 
     def on_test_epoch_end(self):
+        # Lightning handles metric logging to progress bar and WandB
+        logger.info("Test epoch completed")
         for hlabel in self._get_hlabels():
             for gmode in self._get_gen_modes():
-                # Log metrics
-                self.log(
-                    f"test_h{hlabel}_{gmode}_acc",
-                    self.metrics[hlabel][gmode].compute(),  # type: ignore
-                    prog_bar=True,
-                )
+                metric_value = self.metrics[hlabel][gmode].compute()  # type: ignore
+                metric_name = f"test_h{hlabel}_{gmode}_acc"
+                self.log(metric_name, metric_value, prog_bar=True)
 
-    # === Debug (memory) ===
+    # === Memory Logging ===
 
     def on_before_zero_grad(self, *args, **kwargs):
         self._log_memory("before_zero_grad")
@@ -269,8 +277,12 @@ class LDataModule(L.LightningDataModule):
         self.seq_len = kwargs.get("seq_len", 8)
         self.max_num_samples = kwargs.get("max_num_samples", None)
         self.ds_name = kwargs.get("dataset", "stemp")
+        logger.info(
+            f"Initialized DataModule - dataset: {self.ds_name}, batch_size: {self.batch_size}"
+        )
 
     def setup(self, stage: str):
+        logger.info(f"Setting up data for stage: {stage}")
         self.lm_dataset = DATASETS[self.ds_name](
             tokenizer=self.tokenizer,
             seq_len=self.seq_len,
@@ -280,6 +292,9 @@ class LDataModule(L.LightningDataModule):
             self.lm_dataset["train"],
             self.lm_dataset["eval"],
             self.lm_dataset["test"],
+        )
+        logger.info(
+            f"Data loaded - Train: {len(self.train_ds)}, Eval: {len(self.eval_ds)}, Test: {len(self.test_ds)}"
         )
 
     def train_dataloader(self):
@@ -309,8 +324,6 @@ class LDataModule(L.LightningDataModule):
         )
 
     def _collator_test(self):
-        # return batch[0]
-        # stack all tensors across keys
         def collator(batch):
             collated_batch = {}
             for key in batch[0].keys():
@@ -322,7 +335,7 @@ class LDataModule(L.LightningDataModule):
     def _collator_train(self):
         collator = DataCollatorForLanguageModeling(
             tokenizer=self.tokenizer,
-            mlm=False,  # we’re doing causal-LM, not masked-LM
+            mlm=False,  # we're doing causal-LM, not masked-LM
             return_tensors="pt",
         )
         return collator
@@ -356,40 +369,32 @@ class SafeModelCheckpoint(ModelCheckpoint):
 
 @rank_zero_only
 def get_wandb_logger(exp_name: str, wandb_id=None):
+    logger.info(f"Setting up WandB logger for experiment: {exp_name}")
     git_info = get_git_info()
     suffix = "main" if git_info.get("branch") == "main" else "dev"
     project_name = f"tjdnet-{suffix}"
     wandb_logger = WandbLogger(
         project=project_name,
         name=exp_name,
-        id=wandb_id,  # Add this line to specify the run ID
+        id=wandb_id,
         resume="allow",
     )
+    logger.info(f"WandB logger configured - Project: {project_name}, ID: {wandb_id}")
     return wandb_logger
 
 
 def printo(*args, **kwargs):
-    """Print to stdout and stderr."""
+    """Print to stdout and stderr - now uses proper logging."""
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if local_rank == 0:
-        print(*args, **kwargs)
+        logger.info(" ".join(str(arg) for arg in args))
 
 
 @rank_zero_only
 def generate_wandb_id():
     wandb_id = generate_id()
-    print(f"Generated new wandb id: {wandb_id}")
+    logger.info(f"Generated new WandB ID: {wandb_id}")
     return wandb_id
-
-
-# Define a simple identity collator for single samples
-def identity_collator(batch):
-    # return batch[0]
-    # stack all tensors across keys
-    collated_batch = {}
-    for key in batch[0].keys():
-        collated_batch[key] = torch.stack([torch.tensor(b[key]) for b in batch])
-    return collated_batch
 
 
 def filter_kwargs(**kwargs):
@@ -398,21 +403,71 @@ def filter_kwargs(**kwargs):
 
 
 def print_args(args):
-    # Print all args
-    line = "=" * 40
-    printo(f"{line}\nArgs:\n{line}")
+    """Print arguments in a structured format."""
+    logger.info("=" * 50)
+    logger.info("EXPERIMENT CONFIGURATION")
+    logger.info("=" * 50)
+
+    # Group args by category for better readability
+    model_args = {}
+    training_args = {}
+    data_args = {}
+    other_args = {}
+    silent_args = {}
+
     for k, v in vars(args).items():
-        if k not in SILENT_ARGS:
-            printo(f"  - {k}: {v}")
-    printo(f"{line}\n")
+        if k in ["model", "horizon", "precision"]:
+            model_args[k] = v
+        elif k in [
+            "lr",
+            "epochs",
+            "warmup_steps",
+            "batch_size",
+            "accum_grad_batches",
+        ]:
+            training_args[k] = v
+        elif k in ["dataset", "seq_len", "max_num_samples"]:
+            data_args[k] = v
+        elif k in SILENT_ARGS:
+            silent_args[k] = v
+        else:
+            other_args[k] = v
+
+    if model_args:
+        logger.info("Model Configuration:")
+        for k, v in model_args.items():
+            logger.info(f"  {k}: {v}")
+
+    if training_args:
+        logger.info("Training Configuration:")
+        for k, v in training_args.items():
+            logger.info(f"  {k}: {v}")
+
+    if data_args:
+        logger.info("Data Configuration:")
+        for k, v in data_args.items():
+            logger.info(f"  {k}: {v}")
+
+    if silent_args:
+        logger.info("Silent Configuration:")
+        for k, v in silent_args.items():
+            logger.info(f"  {k}: {v}")
+
+    if other_args:
+        logger.info("Other Configuration:")
+        for k, v in other_args.items():
+            logger.info(f"  {k}: {v}")
+
+    logger.info("=" * 50)
 
 
 def maybe_update_args(args, exp_name: str):
-    # save args to meta_path if it exists
+    """Update args in meta file with retry logic."""
     meta_path = get_meta_path(exp_name)
     attempts = 3
     max_retries = 10
     retry_delay = 2  # seconds
+
     if osp.exists(meta_path):
         for attempt in range(attempts):
             try:
@@ -421,17 +476,19 @@ def maybe_update_args(args, exp_name: str):
                 )
                 meta_ckpt["hyper_parameters"].update(vars(args))
                 torch.save(meta_ckpt, meta_path)
-                printo(f"Updated args in meta file {meta_path}")
+                logger.info(f"Successfully updated args in meta file: {meta_path}")
+                return
             except (RuntimeError, OSError) as e:
                 if attempt < max_retries - 1:
-                    printo(
-                        f"Failed to load checkpoint (attempt {attempt + 1}/{max_retries}): {e}"
+                    logger.warning(
+                        f"Failed to update args (attempt {attempt + 1}/{max_retries}): {e}"
                     )
-                    printo(f"Retrying in {retry_delay} seconds...")
+                    logger.info(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                 else:
-                    printo(f"Failed to update args after {max_retries} attempts: {e}")
-                    return
+                    logger.error(
+                        f"Failed to update args after {max_retries} attempts: {e}"
+                    )
 
 
 #################################################################
@@ -476,37 +533,18 @@ def get_ckpt_file_paths(exp_name: str):
 
     return ckpt_paths
 
-    # # Get the checkpoint path for the experiment
-    # ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
-    # ckpt_path_consolidated = None
-    # if osp.isdir(ckpt_path):
-    #     if osp.exists(ckpt_path + ".consolidated"):
-    #         ckpt_path_consolidated = ckpt_path + ".consolidated"
-    #     else:
-    #         # Convert
-    # subprocess.run(
-    #     [
-    #         "python",
-    #         "-m",
-    #         "lightning.pytorch.utilities.consolidate_checkpoint",
-    #         str(ckpt_path),
-    #     ],
-    #     capture_output=True,
-    # )
-    #     ckpt_path_consolidated = ckpt_path + ".consolidated"
-    # return ckpt_path, ckpt_path_consolidated
-
 
 def make_consolidated_ckpt(exp_name: str):
     ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name, "best.ckpt")
     if osp.isdir(ckpt_path):
         if osp.exists(ckpt_path + ".consolidated"):
-            printo(f"Consolidated checkpoint already exists: {ckpt_path}.consolidated")
+            logger.info(
+                f"Using existing consolidated checkpoint: {ckpt_path}.consolidated"
+            )
             return ckpt_path + ".consolidated"
         else:
-            # Convert
-            printo(f"Consolidating checkpoint: {ckpt_path}")
-            subprocess.run(
+            logger.info(f"Consolidating checkpoint: {ckpt_path}")
+            result = subprocess.run(
                 [
                     "python",
                     "-m",
@@ -514,19 +552,28 @@ def make_consolidated_ckpt(exp_name: str):
                     str(ckpt_path),
                 ],
                 capture_output=True,
+                text=True,
             )
+            if result.returncode != 0:
+                logger.error(f"Failed to consolidate checkpoint: {result.stderr}")
+            else:
+                logger.info("Checkpoint consolidation completed successfully")
             return ckpt_path + ".consolidated"
     return ckpt_path
 
 
 def get_exp_eval_score(exp: str):
     """Load experiment eval_loss and hyperparams."""
-    meta_path = get_meta_path(exp)
-    meta_ckpt = torch.load(meta_path, map_location="cpu")
-    for key, cb in meta_ckpt.get("callbacks", {}).items():
-        if "ModelCheckpoint" in key and "eval_loss" in key:
-            return cb["best_model_score"]
-    return None
+    try:
+        meta_path = get_meta_path(exp)
+        meta_ckpt = torch.load(meta_path, map_location="cpu")
+        for key, cb in meta_ckpt.get("callbacks", {}).items():
+            if "ModelCheckpoint" in key and "eval_loss" in key:
+                return cb["best_model_score"]
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get eval score for {exp}: {e}")
+        return None
 
 
 def remove_exp_ckpts(exp: str):
@@ -534,17 +581,21 @@ def remove_exp_ckpts(exp: str):
     try:
         ckpt_paths = get_ckpt_file_paths(exp)
         for ckpt_path in ckpt_paths:
-            os.remove(ckpt_path)
-            printo(f"Deleted {ckpt_path}")
+            if osp.exists(ckpt_path):
+                os.remove(ckpt_path)
+                logger.info(f"Deleted checkpoint: {ckpt_path}")
+        logger.info(f"Successfully removed all checkpoints for experiment: {exp}")
     except Exception as e:
-        printo(f"Error deleting checkpoints for {exp}: {e}")
-        printo("Make sure the experiment name is correct and the checkpoints exist.")
+        logger.error(f"Error deleting checkpoints for {exp}: {e}")
 
 
 def lookup_experiments_by_group_id(
     group_id: str, group_level: int = 0, flag_filename=None
 ) -> List[str]:
     """Find all best checkpoints matching group_id at the specified group level."""
+    logger.info(
+        f"Looking up experiments for group_id: {group_id} at level {group_level}"
+    )
     filtered_exps = []
 
     for exp in os.listdir(EXPERIMENTS_DIR):
@@ -555,20 +606,21 @@ def lookup_experiments_by_group_id(
                 continue
 
         # Filter: apply group_id, group_level
-        hparams = get_hyper_parameters(exp)
-        if "group_id" in hparams and hparams["group_id"] is not None:
-            exp_group = hparams["group_id"].split("-")[group_level]
-            target_group = group_id.split("-")[group_level]
+        try:
+            hparams = get_hyper_parameters(exp)
+            if "group_id" in hparams and hparams["group_id"] is not None:
+                exp_group = hparams["group_id"].split("-")[group_level]
+                target_group = group_id.split("-")[group_level]
 
-            if exp_group == target_group:
-                filtered_exps.append(exp)
+                if exp_group == target_group:
+                    filtered_exps.append(exp)
+        except Exception as e:
+            logger.warning(f"Could not process experiment {exp}: {e}")
+            continue
 
-    printo(
-        f"Found {len(filtered_exps)} checkpoints for group_id: {group_id} @ level {group_level}"
-    )
-    printo(f"Checkpoints:")
+    logger.info(f"Found {len(filtered_exps)} experiments matching criteria")
     for exp in filtered_exps:
-        printo(f"  - {exp}")
+        logger.debug(f"  - {exp}")
 
     return filtered_exps
 
@@ -579,46 +631,53 @@ def lookup_experiments_by_group_id(
 
 
 def train(args, flag_filename=None):
-    ##### Setup
-    printo("Training model...")
+    """Train a model with improved logging."""
+    logger.info("Starting training process")
     print_args(args)
+
     L.seed_everything(42)
     exp_name_filtered = get_experiment_name(filter_kwargs(**vars(args)))
     ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name_filtered, "best.ckpt")
     wandb_id = None
 
-    # If experiment already exists, check if it has completed.
+    # Check if experiment already exists
     meta_path = get_meta_path(exp_name_filtered)
     if osp.exists(meta_path):
-        meta_ckpt = torch.load(meta_path, map_location="cpu")
-        if meta_ckpt.get("epoch", 0) >= args.epochs - 1:
-            printo(
-                f"Experiment {exp_name_filtered} already completed {meta_ckpt.get('epoch', 0)} epochs. Skipping."
-            )
-            maybe_update_args(args, exp_name_filtered)
-            return
+        try:
+            meta_ckpt = torch.load(meta_path, map_location="cpu")
+            if meta_ckpt.get("epoch", 0) >= args.epochs - 1:
+                logger.info(
+                    f"Experiment {exp_name_filtered} already completed {meta_ckpt.get('epoch', 0)} epochs - Skipping"
+                )
+                maybe_update_args(args, exp_name_filtered)
+                return
+        except Exception as e:
+            logger.warning(f"Could not load existing checkpoint metadata: {e}")
 
+    # Handle existing checkpoints
     if len(get_ckpt_file_paths(exp_name_filtered)) > 0:
-        wandb_id = torch.load(exp_name_filtered, map_location="cpu")[
-            "hyper_parameters"
-        ]["wandb_id"]
-        printo(f"Found checkpoint @ {ckpt_path}, wandb ID: {wandb_id}")
+        try:
+            existing_ckpt = torch.load(
+                get_ckpt_file_paths(exp_name_filtered)[0], map_location="cpu"
+            )
+            wandb_id = existing_ckpt["hyper_parameters"]["wandb_id"]
+            logger.info(f"Resuming from existing checkpoint - WandB ID: {wandb_id}")
+        except Exception as e:
+            logger.warning(f"Could not load existing checkpoint: {e}")
+            ckpt_path = None
     else:
         ckpt_path = None
         wandb_id = generate_wandb_id()
         args.wandb_id = wandb_id
         args.experiment_name = exp_name_filtered
-        printo("Training from scratch.")
+        logger.info("Starting training from scratch")
 
-    ##### End of Setup
+    logger.info(f"Experiment name: {exp_name_filtered}")
+    logger.info(f"Group ID: {args.group_id}")
 
-    printo(f"GROUP ID: {args.group_id}")
+    # Setup logging and model
     wandb_logger = get_wandb_logger(exp_name_filtered, wandb_id=wandb_id)
-
-    # Model
     lmodel = LModel(**vars(args))
-
-    # Data
     ldata = LDataModule(**vars(args))
 
     # Callbacks
@@ -631,14 +690,16 @@ def train(args, flag_filename=None):
     )
     generate_cb = GenerateCallback(prompt=DATASETS[args.dataset].get_sample_prompt())
 
-    # Memory breakdown
+    # Memory analysis
     params = sum(p.numel() for p in lmodel.parameters())
     params_memory_gb = params * 4 / (1024**3)
-    printo("\n===== MEMORY BREAKDOWN =====")
-    printo(f"Params: {params / 1e9:.3f} B parameters │  {params_memory_gb:.2f} GB ")
-    printo("==============================\n")
+    logger.info("=" * 50)
+    logger.info("MEMORY ANALYSIS")
+    logger.info("=" * 50)
+    logger.info(f"Model parameters: {params / 1e9:.3f}B ({params_memory_gb:.2f} GB)")
+    logger.info("=" * 50)
 
-    # Train
+    # Training strategy
     policy = {LlamaDecoderLayer, GPT2Block, TJDist}
     strategy = {
         "auto": "auto",
@@ -646,16 +707,15 @@ def train(args, flag_filename=None):
         "fsdp": FSDPStrategy(
             auto_wrap_policy=policy,
             sharding_strategy="FULL_SHARD",
-            # mixed_precision=MixedPrecision(param_dtype=torch.bfloat16),
-            # cpu_offload=True,
-            # activation_checkpointing_policy={TJDist},
-            # limit_all_gathers=True,  # Important for evaluation
             state_dict_type="sharded",
         ),
     }[args.accel_strategy]
 
+    logger.info(f"Using acceleration strategy: {args.accel_strategy}")
+
+    # Create trainer
     trainer = L.Trainer(
-        fast_dev_run=args.fast_dev_run,  # for debugging
+        fast_dev_run=args.fast_dev_run,
         strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name_filtered),
@@ -665,109 +725,168 @@ def train(args, flag_filename=None):
             else checkpoint_cb
         ),
         logger=wandb_logger,
-        # precision="bf16-mixed",
         accumulate_grad_batches=args.accum_grad_batches,
         gradient_clip_val=1,
         precision=args.precision,
     )
 
-    trainer.fit(
-        lmodel,
-        datamodule=ldata,
-        ckpt_path=ckpt_path,
-    )
-    if not args.accel_strategy == "fsdp":
-        trainer.test(
-            ckpt_path="best",
-            datamodule=ldata,
-        )
-    if torch.cuda.is_available():
-        trainer.print(torch.cuda.memory_summary())
+    # Start training
+    logger.info("Starting training...")
+    start_time = datetime.now()
 
-    # Save the model
+    trainer.fit(lmodel, datamodule=ldata, ckpt_path=ckpt_path)
+
+    training_time = datetime.now() - start_time
+    logger.info(f"Training completed in {training_time}")
+
+    # Testing
+    if not args.accel_strategy == "fsdp":
+        logger.info("Starting evaluation on test set...")
+        trainer.test(ckpt_path="best", datamodule=ldata)
+
+    # Memory summary
+    if torch.cuda.is_available():
+        memory_summary = torch.cuda.memory_summary()
+        logger.info(f"Final memory summary:\n{memory_summary}")
+
+    # Save flag file
     if flag_filename:
         flag_path = osp.join(EXPERIMENTS_DIR, exp_name_filtered, flag_filename)
         with open(flag_path, "w") as f:
-            f.write(f"Best extended model")
-        printo(f"Saved flag @ {flag_path}")
-    else:
-        printo("No flag filename provided, skipping flag save.")
+            f.write(f"Training completed at {datetime.now()}")
+        logger.info(f"Flag file saved: {flag_path}")
 
+    # Cleanup
     if args.delete_ckpt:
-        # Delete model ckpt to free disk space
         remove_exp_ckpts(exp_name_filtered)
-        printo(f"Deleted checkpoints for {exp_name_filtered}")
+        logger.info(f"Deleted checkpoints for experiment: {exp_name_filtered}")
 
-    # Add another update args
-    # small delay to ensure the file is written
-    time.sleep(5)
+    # Final update
+    time.sleep(5)  # Allow file operations to complete
     maybe_update_args(args, exp_name_filtered)
+    logger.info("Training process completed successfully")
 
 
 def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs):
-    # Check if the experiment exists
-    if osp.exists(osp.join(EXPERIMENTS_DIR, exp_name, test_filename)):
-        printo(f"Test results already exist for {exp_name}. Skipping.")
+    """Test a trained model with improved logging."""
+    logger.info(f"Starting test for experiment: {exp_name}")
+
+    # Check if already tested
+    test_results_path = osp.join(EXPERIMENTS_DIR, exp_name, test_filename)
+    if osp.exists(test_results_path):
+        logger.info(f"Test results already exist for {exp_name} - Skipping")
         return
 
-    printo(f"\n=== Testing {exp_name} ===")
-    ckpt_path = make_consolidated_ckpt(exp_name)
-
-    # Load model and setup  # cfg=exp_name
-    lmodel = LModel.load_from_checkpoint(ckpt_path)
-    exp_args = Namespace(**lmodel.hparams)
+    # Load and test model
+    logger.info("Loading model checkpoint...")
+    try:
+        ckpt_path = make_consolidated_ckpt(exp_name)
+        lmodel = LModel.load_from_checkpoint(ckpt_path)
+        exp_args = Namespace(**lmodel.hparams)
+        logger.info(f"Model loaded successfully from: {ckpt_path}")
+    except Exception as e:
+        logger.error(f"Failed to load model checkpoint: {e}")
+        return
 
     # Setup trainer
     generate_cb = GenerateCallback(
         prompt=DATASETS[exp_args.dataset].get_sample_prompt()
     )
 
-    logger = get_wandb_logger(exp_args.experiment_name, wandb_id=exp_args.wandb_id)
+    logger.info("Setting up WandB logger for testing...")
+    wandb_logger = get_wandb_logger(
+        exp_args.experiment_name, wandb_id=exp_args.wandb_id
+    )
     trainer = L.Trainer(
-        accelerator="gpu", devices=1, callbacks=[generate_cb], logger=logger
+        accelerator="gpu", devices=1, callbacks=[generate_cb], logger=wandb_logger
     )
 
-    # Test
-    overrideable_args = [
-        "max_new_tokens",
-        "do_sample",
-        "top_k",
-        "gen_mode",
-    ]
+    # Prepare test arguments
+    overrideable_args = ["max_new_tokens", "do_sample", "top_k", "gen_mode"]
     kwargs = {k: v for k, v in kwargs.items() if k in overrideable_args}
     ekwargs = {**vars(exp_args), **kwargs}
-    ldata = LDataModule(**ekwargs)
-    test_results = trainer.test(lmodel, datamodule=ldata)
 
-    # Save test results
-    test_results_path = osp.join(EXPERIMENTS_DIR, exp_name, test_filename)
+    if kwargs:
+        logger.info(f"Overriding test arguments: {kwargs}")
+
+    logger.info("Setting up test data...")
+    ldata = LDataModule(**ekwargs)
+
+    # Run test
+    logger.info("Starting model evaluation...")
+    start_time = datetime.now()
+    test_results = trainer.test(lmodel, datamodule=ldata)
+    test_time = datetime.now() - start_time
+
+    logger.info(f"Testing completed in {test_time}")
+
+    # Save test results to file
     with open(test_results_path, "w") as f:
         f.write(f"Test results for {exp_name}:\n")
+        f.write(f"Test completed at: {datetime.now()}\n")
+        f.write(f"Test duration: {test_time}\n\n")
         for key, value in test_results[0].items():
             f.write(f"{key}: {value}\n")
 
+    logger.info(f"Test results saved to: {test_results_path}")
+
+    # Cleanup
     if remove_ckpt:
         remove_exp_ckpts(exp_name)
-        printo(f"Deleted checkpoints for {exp_name}")
+    logger.info(f"Removed checkpoints for experiment: {exp_name}")
+
+    logger.info("Testing process completed successfully")
 
 
 def tag(args, flag_filename=PROSPECT_FLAG_FILENAME):
-    """Tag the best model in each group."""
+    """Tag the best model in each group with improved logging."""
+    logger.info(f"Starting tagging process for group_id: {args.group_id}")
+    logger.info(f"Group level: {args.group_level}, Flag: {flag_filename}")
+
+    # Lookup experiments
     exps = lookup_experiments_by_group_id(args.group_id, args.group_level)
 
-    # Get exp losses
+    if not exps:
+        logger.warning("No experiments found matching the criteria")
+        return
+
+    # Get experiment losses
+    logger.info("Evaluating experiment performance...")
     exp_losses = dict()
+    failed_exps = []
+
     for exp_name in exps:
-        exp_loss = get_exp_eval_score(exp_name)
-        hparams = get_hyper_parameters(exp_name)
-        if exp_losses is None:
-            printo(f"Skipping {exp_name} - no eval_loss")
-            continue
-        exp_losses[exp_name] = (exp_loss, hparams)
+        try:
+            exp_loss = get_exp_eval_score(exp_name)
+            hparams = get_hyper_parameters(exp_name)
+
+            if exp_loss is None:
+                logger.warning(f"Skipping {exp_name} - no eval_loss available")
+                failed_exps.append(exp_name)
+                continue
+
+            exp_losses[exp_name] = (exp_loss, hparams)
+            logger.debug(f"{exp_name}: eval_loss = {exp_loss:.4f}")
+
+        except Exception as e:
+            logger.error(f"Failed to process experiment {exp_name}: {e}")
+            failed_exps.append(exp_name)
+
+    if failed_exps:
+        logger.warning(
+            f"Failed to process {len(failed_exps)} experiments: {failed_exps}"
+        )
+
+    if not exp_losses:
+        logger.error("No valid experiments found with eval_loss")
+        return
 
     # Apply grouping
+    logger.info("Grouping experiments...")
     groups = defaultdict(dict)
+
     if args.group_by:
+        logger.info(f"Grouping by parameters: {args.group_by}")
         for exp_name, (loss, hparams) in exp_losses.items():
             key_parts = [
                 f"{param}={hparams.get(param, 'unknown')}" for param in args.group_by
@@ -776,87 +895,151 @@ def tag(args, flag_filename=PROSPECT_FLAG_FILENAME):
             groups[key][exp_name] = loss
     else:
         # If no grouping specified, treat all experiments as one group
-        groups["all"] = {exp_name: loss for _, (loss, _) in exp_losses.items()}
+        logger.info("No grouping specified - treating all experiments as one group")
+        groups["all"] = {exp_name: loss for exp_name, (loss, _) in exp_losses.items()}
 
-    # Best within each group
+    # Find best within each group
+    logger.info("Finding best models in each group...")
     best_exps = set()
-    for group_name, group_exps in groups.items():
+    removed_flags = []
 
+    for group_name, group_exps in groups.items():
         if not group_exps:
-            printo(f"No experiments in group {group_name}")
+            logger.warning(f"No experiments in group: {group_name}")
             continue
 
         # Find experiment with minimum loss (assuming lower is better)
-        best_exp = min(group_exps.items(), key=lambda x: x[1])[0]
-
+        best_exp, best_loss = min(group_exps.items(), key=lambda x: x[1])
         best_exps.add(best_exp)
-        printo(f"Best model in group {group_name}: {best_exp}")
 
-        # Tag best model (i.e., create .best file)
+        logger.info(
+            f"Best in group '{group_name}': {best_exp} (eval_loss: {best_loss:.4f})"
+        )
+
+        # Tag best model
         best_path = osp.join(EXPERIMENTS_DIR, best_exp, flag_filename)
         with open(best_path, "w") as f:
-            f.write(f"Best model in group {group_name}")
+            f.write(f"Best model in group: {group_name}\n")
+            f.write(f"Tagged at: {datetime.now()}\n")
+            f.write(f"Eval loss: {best_loss}\n")
 
-    # Remove .best files from other models
+        logger.info(f"Tagged {best_exp} as best in group '{group_name}'")
+
+    # Remove flags from non-best models
+    logger.info("Removing flags from non-best models...")
     for exp_name in exps:
         if exp_name not in best_exps:
-            best_path = osp.join(EXPERIMENTS_DIR, exp_name, flag_filename)
-            if osp.exists(best_path):
-                os.remove(best_path)
-                printo(f"Removed .best file from {exp_name}")
+            flag_path = osp.join(EXPERIMENTS_DIR, exp_name, flag_filename)
+            if osp.exists(flag_path):
+                os.remove(flag_path)
+                removed_flags.append(exp_name)
+
+    if removed_flags:
+        logger.info(
+            f"Removed flags from {len(removed_flags)} experiments: {removed_flags}"
+        )
+
+    # Summary
+    logger.info("=" * 50)
+    logger.info("TAGGING SUMMARY")
+    logger.info("=" * 50)
+    logger.info(f"Total experiments processed: {len(exps)}")
+    logger.info(f"Valid experiments: {len(exp_losses)}")
+    logger.info(f"Groups created: {len(groups)}")
+    logger.info(f"Best models tagged: {len(best_exps)}")
+    logger.info(f"Flags removed: {len(removed_flags)}")
+    logger.info("=" * 50)
+
+    logger.info("Tagging process completed successfully")
 
 
 if __name__ == "__main__":
     args = parse_args()
 
+    logger.info(f"Starting TJD training script - Command: {args.cmd}")
+
     if args.cmd == "train":
         if args.lookup:
+            logger.info(
+                "Training mode: Lookup prospects and train first untrained experiment"
+            )
             # Lookup prospects
             exps = lookup_experiments_by_group_id(
                 args.group_id, args.group_level, flag_filename=PROSPECT_FLAG_FILENAME
             )
-            # Train first experiment that is not already trained
-            for prosepect_exp_name in exps:
-                meta_path = get_meta_path(prosepect_exp_name)
-                exp_kwargs = torch.load(meta_path, map_location="cpu")[
-                    "hyper_parameters"
-                ]
-                exp_kwargs["epochs"] = args.epochs  # Override epochs
-                exp_kwargs["delete_ckpt"] = False  # Don't delete new ckpt
-                new_exp_name = get_experiment_name(filter_kwargs(**exp_kwargs))
-                if not osp.exists(
-                    osp.join(EXPERIMENTS_DIR, new_exp_name, BEST_FLAG_FILENAME)
-                ):
-                    train(Namespace(**exp_kwargs), flag_filename=BEST_FLAG_FILENAME)
-                    # only train one experiment
-                    break
-                else:
-                    printo(f"Experiment {new_exp_name} already trained. Skipping.")
+
+            if not exps:
+                logger.warning("No prospect experiments found")
+            else:
+                # Train first experiment that is not already trained
+                for prospect_exp_name in exps:
+                    meta_path = get_meta_path(prospect_exp_name)
+                    exp_kwargs = torch.load(meta_path, map_location="cpu")[
+                        "hyper_parameters"
+                    ]
+                    exp_kwargs["epochs"] = args.epochs  # Override epochs
+                    exp_kwargs["delete_ckpt"] = False  # Don't delete new ckpt
+
+                    new_exp_name = get_experiment_name(filter_kwargs(**exp_kwargs))
+                    best_flag_path = osp.join(
+                        EXPERIMENTS_DIR, new_exp_name, BEST_FLAG_FILENAME
+                    )
+
+                    if not osp.exists(best_flag_path):
+                        logger.info(
+                            f"Training prospect experiment: {prospect_exp_name} -> {new_exp_name}"
+                        )
+                        train(
+                            Namespace(**exp_kwargs),
+                            flag_filename=BEST_FLAG_FILENAME,
+                        )
+                        # only train one experiment
+                        break
+                    else:
+                        logger.info(
+                            f"Experiment {new_exp_name} already trained - Skipping"
+                        )
+
         else:
+            logger.info("Training mode: Direct training")
             train(args)
+
     elif args.cmd == "test":
         if args.lookup:
+            logger.info("Test mode: Lookup best experiments and test first untested")
             # Lookup best experiments
             exps = lookup_experiments_by_group_id(
                 args.group_id, args.group_level, flag_filename=BEST_FLAG_FILENAME
             )
-            # Test first experiment that is not already tested
-            for prosepect_exp_name in exps:
-                if not osp.exists(
-                    osp.join(EXPERIMENTS_DIR, prosepect_exp_name, TEST_FILENAME)
-                ):
-                    test(
-                        prosepect_exp_name,
-                        remove_ckpt=args.delete_ckpt,
-                        test_filename=TEST_FILENAME,
+
+            if not exps:
+                logger.warning("No best experiments found")
+            else:
+                # Test first experiment that is not already tested
+                for best_exp_name in exps:
+                    test_file_path = osp.join(
+                        EXPERIMENTS_DIR, best_exp_name, TEST_FILENAME
                     )
-                    # only test one experiment
-                    break
-                else:
-                    printo(f"Experiment {prosepect_exp_name} already tested. Skipping.")
+                    if not osp.exists(test_file_path):
+                        logger.info(f"Testing experiment: {best_exp_name}")
+                        test(
+                            best_exp_name,
+                            remove_ckpt=args.delete_ckpt,
+                            test_filename=TEST_FILENAME,
+                        )
+                        break
+                    else:
+                        logger.info(
+                            f"Experiment {best_exp_name} already tested - Skipping"
+                        )
 
         else:
+            logger.info(f"Test mode: Direct testing of {args.experiment_name}")
             test(args.experiment_name, remove_ckpt=args.delete_ckpt, **vars(args))
 
     elif args.cmd == "tag":
+        logger.info("Tag mode: Finding and tagging best models")
         tag(args)
+
+    else:
+        raise ValueError(f"Unknown command: {args.cmd}")
