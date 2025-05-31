@@ -22,7 +22,7 @@ preambles:
 # Root group executed in sequence
 group:
   # aaa
-  name: "ds-efficiency"
+  name: "deff"
   type: parallel
   jobs:
 
