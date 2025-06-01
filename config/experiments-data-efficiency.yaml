@@ -48,12 +48,13 @@ group:
               jobs:
                 - group:
                     type: sweep
-                    preamble: cpulong
+                    preamble: gpu1
                     sweep: # 3x4x5=60
                       lr: [5e-3, 1e-3, 5e-4, 1e-4, 5e-5]
-                      rank: [2]
+                      rank: [8, 16]
+                      # rank: [2, 8, 16]
                       horizon: [2, 4]
-                      max_num_samples: [100]
+                      max_num_samples: [50, 100, 200, 500]
                     sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 6 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --delete_ckpt"
 
           # 2. Tag best model for each (rank, horizon) combination
@@ -69,7 +70,7 @@ group:
           # aaa-bbb-ccc-XXXX
           - group:
               type: loop
-              loop_count: 6
+              loop_count: 24
               jobs: 
                 # aaa-bbb-ccc-aaa
                 # Creates a <experiment_name>/.best file
@@ -89,7 +90,7 @@ group:
     # # BASE with varying dataset size
     # - group:
     #     # aaa-bbb
-    #     name: "base"
+    #     name: "deff:base"
     #     type: sequential
     #     jobs:
     #       # aaa-bbb-aaa-XXXX

@@ -39,7 +39,7 @@ preambles:
     - "#SBATCH --mem=8G"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
-  cpub:   
+  cpulong:   
     - "#!/bin/bash"
     - "#SBATCH --output=slurm/slurm-%j.out"
     - "#SBATCH --error=slurm/slurm-%j.err"   
@@ -78,7 +78,7 @@ group:
               # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
                 - group:
                     type: sweep
-                    preamble: cpub
+                    preamble: cpulong
                     sweep: # 3x1x5=15
                       lr: [1e-3, 5e-4, 1e-4, 5e-5]
                       rank: [2, 8, 16]
@@ -152,7 +152,7 @@ group:
     #             # # =====================================                
     #             # - group:
     #             #     type: sweep
-    #             #     preamble: cpub
+    #             #     preamble: cpulong
     #             #     sweep: # 3x4x5=60
     #             #       lr: [1e-3, 1e-4]
     #             #       rank: [8]
