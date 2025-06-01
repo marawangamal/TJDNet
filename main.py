@@ -824,6 +824,9 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
     kwargs = {k: v for k, v in kwargs.items() if k in overrideable_args}
     ekwargs = {**vars(exp_args), **kwargs}
 
+    # Update lmodel with new args
+    lmodel.hparams.update(ekwargs)
+
     if kwargs:
         logger.info(f"Overriding test arguments: {kwargs}")
 
