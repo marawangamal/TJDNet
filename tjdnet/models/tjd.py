@@ -17,12 +17,12 @@ from tjdnet.utils import sample_topk
 #  extend the GenerationConfig class to add the new parameters
 @dataclass
 class TJDGenerationConfig:
-    horizon: int = 1  # Number of parallel tokens
     gen_mode: Literal["draft", "base", "speculative"] = "draft"  # Generation mode
     do_sample: bool = False
     top_k: int = 1  # Top-k sampling
     max_new_tokens: int = 32  # Maximum number of new tokens to generate
     eos_token_id: Optional[int] = None  # End of sequence token ID
+    horizon: Optional[int] = None  # Horizon for the model head
 
 
 @dataclass
@@ -172,7 +172,11 @@ class TJD(ABC, torch.nn.Module):
         self._run_checks(input_validation_checks)
         # ====
 
-        B, T, H = input_ids.size(0), input_ids.size(1), self.horizon
+        B, T, H = (
+            input_ids.size(0),
+            input_ids.size(1),
+            generation_config.horizon or self.horizon,
+        )
         device = input_ids.device
         temp_token = -100  # Temporary token for padding
 

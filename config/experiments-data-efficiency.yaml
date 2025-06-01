@@ -4,33 +4,43 @@ preambles:
     - "#!/bin/bash"
     - "#SBATCH --output=slurm/slurm-%j.out"
     - "#SBATCH --error=slurm/slurm-%j.err"   
-    - "#SBATCH --partition=main"
+    - "#SBATCH --partition=long"
     - "#SBATCH --gres=gpu:rtx8000:1"
     - "#SBATCH --mem=32G"
     - "#SBATCH --nodes=1"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
+  cpu:
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=unkillable-cpu"
+    - "#SBATCH --mem=8G"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
-
-# MAIN: meta-llama/Llama-3.2-3B-Instruct
-# DEBUG: distilbert/distilgpt2
+  cpulong:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long"
+    - "#SBATCH --mem=32G"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
 # Root group executed in sequence
 group:
   # aaa
-  name: "main"
+  name: "deff"
   type: parallel
   jobs:
 
-  ################################################
-  #      SPLIT SEARCH SPACE ACROSS PARTITIONS    #  
-  ################################################
-
+    # CP with varying dataset size
     - group:
         # aaa-bbb
-        name: "cp"
+        name: "deff:cp"
         type: sequential
         jobs:
+          #  1. Sweep over lr, rank, horizon
           # aaa-bbb-aaa-XXXX
           - group:
               type: parallel
@@ -39,10 +49,60 @@ group:
                 - group:
                     type: sweep
                     preamble: gpu1
-                    sweep: # 3x1x5=15
-                      lr: [1e-3]
-                      rank: [2]
-                      horizon: [2]
-                      max_num_samples: [1000, 5000, 10000]
-                    sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 15 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --delete_ckpt"
+                    sweep: # 3x4x5=60
+                      lr: [5e-3, 1e-3, 5e-4, 1e-4, 5e-5]
+                      rank: [8, 16]
+                      # rank: [2, 8, 16]
+                      horizon: [2, 4]
+                      max_num_samples: [50, 100, 200, 500]
+                    sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 6 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --delete_ckpt"
+
+          # 2. Tag best model for each (rank, horizon) combination
+          # aaa-bbb-bbb
+          - job:
+              # Creates a <experiment_name>/.prospect file
+              preamble: cpu
+              command: "python main.py tag --group_by rank horizon max_num_samples --group_level 1 --group_id {group_id}"
+              name: "tag"
+      
+
+          # 3. Run training/testing on best models
+          # aaa-bbb-ccc-XXXX
+          - group:
+              type: loop
+              loop_count: 24
+              jobs: 
+                # aaa-bbb-ccc-aaa
+                # Creates a <experiment_name>/.best file
+                - job:
+                    preamble: gpu1
+                    command: "python main.py train --lookup --epochs 50  --group_level 1 --group_id {group_id}"
+                    name: "tbest"
+
+                # Run expensive test on best models
+                # aaa-bbb-ccc-bbb
+                - job:
+                    preamble: gpu1
+                    command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode draft_multi_horizon" 
+                    name: "test"
+
+
+    # # BASE with varying dataset size
+    # - group:
+    #     # aaa-bbb
+    #     name: "deff:base"
+    #     type: sequential
+    #     jobs:
+    #       # aaa-bbb-aaa-XXXX
+    #       - group:
+    #           type: parallel
+    #           name: "sweep"
+    #           jobs:
+    #             - group:
+    #                 type: sweep
+    #                 preamble: gpu1
+    #                 sweep: # 3x1x5=15
+    #                   lr: [1e-3]
+    #                   max_num_samples: [50, 100, 200, 500, 1000]
+    #                 sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 50 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --gen_mode draft_multi_horizon --compute_acc --delete_ckpt"
 
