@@ -34,6 +34,7 @@ from datetime import datetime
 
 from argparse import Namespace
 import subprocess
+import sys
 import time
 from typing import List, Literal, Optional, Union
 
@@ -72,6 +73,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s - %(message)s",  # Much simpler format
     datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,  # Force to stdout instead of stderr
 )
 logger = logging.getLogger(__name__)
 
@@ -112,11 +114,11 @@ TEST_FILENAME = "test_results.txt"
 class LModel(L.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
-        self.args = Namespace(**kwargs)
-        self.tokenizer = get_auto_tokenizer(self.args.model)
+        self.save_hyperparameters()
+
         self.model: TJD = None  # type: ignore
-        self.dataset = DATASETS[self.args.dataset](tokenizer=self.tokenizer)
-        self.eos = self.tokenizer.eos_token  # TODO: remove, unused
+        self.tokenizer = get_auto_tokenizer(self.hparams["model"])
+        self.dataset = DATASETS[self.hparams["dataset"]](tokenizer=self.tokenizer)
 
         # Configure metrics
         def make_meter_dict():
@@ -134,28 +136,26 @@ class LModel(L.LightningModule):
             }
         )
 
-        self.save_hyperparameters(kwargs)
         logger.info(
-            f"Initialized LModel with dataset: {self.args.dataset}, model: {self.args.model}"
+            f"Initialized LModel with dataset: {self.hparams['dataset']}, model: {self.hparams['model']}"
         )
 
     # ==== Configuration
-
     def configure_model(self):
         # IMPORTANT: This function must be idempotent (i.e., calling it multiple times should not change self.model)
         if self.model is None:  # Model might be already created in load_from_checkpoint
             logger.info("Configuring model...")
-            self.model, _ = get_model_and_tokenizer(self.args)
+            self.model, _ = get_model_and_tokenizer(Namespace(**self.hparams))
             logger.info(f"Model configured: {type(self.model).__name__}")
 
     def configure_optimizers(self):
         logger.info(
-            f"Configuring optimizer with lr={self.args.lr}, warmup_steps={self.args.warmup_steps}"
+            f"Configuring optimizer with lr={self.hparams['lr']}, warmup_steps={self.hparams['warmup_steps']}"
         )
-        optimizer = optim.AdamW(self.parameters(), lr=self.args.lr)
+        optimizer = optim.AdamW(self.parameters(), lr=self.hparams["lr"])
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=self.args.warmup_steps,
+            num_warmup_steps=self.hparams["warmup_steps"],
             num_training_steps=self.trainer.estimated_stepping_batches,
         )
         return [optimizer], [scheduler]
@@ -193,7 +193,7 @@ class LModel(L.LightningModule):
             "draft_multi_horizon": ["H", "1"],
             "base_multi_horizon": ["H", "1"],
         }
-        return opts.get(self.args.gen_mode, ["H"])
+        return opts.get(self.hparams["gen_mode"], ["H"])
 
     def _get_gen_modes(self) -> List[Literal["draft", "base", "speculative"]]:
         opts: dict[str, List[Literal["draft", "base", "speculative"]]] = {
@@ -201,16 +201,16 @@ class LModel(L.LightningModule):
             "base_multi_horizon": ["base"],
             "mixed": ["draft", "base", "speculative"],
         }
-        return opts.get(self.args.gen_mode, [self.args.gen_mode])
+        return opts.get(self.hparams["gen_mode"], [self.hparams["gen_mode"]])
 
     def _generate_and_test(
         self, batch, gen_mode: Literal["draft", "base", "speculative"], horizon: int
     ):
         outputs, ardict = self.model.generate(
             generation_config=TJDGenerationConfig(
-                max_new_tokens=self.args.max_new_tokens,
-                do_sample=self.args.do_sample,
-                top_k=self.args.top_k,
+                max_new_tokens=self.hparams["max_new_tokens"],
+                do_sample=self.hparams["do_sample"],
+                top_k=self.hparams["top_k"],
                 eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
                 gen_mode=gen_mode,
                 horizon=horizon,
@@ -234,7 +234,7 @@ class LModel(L.LightningModule):
     def test_step(self, batch, batch_idx):
         for hlabel in self._get_hlabels():
             for gmode in self._get_gen_modes():
-                horizon = 1 if hlabel == "1" else self.args.horizon
+                horizon = 1 if hlabel == "1" else self.hparams["horizon"]
                 out = self._generate_and_test(batch, gmode, horizon)
 
                 # accuracy

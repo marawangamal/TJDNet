@@ -18,6 +18,14 @@ preambles:
     - "#SBATCH --mem=8G"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
+  cpulong:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long"
+    - "#SBATCH --mem=32G"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
 # Root group executed in sequence
 group:
@@ -40,12 +48,12 @@ group:
               jobs:
                 - group:
                     type: sweep
-                    preamble: gpu1
+                    preamble: cpulong
                     sweep: # 3x4x5=60
                       lr: [5e-3, 1e-3, 5e-4, 1e-4, 5e-5]
                       rank: [2]
                       horizon: [2, 4]
-                      max_num_samples: [50, 100, 200, 500]
+                      max_num_samples: [100]
                     sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 6 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --delete_ckpt"
 
           # 2. Tag best model for each (rank, horizon) combination
