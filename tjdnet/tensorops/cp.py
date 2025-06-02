@@ -80,12 +80,17 @@ def select_margin_cp_tensor_batched(
                 .expand(-1, rank, -1),  # (B', R, 1)
             ).squeeze(-1)
             sf = torch.ones(batch_size, device=cp_params.device, dtype=cp_params.dtype)
+
+            # Post-contraction scaling
+            res_left[mask_select] = res_left[mask_select] * update
             if use_scale_factors:
-                sf[mask_select] = torch.max(update, dim=-1)[0]  # (B',)
+                sf[mask_select] = torch.linalg.norm(
+                    res_left[mask_select], dim=-1
+                )  # (B',)
+                res_left[mask_select] = res_left[mask_select] / sf[
+                    mask_select
+                ].unsqueeze(-1)
             scale_factors.append(sf)
-            res_left[mask_select] = (
-                res_left[mask_select] * update / sf[mask_select].unsqueeze(-1)
-            )
 
         # Marginalize
         if mask_margin.any():
@@ -93,12 +98,17 @@ def select_margin_cp_tensor_batched(
             sf = torch.ones(
                 batch_size, device=cp_params.device, dtype=cp_params.dtype
             )  # (B,)
+
+            # Post-contraction scaling
+            res_right[mask_margin] = res_right[mask_margin] * update
             if use_scale_factors:
-                sf[mask_margin] = torch.max(update, dim=-1)[0]  # (B',)
+                sf[mask_margin] = torch.linalg.norm(
+                    res_right[mask_margin], dim=-1
+                )  # (B',)
+                res_right[mask_margin] = res_right[mask_margin] / sf[
+                    mask_margin
+                ].unsqueeze(-1)
             scale_factors.append(sf)
-            res_right[mask_margin] = (
-                res_right[mask_margin] * update / sf[mask_margin].unsqueeze(-1)
-            )
 
         # Free
         if mask_free.any():
