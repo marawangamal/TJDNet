@@ -48,6 +48,7 @@ class GSM8k(AbstractDataset):
         return self.parse_answer(example["answer"])
 
     def load_data(self):
+
         base_datasets = {
             "train": load_dataset("openai/gsm8k", "main", split="train"),
             "eval": load_dataset("openai/gsm8k", "main", split="test"),
@@ -55,6 +56,12 @@ class GSM8k(AbstractDataset):
         test_datasets = {
             "test": load_dataset("openai/gsm8k", "main", split="test"),
         }
+        # AdHoc limit test set to 50% of total
+        test_datasets["test"] = (
+            test_datasets["test"]
+            .shuffle(seed=42)
+            .select(range(int(len(test_datasets["test"]) * 0.5)))
+        )
 
         for split in base_datasets:
             base_datasets[split] = self._process_train_dataset(
