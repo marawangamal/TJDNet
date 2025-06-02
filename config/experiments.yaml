@@ -60,78 +60,13 @@ group:
   jobs:
 
   ################################################
-  #      SPLIT SEARCH SPACE ACROSS PARTITIONS    #  
+  #                     CP                       #  
   ################################################
    
-    # w/o speculation
-    - group:
-        # aaa-bbb
-        name: "main:cp"
-        type: sequential
-        jobs:
-          #  1. Sweep over lr, rank, horizon
-          # aaa-bbb-aaa-XXXX
-          - group:
-              type: parallel
-              name: "sweep"
-              jobs:
-              # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-                - group:
-                    type: sweep
-                    preamble: cpulong
-                    sweep: # 3x1x5=15
-                      lr: [1e-3, 5e-4, 1e-4, 5e-5]
-                      rank: [2, 8, 16]
-                      horizon: [2, 4, 8]
-                    sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
-                # # =====================================                
-                # - group:
-                #     type: sweep
-                #     preamble: gpu4
-                #     sweep: # 3x4x5=60
-                #       lr: [1e-4, 1e-5]
-                #       rank: [8]
-                #       horizon: [2]
-                #     sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 1 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
-                # # <<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
-
-          # 2. Tag best model for each (rank, horizon) combination
-          # aaa-bbb-bbb
-          - job:
-              # Creates a <experiment_name>/.prospect file
-              preamble: cpu
-              command: "python main.py tag --group_by rank horizon --group_level 1 --group_id {group_id}"
-              name: "tag"
-      
-
-          # 3. Run training/testing on best models
-          # aaa-bbb-ccc-XXXX
-          - group:
-              type: loop
-              # >>> MAIN
-              loop_count: 9
-              # # ====
-              # loop_count: 2
-              # # <<< DEBUG
-              jobs: 
-                # aaa-bbb-ccc-aaa
-                # Creates a <experiment_name>/.best file
-                - job:
-                    preamble: gpu4long
-                    command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
-                    name: "tbest"
-
-                # Run expensive test on best models
-                # aaa-bbb-ccc-bbb
-                - job:
-                    preamble: gpu4
-                    command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode draft_multi_horizon"
-                    name: "test"
-
-    # # w/ speculation
+    # # w/o speculation
     # - group:
     #     # aaa-bbb
-    #     name: "spec:cp"
+    #     name: "main:cp"
     #     type: sequential
     #     jobs:
     #       #  1. Sweep over lr, rank, horizon
@@ -140,24 +75,24 @@ group:
     #           type: parallel
     #           name: "sweep"
     #           jobs:
-    #             # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    #           # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     #             - group:
     #                 type: sweep
-    #                 preamble: gpu4long
-    #                 sweep: # 3x4x5=60
+    #                 preamble: cpulong
+    #                 sweep: # 3x1x5=15
     #                   lr: [1e-3, 5e-4, 1e-4, 5e-5]
     #                   rank: [2, 8, 16]
     #                   horizon: [2, 4, 8]
-    #                 sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --loss_mode joint --delete_ckpt"
+    #                 sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
     #             # # =====================================                
     #             # - group:
     #             #     type: sweep
-    #             #     preamble: cpulong
+    #             #     preamble: gpu4
     #             #     sweep: # 3x4x5=60
-    #             #       lr: [1e-3, 1e-4]
+    #             #       lr: [1e-4, 1e-5]
     #             #       rank: [8]
     #             #       horizon: [2]
-    #             #     sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --loss_mode joint --delete_ckpt"
+    #             #     sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model distilbert/distilgpt2 --epochs 2 --max_num_samples 1 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
     #             # # <<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
 
     #       # 2. Tag best model for each (rank, horizon) combination
@@ -174,125 +109,182 @@ group:
     #       - group:
     #           type: loop
     #           # >>> MAIN
-    #           # loop_count: 9
+    #           loop_count: 9
+    #           loop_type: parallel
     #           # # ====
-    #           loop_count: 1
+    #           # loop_count: 2
     #           # # <<< DEBUG
     #           jobs: 
-    #             # aaa-bbb-ccc-aaa
-    #             # Creates a <experiment_name>/.best file
-    #             - job:
-    #                 preamble: gpu4
-    #                 command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
+    #             - group:
+    #                 type: sequential
     #                 name: "tbest"
+    #                 jobs:
+    #                   # aaa-bbb-ccc-aaa-aaa
+    #                   # Creates a <experiment_name>/.best file
+    #                   - job:
+    #                       preamble: gpu4long
+    #                       command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
+    #                       name: "tbest"
 
-    #             # Run expensive test on best models
-    #             # aaa-bbb-ccc-bbb
-    #             - job:
-    #                 preamble: gpu4
-    #                 command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode mixed" 
-    #                 name: "test"
+    #                   # Run expensive test on best models
+    #                   # aaa-bbb-ccc-aaa-bbb
+    #                   - job:
+    #                       preamble: gpu4
+    #                       command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode draft_multi_horizon"
+    #                       name: "test"
+
+
+    # w/ speculation
+    - group:
+        # aaa-bbb
+        name: "spec:cp"
+        type: sequential
+        jobs:
+          #  1. Sweep over lr, rank, horizon
+          # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+          # - group:
+          #     type: sweep
+          #     preamble: gpu4long
+          #     sweep: # 3x4x5=60
+          #       lr: [1e-3, 5e-4, 1e-4, 5e-5]
+          #       rank: [2, 8, 16]
+          #       horizon: [2, 4, 8]
+          #     sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --loss_mode joint --delete_ckpt"
+          # # =====================================                
+          - group:
+              type: sweep
+              preamble: gpu4long
+              sweep: # 3x4x5=60
+                lr: [1e-3, 1e-4]
+                rank: [8]
+                horizon: [2]
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --loss_mode joint --delete_ckpt"
+          # # <<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
+
+          # 2. Tag best model for each (rank, horizon) combination
+          - job:
+              # aaa-bbb-bbb
+              # Creates a <experiment_name>/.prospect file
+              preamble: cpu
+              command: "python main.py tag --group_by rank horizon --group_level 1 --group_id {group_id}"
+              name: "tag"
+      
+
+          # 3. Run training/testing on best models
+          - group:
+              # aaa-bbb-ccc-XXXX
+              type: loop
+              # >>> MAIN
+              # loop_count: 9
+              # # ====
+              loop_count: 1
+              # # <<< DEBUG
+              loop_type: parallel
+              jobs: 
+                - group:
+                  # aaa-bbb-ccc-XXXX-aaa
+                    type: sequential
+                    jobs:
+                      # Train best prospective model matching group_id @ group_level 1
+                      # Creates a <experiment_name>/.best file
+                      - job:
+                          # aaa-bbb-ccc-XXXX-aaa-aaa
+                          preamble: gpu4
+                          command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
+                          name: "tbest"
+
+                      # Run expensive tests on best models
+                      # 1. speculative
+                      - job:
+                          # aaa-bbb-ccc-XXXX-aaa-bbb
+                          preamble: gpu4
+                          command: "python main.py test --lookup --group_level 1 --group_id {group_id} --gen_mode speculative" 
+                          name: "test"
+
+                      # 2. draft_multi_horizon
+                      - job:
+                          # aaa-bbb-ccc-XXXX-aaa-ccc
+                          preamble: gpu4
+                          command: "python main.py test --lookup --group_level 1 --group_id {group_id} --gen_mode draft_multi_horizon" 
+                          name: "test"
+
+                      # 3. base_multi_horizon
+                      - job:
+                          # aaa-bbb-ccc-XXXX-aaa-ddd
+                          preamble: gpu4
+                          command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode base_multi_horizon" 
+                          name: "test"
 
 
   ################################################
   #                 BASE                         #  
   ################################################
 
-    # # w/o speculation
-    # - group:
-    #     # aaa-aaa
-    #     name: "base"
-    #     type: sequential
-    #     jobs:
-    #       #  1. Sweep over lr, rank, horizon
-    #       # aaa-aaa-aaa-XXXX
-    #       - group:
-    #           type: parallel
-    #           name: "sweep"
-    #           jobs:
-    #             - group:
-    #                 type: sweep
-    #                 preamble: gpu4long
-    #                 sweep: # 3x4x5=60
-    #                   lr: [5e-4, 1e-4, 5e-5]
-    #                 sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
 
-    #       # 2. Tag best model for each (rank, horizon) combination
-    #       # aaa-aaa-bbb
-    #       - job:
-    #           # Creates a <experiment_name>/.prospect file
-    #           preamble: cpu
-    #           command: "python main.py tag --group_by rank horizon --group_level 1 --group_id {group_id}"
-    #           name: "tag"
+    # w/ speculation
+    - group:
+        # aaa-bbb
+        name: "spec:base"
+        type: sequential
+        jobs:
+          #  1. Sweep over lr, rank, horizon
+          - group:
+              # aaa-bbb-XXXX
+              name: "sweep"
+              type: sweep
+              preamble: cpulong
+              sweep: # 3x4x5=60
+                lr: [1e-3, 5e-4, 1e-4, 5e-5]
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --loss_mode joint --delete_ckpt"
+
+          # 2. Tag best model for each (rank, horizon) combination
+          - job:
+              # aaa-bbb-bbb
+              # Creates a <experiment_name>/.prospect file
+              preamble: cpu
+              command: "python main.py tag --group_by rank horizon --group_level 1 --group_id {group_id}"
+              name: "tag"
       
+          # 3. Run training/testing on best models
+          - group:
+              # aaa-bbb-ccc-XXXX
+              type: loop
+              loop_count: 1
+              loop_type: parallel
+              jobs: 
+                - group:
+                  # aaa-bbb-ccc-XXXX-aaa
+                    type: sequential
+                    jobs:
+                      # Train best prospective model matching group_id @ group_level 1
+                      # Creates a <experiment_name>/.best file
+                      - job:
+                          # aaa-bbb-ccc-XXXX-aaa-aaa
+                          preamble: gpu4
+                          command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
+                          name: "tbest"
 
-    #       # 3. Run training/testing on best models
-    #       # aaa-aaa-ccc-XXXX
-    #       - group:
-    #           type: loop
-    #           loop_count: 1
-    #           jobs: 
-    #             # aaa-aaa-ccc-aaa
-    #             # Creates a <experiment_name>/.best file
-    #             - job:
-    #                 preamble: gpu4long
-    #                 command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
-    #                 name: "tbest"
+                      # Run expensive tests on best models
+                      # 1. speculative
+                      - job:
+                          # aaa-bbb-ccc-XXXX-aaa-bbb
+                          preamble: gpu4
+                          command: "python main.py test --lookup --group_level 1 --group_id {group_id} --gen_mode speculative" 
+                          name: "test"
 
-    #             # Run expensive test on best models
-    #             # aaa-aaa-ccc-bbb
-    #             - job:
-    #                 preamble: gpu4
-    #                 command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt" 
-    #                 name: "test"
+                      # 2. draft_multi_horizon
+                      - job:
+                          # aaa-bbb-ccc-XXXX-aaa-ccc
+                          preamble: gpu4
+                          command: "python main.py test --lookup --group_level 1 --group_id {group_id} --gen_mode draft_multi_horizon" 
+                          name: "test"
 
-    # # w/ speculation
-    # - group:
-    #     # aaa-aaa
-    #     name: "base"
-    #     type: sequential
-    #     jobs:
-    #       #  1. Sweep over lr, rank, horizon
-    #       # aaa-aaa-aaa-XXXX
-    #       - group:
-    #           type: parallel
-    #           name: "sweep"
-    #           jobs:
-    #             - group:
-    #                 type: sweep
-    #                 preamble: gpu4long
-    #                 sweep: # 3x4x5=60
-    #                   lr: [5e-4, 1e-4, 5e-5]
-    #                 sweep_template:  "python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --loss_mode joint --delete_ckpt"
-
-    #       # 2. Tag best model for each (rank, horizon) combination
-    #       # aaa-aaa-bbb
-    #       - job:
-    #           # Creates a <experiment_name>/.prospect file
-    #           preamble: cpu
-    #           command: "python main.py tag --group_by rank horizon --group_level 1 --group_id {group_id}"
-    #           name: "tag"
-      
-
-    #       # 3. Run training/testing on best models
-    #       # aaa-aaa-ccc-XXXX
-    #       - group:
-    #           type: loop
-    #           loop_count: 1
-    #           jobs: 
-    #             # aaa-aaa-ccc-aaa
-    #             # Creates a <experiment_name>/.best file
-    #             - job:
-    #                 preamble: gpu4long
-    #                 command: "python main.py train --lookup --epochs 10  --group_level 1 --group_id {group_id}"
-    #                 name: "tbest"
-
-    #             # Run expensive test on best models
-    #             # aaa-aaa-ccc-bbb
-    #             - job:
-    #                 preamble: gpu4
-    #                 command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode mixed" 
-    #                 name: "test"
+                      # 3. base_multi_horizon
+                      - job:
+                          # aaa-bbb-ccc-XXXX-aaa-ddd
+                          preamble: gpu4
+                          command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode base_multi_horizon" 
+                          name: "test"
 
 # e.g., single job
 # jrun sbatch --partition=short-unkillable --gres=gpu:a100l:4 --cpus-per-task=12 --mem=128G --nodes=1 --time=3:00:00 --output=slurm/slurm-%j.out --error=slurm/slurm-%j.err --wrap="source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate; python main.py test --lookup --group_level 1 --group_id 676435-794227-459408-869771 --delete_ckpt"

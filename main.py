@@ -253,9 +253,17 @@ class LModel(L.LightningModule):
         logger.info("Test epoch completed")
         for hlabel in self._get_hlabels():
             for gmode in self._get_gen_modes():
+
+                # accuracy
                 metric_value = self.metrics[hlabel][gmode].compute()  # type: ignore
                 metric_name = f"test_h{hlabel}_{gmode}_acc"
                 self.log(metric_name, metric_value, prog_bar=True)
+
+                # acceptance rate
+                if gmode == "speculative":
+                    metric_name = f"test_h{hlabel}_acceptance_rate"
+                    metric_value = self.metrics[hlabel]["acceptance_rate"].compute()  # type: ignore
+                    self.log(metric_name, metric_value, prog_bar=True)
 
     # === Memory Logging ===
 
