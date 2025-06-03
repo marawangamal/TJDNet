@@ -19,22 +19,15 @@ class CPODist(CPDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        # config.param_net.out_dim = config.rank * config.vocab_size
         config.param_net.out_dim_encoder = (
             config.rank * config.horizon * config.vocab_size
         )
         config.param_net.out_dim_decoder = 1
-        config.param_net.hidden_dim = 1
+        config.param_net.hidden_dim = config.vocab_size
         super().__init__(config, bypass_config=True, **kwargs)
 
-    def forward(
-        self, last_hidden_state: torch.Tensor, horizon: Optional[int] = None, **kwargs
-    ):
-        batch_size, seq_len, _ = last_hidden_state.size()  # (B, T, D)
-        params = self.param_func(last_hidden_state)  # (B, T, RHV, 1)
-        params_reshaped = params.reshape(
-            batch_size, seq_len, self.rank, self.horizon, self.vocab_size
-        )
-        if horizon is not None:
-            return params_reshaped[:, :, :, :horizon, :]  # (B, T, R, H, V)
-        return params_reshaped  # (B, T, R, H*, V)  // H* is model level horizon
+    def get_params(self, x: torch.Tensor, **kwargs):
+        B = x.size(0)
+        params = self.param_func(x)  # (B, R * H, V)
+        params_reshaped = params.reshape(B, self.rank, self.horizon, self.vocab_size)
+        return params_reshaped  # (B, R, H, V)  // H* is model level horizon
