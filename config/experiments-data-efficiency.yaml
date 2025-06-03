@@ -50,10 +50,13 @@ group:
                     type: sweep
                     preamble: gpu1
                     sweep: # 3x4x5=60
-                      lr: [5e-3, 1e-3, 5e-4, 1e-4, 5e-5]
-                      rank: [2, 8, 16]
-                      horizon: [2, 4]
-                      max_num_samples: [50, 100, 200, 500]
+                      # lr: [1e-2, 5e-3, 1e-3, 5e-4, 1e-4]
+                      # lr: [1e-2, 5e-3, 1e-3, 5e-4, 1e-4]
+                      lr: [1e-2, 5e-3, 1e-3, 5e-4, 1e-4]
+                      rank: [8]
+                      horizon: [2]
+                      # max_num_samples: [50, 100, 200, 500]
+                      max_num_samples: [100, 200]
                     sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 55 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --delete_ckpt"
 
           # 2. Tag best model for each (rank, horizon) combination
@@ -69,39 +72,44 @@ group:
           # aaa-bbb-ccc-XXXX
           - group:
               type: loop
-              loop_count: 24
-              jobs: 
-                # aaa-bbb-ccc-aaa
-                # Creates a <experiment_name>/.best file
-                - job:
-                    preamble: gpu1
-                    command: "python main.py train --lookup --epochs 300  --group_level 1 --group_id {group_id}"
-                    name: "tbest"
-
-                # Run expensive test on best models
-                # aaa-bbb-ccc-bbb
-                - job:
-                    preamble: gpu1
-                    command: "python main.py test --lookup --group_level 1 --group_id {group_id} --delete_ckpt --gen_mode draft_multi_horizon" 
-                    name: "test"
-
-
-    # BASE with varying dataset size
-    - group:
-        # aaa-bbb
-        name: "deff:base"
-        type: sequential
-        jobs:
-          # aaa-bbb-aaa-XXXX
-          - group:
-              type: parallel
-              name: "sweep"
+              name: "loop"
+              loop_count: 2
+              loop_type: "parallel"
               jobs:
                 - group:
-                    type: sweep
-                    preamble: gpu1
-                    sweep: # 3x1x5=15
-                      lr: [1e-3]
-                      max_num_samples: [50, 100, 200, 500]
-                    sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 300 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --gen_mode draft_multi_horizon --compute_acc --delete_ckpt"
+                    type: sequential
+                    jobs:
+                      # aaa-bbb-ccc-aaa
+                      # Creates a <experiment_name>/.best file
+                      - job:
+                          preamble: gpu1
+                          command: "python main.py train --lookup --epochs 300  --group_level 1 --group_id {group_id} --idx {loop_idx}"
+                          name: "ltrain"
+
+                      # Run expensive test on best models
+                      # aaa-bbb-ccc-bbb
+                      - job:
+                          preamble: gpu1
+                          command: "python main.py test --lookup --group_level 1 --group_id {group_id} --idx {loop_idx} --delete_ckpt --gen_mode draft_multi_horizon" 
+                          name: "ltest"
+
+
+    # # BASE with varying dataset size
+    # - group:
+    #     # aaa-bbb
+    #     name: "deff:base"
+    #     type: sequential
+    #     jobs:
+    #       # aaa-bbb-aaa-XXXX
+    #       - group:
+    #           type: parallel
+    #           name: "sweep"
+    #           jobs:
+    #             - group:
+    #                 type: sweep
+    #                 preamble: gpu1
+    #                 sweep: # 3x1x5=15
+    #                   lr: [1e-3]
+    #                   max_num_samples: [50, 100, 200, 500]
+    #                 sweep_template:  "python main.py train --dataset stemp --model gpt2 --epochs 300 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --max_num_samples {max_num_samples} --gen_mode draft_multi_horizon --compute_acc --delete_ckpt"
 

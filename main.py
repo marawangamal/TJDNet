@@ -98,6 +98,7 @@ SILENT_ARGS = [
     "extend",
     "lookup",
     "delete_ckpt",
+    "idx",
 ]
 
 PROSPECT_FLAG_FILENAME = ".prospect"
@@ -672,6 +673,19 @@ def train(args, flag_filename=None):
                 )
                 maybe_update_args(args, exp_name_filtered)
                 return
+
+            # Check if experiment completed due to early stopping
+            callbacks = meta_ckpt.get("callbacks", {})
+            for callback_name, callback_state in callbacks.items():
+                if callback_name.startswith("EarlyStopping"):
+                    stopped_epoch = callback_state.get("stopped_epoch", 0)
+                    if stopped_epoch > 0:
+                        logger.info(
+                            f"Experiment {exp_name_filtered} already completed with early stopping at epoch {stopped_epoch + 1} - Skipping"
+                        )
+                        maybe_update_args(args, exp_name_filtered)
+                        return
+
         except Exception as e:
             logger.warning(f"Could not load existing checkpoint metadata: {e}")
 
@@ -1001,7 +1015,10 @@ if __name__ == "__main__":
                 logger.warning("No prospect experiments found")
             else:
                 # Train first experiment that is not already trained
-                for prospect_exp_name in exps:
+                for i, prospect_exp_name in enumerate(exps):
+                    # If args.idx provided and valid limit to only that idx
+                    if args.idx and len(exps) > args.idx and i != args.idx:
+                        continue
                     meta_path = get_meta_path(prospect_exp_name)
                     exp_kwargs = torch.load(meta_path, map_location="cpu")[
                         "hyper_parameters"
@@ -1045,7 +1062,10 @@ if __name__ == "__main__":
                 logger.warning("No best experiments found")
             else:
                 # Test first experiment that is not already tested
-                for best_exp_name in exps:
+                for i, best_exp_name in enumerate(exps):
+                    # If args.idx provided and valid limit to only that idx
+                    if args.idx and len(exps) > args.idx and i != args.idx:
+                        continue
                     test_file_path = osp.join(
                         EXPERIMENTS_DIR, best_exp_name, TEST_FILENAME
                     )

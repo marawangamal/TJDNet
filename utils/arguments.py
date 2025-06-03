@@ -271,6 +271,12 @@ def add_train_args(parser: argparse.ArgumentParser):
         help="Whether to delete the checkpoint after evaluation.",
         default=False,
     )
+    parser.add_argument(
+        "--idx",
+        type=int,
+        default=None,
+        help="Index of the model to train in the group.",
+    )
 
 
 def add_test_args(parser: argparse.ArgumentParser):
@@ -353,6 +359,12 @@ def add_test_args(parser: argparse.ArgumentParser):
             "mixed",
         ],
         help="Generation mode for the model.",
+    )
+    parser.add_argument(
+        "--idx",
+        type=int,
+        default=None,
+        help="Index of the model to train in the group.",
     )
 
 
