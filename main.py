@@ -285,9 +285,9 @@ class LModel(L.LightningModule):
 
 
 class LDataModule(L.LightningDataModule):
-    def __init__(self, **kwargs):
+    def __init__(self, model, **kwargs):
         super().__init__()
-        self.tokenizer = get_auto_tokenizer(kwargs["model"])
+        self.tokenizer = get_auto_tokenizer(model)
         self.batch_size = kwargs.get("batch_size", 1)
         self.seq_len = kwargs.get("seq_len", 8)
         self.max_num_samples = kwargs.get("max_num_samples", None)
