@@ -84,9 +84,10 @@ def select_margin_cp_tensor_batched(
             # Post-contraction scaling
             res_left[mask_select] = res_left[mask_select] * update
             if use_scale_factors:
-                sf[mask_select] = torch.linalg.norm(
-                    res_left[mask_select], dim=-1
-                )  # (B',)
+                # sf[mask_select] = torch.linalg.norm(
+                #     res_left[mask_select], dim=-1
+                # )  # (B',)
+                sf[mask_select] = torch.max(res_left[mask_select], dim=-1)[0]  # (B',)
                 res_left[mask_select] = res_left[mask_select] / sf[
                     mask_select
                 ].unsqueeze(-1)
@@ -102,9 +103,10 @@ def select_margin_cp_tensor_batched(
             # Post-contraction scaling
             res_right[mask_margin] = res_right[mask_margin] * update
             if use_scale_factors:
-                sf[mask_margin] = torch.linalg.norm(
-                    res_right[mask_margin], dim=-1
-                )  # (B',)
+                # sf[mask_margin] = torch.linalg.norm(
+                #     res_right[mask_margin], dim=-1
+                # )  # (B',)
+                sf[mask_margin] = torch.max(res_right[mask_margin], dim=-1)[0]  # (B',)
                 res_right[mask_margin] = res_right[mask_margin] / sf[
                     mask_margin
                 ].unsqueeze(-1)
