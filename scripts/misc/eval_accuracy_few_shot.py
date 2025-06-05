@@ -87,7 +87,7 @@ def parse_args():
         "--use_few_shot",
         action="store_true",
         default=False,
-        help="Use few-shot examples for evaluation",
+        help="Use few_shot examples for evaluation",
     )
     parser.add_argument(
         "--dataset",

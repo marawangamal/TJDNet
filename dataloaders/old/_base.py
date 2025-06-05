@@ -8,35 +8,6 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
 class BaseChatTemplate(ABC):
     @classmethod
-    def format_batch(
-        cls,
-        input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor],
-        tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
-        use_few_shot: bool = False,
-    ) -> tuple[torch.Tensor, Union[torch.Tensor, None]]:
-        """Prepares the input for the model. (Eg. add few shot examples, etc.)
-
-        Args:
-            input_ids (torch.Tensor): Input ids of the batch. (B, T)
-            attention_mask (torch.Tensor): Attention mask of the batch. (B, T)
-            tokenizer (Union[PreTrainedTokenizer, PreTrainedTokenizerFast]): Tokenizer to use.
-
-        Returns:
-            torch.Tensor: Input ids of the batch after formatting. (B, T)
-            torch.Tensor: Attention mask of the batch after formatting. (B, T)
-        """
-        # If use_few_shot is True, then decode -> format -> encode
-        if use_few_shot:
-            input_strs = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            input_strs = [
-                cls.get_sample_prompt(is_few_shot=True).format(question=question)
-                for question in input_strs
-            ]
-
-        return input_ids, attention_mask
-
-    @classmethod
     def check_answer(cls, answer_pred_unp: str, answer_true_unp: str, eos_token: str):
         try:
             answer_pred = cls.safe_parse(answer_pred_unp, eos_token)

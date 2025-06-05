@@ -48,15 +48,11 @@ class ShareGPT(AbstractDataset):
         ds_dict = {
             "train": load_dataset(
                 "Aeala/ShareGPT_Vicuna_unfiltered",
-                # split=f"train[:{int(100-split_ratio*100)}%]",
-                # DEBUG
-                split="train[:1%]",
+                split=f"train[:{int(100-split_ratio*100)}%]",
             ),
             "eval": load_dataset(
                 "Aeala/ShareGPT_Vicuna_unfiltered",
-                # split=f"train[{int(100-split_ratio*100)}%:]",
-                # DEBUG
-                split="train[1%:2%]",
+                split=f"train[{int(100-split_ratio*100)}%:]",
             ),
         }
 

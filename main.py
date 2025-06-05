@@ -292,6 +292,7 @@ class LDataModule(L.LightningDataModule):
         self.seq_len = kwargs.get("seq_len", 8)
         self.max_num_samples = kwargs.get("max_num_samples", None)
         self.ds_name = kwargs.get("dataset", "stemp")
+        self.ds_ttype = kwargs.get("template_type", "0_shot")
         logger.info(
             f"Initialized DataModule - dataset: {self.ds_name}, batch_size: {self.batch_size}"
         )
@@ -302,6 +303,7 @@ class LDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer,
             seq_len=self.seq_len,
             max_num_samples=self.max_num_samples,
+            template_type=self.ds_ttype,
         ).load_data()
         self.train_ds, self.eval_ds, self.test_ds = (
             self.lm_dataset["train"],
@@ -816,8 +818,9 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
         return
 
     # Setup trainer
+    tokenizer = get_auto_tokenizer(exp_args.model)
     generate_cb = GenerateCallback(
-        prompt=DATASETS[exp_args.dataset].get_sample_prompt()
+        prompt=DATASETS[exp_args.dataset](tokenizer=tokenizer).get_sample_prompt()
     )
 
     logger.info("Setting up WandB logger for testing...")
@@ -829,7 +832,14 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
     )
 
     # Prepare test arguments
-    overrideable_args = ["max_new_tokens", "do_sample", "top_k", "gen_mode", "dataset"]
+    overrideable_args = [
+        "max_new_tokens",
+        "do_sample",
+        "top_k",
+        "gen_mode",
+        "dataset",
+        "template_type",
+    ]
     kwargs = {
         k: v for k, v in kwargs.items() if k in overrideable_args and v is not None
     }

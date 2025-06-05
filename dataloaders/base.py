@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from datasets import DatasetDict
 
@@ -10,12 +10,14 @@ class AbstractDataset(ABC):
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
         seq_len: int = 512,
         max_num_samples: Optional[int] = None,
+        template_type: Literal["0_shot", "few_shot"] = "0_shot",
         **kwargs
     ):
         self.tokenizer = tokenizer
         self.seq_len = seq_len
         self.eos: str = tokenizer.eos_token  # type: ignore
         self.max_num_samples = max_num_samples
+        self.template_type = template_type
 
     @classmethod
     @abstractmethod
