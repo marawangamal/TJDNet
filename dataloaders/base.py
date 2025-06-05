@@ -24,7 +24,7 @@ class AbstractDataset(ABC):
         pass
 
     @abstractmethod
-    def parse_answer(self, generation: str) -> float:
+    def parse_answer(self, generation: str):
         """Parse the answer from the generated text"""
         pass
 

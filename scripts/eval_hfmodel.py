@@ -156,33 +156,34 @@ class LDataModule(L.LightningDataModule):
 
 def main(model_name, ds_name, **kwargs):
     """Evaluate a Hugging Face model on a specified dataset."""
+
+    # Init model & tokenizer
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype="auto",
         device_map="auto",
     )
     tokenizer = get_auto_tokenizer(model_name)
+
+    # Init lmodules
     lmodel = LModel(
         model=model,
         tokenizer=tokenizer,
-        # dataset=DATASETS[ds_name](tokenizer=tokenizer),
         dataset=ds_name,
         max_new_tokens=kwargs.get("max_new_tokens", 256),
         do_sample=kwargs.get("do_sample", True),
         top_k=kwargs.get("top_k", 50),
     )
+    ldata = LDataModule(model=model_name, dataset=ds_name)
 
     # Test
     trainer = L.Trainer(
         logger=False,
-        accelerator="auto",
         devices="auto",
         max_epochs=1,
         enable_progress_bar=True,
     )
-    trainer.test(
-        model=lmodel, datamodule=LDataModule(model=model_name, dataset=ds_name)
-    )
+    trainer.test(model=lmodel, datamodule=ldata)
 
 
 if __name__ == "__main__":

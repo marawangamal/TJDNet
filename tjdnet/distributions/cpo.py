@@ -24,6 +24,7 @@ class CPODist(CPDist):
         )
         config.param_net.out_dim_decoder = 1
         config.param_net.hidden_dim = config.vocab_size
+        config.param_net.use_decoder = False
         super().__init__(config, bypass_config=True, **kwargs)
 
     def get_params(self, x: torch.Tensor, **kwargs):

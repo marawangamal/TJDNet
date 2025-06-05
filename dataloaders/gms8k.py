@@ -60,7 +60,7 @@ class GSM8k(AbstractDataset):
         test_datasets["test"] = (
             test_datasets["test"]
             .shuffle(seed=42)
-            .select(range(int(len(test_datasets["test"]) * 0.5)))
+            .select(range(int(len(test_datasets["test"]) * 0.5)))  # type: ignore
         )
 
         for split in base_datasets:
