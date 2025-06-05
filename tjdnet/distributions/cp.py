@@ -13,7 +13,7 @@ from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
 
 
 class CPDist(TJDist):
-    def __init__(self, config: BaseDistConfig, **kwargs):
+    def __init__(self, config: BaseDistConfig, bypass_config=False, **kwargs):
         """CP Distribution
 
         Args:
@@ -22,9 +22,9 @@ class CPDist(TJDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        # config.param_net.out_dim_encoder = config.rank * config.horizon * config.vocab_size
-        config.param_net.out_dim_encoder = config.rank * config.horizon
-        config.param_net.out_dim_decoder = config.vocab_size
+        if not bypass_config:  # Used in CPODist
+            config.param_net.out_dim_encoder = config.rank * config.horizon
+            config.param_net.out_dim_decoder = config.vocab_size
         super().__init__(config)
 
     @classmethod
@@ -88,7 +88,7 @@ class CPDist(TJDist):
         batch_size = x.size(0)
         dvc = x.device
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
-        model_head_params = self.get_params(x)  # B, R, H, V)
+        model_head_params = self.get_params(x)  # (B, R, H, V)
         py_tilde_list = []
         for h in range(horizon):
             ops_tensor = torch.cat(
@@ -126,7 +126,7 @@ class CPDist(TJDist):
         # Get indexed distribution
         horizon = self.horizon
         B = x.size(0)
-        params = self.get_params(x)  # (B, T, R, H, V)
+        params = self.get_params(x)  # (B, R, H, V)
         p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched(
             cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
             ops=y.reshape(B, horizon),

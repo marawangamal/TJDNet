@@ -1,3 +1,4 @@
+from dataloaders import DATASETS
 from tjdnet.distributions import TJD_DISTS
 
 
@@ -154,15 +155,7 @@ def add_train_args(parser: argparse.ArgumentParser):
         type=str,
         default="stemp",
         help="Type of dataset to use for training.",
-        choices=[
-            "shakespeare",
-            "wikitext",
-            "sharegpt",
-            "gsm8k",
-            "stemp",
-            "snum",
-            "sbase",
-        ],
+        choices=DATASETS.keys(),
     )
 
     # ------------------

@@ -285,9 +285,9 @@ class LModel(L.LightningModule):
 
 
 class LDataModule(L.LightningDataModule):
-    def __init__(self, **kwargs):
+    def __init__(self, model, **kwargs):
         super().__init__()
-        self.tokenizer = get_auto_tokenizer(kwargs["model"])
+        self.tokenizer = get_auto_tokenizer(model)
         self.batch_size = kwargs.get("batch_size", 1)
         self.seq_len = kwargs.get("seq_len", 8)
         self.max_num_samples = kwargs.get("max_num_samples", None)
@@ -662,32 +662,14 @@ def train(args, flag_filename=None):
     ckpt_path = osp.join(EXPERIMENTS_DIR, exp_name_filtered, "best.ckpt")
     wandb_id = None
 
-    # Check if experiment already exists
+    # Check if experiment already completed
     meta_path = get_meta_path(exp_name_filtered)
     if osp.exists(meta_path):
-        try:
-            meta_ckpt = torch.load(meta_path, map_location="cpu")
-            if meta_ckpt.get("epoch", 0) >= args.epochs - 1:
-                logger.info(
-                    f"Experiment {exp_name_filtered} already completed {meta_ckpt.get('epoch', 0)} epochs - Skipping"
-                )
-                maybe_update_args(args, exp_name_filtered)
-                return
-
-            # Check if experiment completed due to early stopping
-            callbacks = meta_ckpt.get("callbacks", {})
-            for callback_name, callback_state in callbacks.items():
-                if callback_name.startswith("EarlyStopping"):
-                    stopped_epoch = callback_state.get("stopped_epoch", 0)
-                    if stopped_epoch > 0:
-                        logger.info(
-                            f"Experiment {exp_name_filtered} already completed with early stopping at epoch {stopped_epoch + 1} - Skipping"
-                        )
-                        maybe_update_args(args, exp_name_filtered)
-                        return
-
-        except Exception as e:
-            logger.warning(f"Could not load existing checkpoint metadata: {e}")
+        completed_flag_path = osp.join(EXPERIMENTS_DIR, exp_name_filtered, ".completed")
+        if osp.exists(completed_flag_path):
+            logger.info(f"Experiment {exp_name_filtered} already completed - Skipping")
+            maybe_update_args(args, exp_name_filtered)
+            return
 
     # Handle existing checkpoints
     if len(get_ckpt_file_paths(exp_name_filtered)) > 0:
@@ -804,7 +786,12 @@ def train(args, flag_filename=None):
     # Final update
     time.sleep(5)  # Allow file operations to complete
     maybe_update_args(args, exp_name_filtered)
-    logger.info("Training process completed successfully")
+
+    # Add completed flag
+    completed_flag_path = osp.join(EXPERIMENTS_DIR, exp_name_filtered, ".completed")
+    with open(completed_flag_path, "w") as f:
+        f.write(f"Training completed successfully at {datetime.now()}\n")
+    logger.info(f"Training completed successfully - Flag saved: {completed_flag_path}")
 
 
 def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs):
