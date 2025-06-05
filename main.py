@@ -829,8 +829,10 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
     )
 
     # Prepare test arguments
-    overrideable_args = ["max_new_tokens", "do_sample", "top_k", "gen_mode"]
-    kwargs = {k: v for k, v in kwargs.items() if k in overrideable_args}
+    overrideable_args = ["max_new_tokens", "do_sample", "top_k", "gen_mode", "dataset"]
+    kwargs = {
+        k: v for k, v in kwargs.items() if k in overrideable_args and v is not None
+    }
     ekwargs = {**vars(exp_args), **kwargs}
 
     # Update lmodel with new args

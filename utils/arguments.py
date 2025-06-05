@@ -311,6 +311,13 @@ def add_test_args(parser: argparse.ArgumentParser):
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Type of dataset to use for evaluation.",
+        choices=DATASETS.keys(),
+    )
 
     # ---
     # MISC
