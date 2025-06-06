@@ -55,6 +55,7 @@ class ShareGPT(AbstractDataset):
                 split=f"train[{int(100-split_ratio*100)}%:]",
             ),
         }
+        ds_dict["test"] = ds_dict["eval"]  # Use eval split as test split
 
         for split in ds_dict:
             ds_dict[split] = self._process_train_dataset(ds_dict[split], self.tokenizer)

@@ -707,7 +707,10 @@ def train(args, flag_filename=None):
         mode="min",
         save_top_k=1,
     )
-    generate_cb = GenerateCallback(prompt=DATASETS[args.dataset].get_sample_prompt())
+    tokenizer = get_auto_tokenizer(args.model)
+    generate_cb = GenerateCallback(
+        prompt=DATASETS[args.dataset](tokenizer=tokenizer).get_sample_prompt()
+    )
     early_stopping_cb = EarlyStopping(
         monitor="eval_loss",
         patience=3,
@@ -809,8 +812,22 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
     # Load and test model
     logger.info("Loading model checkpoint...")
     try:
+
+        # Filter kwargs to only include overrideable args
+        overrideable_args = [
+            "max_new_tokens",
+            "do_sample",
+            "top_k",
+            "gen_mode",
+            "dataset",
+            "template_type",
+        ]
+        kwargs = {
+            k: v for k, v in kwargs.items() if k in overrideable_args and v is not None
+        }
+
         ckpt_path = make_consolidated_ckpt(exp_name)
-        lmodel = LModel.load_from_checkpoint(ckpt_path)
+        lmodel = LModel.load_from_checkpoint(ckpt_path, **kwargs)
         exp_args = Namespace(**lmodel.hparams)
         logger.info(f"Model loaded successfully from: {ckpt_path}")
     except Exception as e:
@@ -831,28 +848,11 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
         accelerator="gpu", devices=1, callbacks=[generate_cb], logger=wandb_logger
     )
 
-    # Prepare test arguments
-    overrideable_args = [
-        "max_new_tokens",
-        "do_sample",
-        "top_k",
-        "gen_mode",
-        "dataset",
-        "template_type",
-    ]
-    kwargs = {
-        k: v for k, v in kwargs.items() if k in overrideable_args and v is not None
-    }
-    ekwargs = {**vars(exp_args), **kwargs}
-
-    # Update lmodel with new args
-    lmodel.hparams.update(ekwargs)
-
     if kwargs:
         logger.info(f"Overriding test arguments: {kwargs}")
 
     logger.info("Setting up test data...")
-    ldata = LDataModule(**ekwargs)
+    ldata = LDataModule(**lmodel.hparams)
 
     # Run test
     logger.info("Starting model evaluation...")

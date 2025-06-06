@@ -68,7 +68,7 @@ group:
     # w/o speculation
     - group:
         # aaa-bbb
-        name: "spec:base"
+        name: "sgpt:spec:base"
         type: sequential
         jobs:
           #  Train on ShareGPT dataset
@@ -80,22 +80,21 @@ group:
               preamble: gpu4long
               sweep: 
                 lr: [1e-3]
-                model: ["meta-llama/Llama-3.2-3B-Instruct", "lmsys/vicuna-7b-v1.5"]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model meta-llama/Llama-3.2-3B-Instruct --max_num_samples 100 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model gpt2 --max_num_samples 100 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
 
           # 2. Tag best model for each (rank, horizon) combination
           - job:
               # aaa-bbb-bbb
               # Creates a <experiment_name>/.prospect file
               preamble: cpu
-              command: "python main.py tag --group_by rank horizon model --group_level 1 --group_id {group_id}"
+              command: "python main.py tag --group_by rank horizon --group_level 1 --group_id {group_id}"
               name: "tag"
       
           # 3. Run training/testing on best models
           - group:
               # aaa-bbb-ccc-XXXX
               type: loop
-              loop_count: 2
+              loop_count: 1
               loop_type: parallel
               jobs: 
                 - group:
