@@ -43,13 +43,14 @@ class TJDHuggingFace(TJD):
         config.model_head_config.vocab_size = vocab_size
         super().__init__(config)
 
-        # Add attn layer
-        # self.attn = torch.nn.MultiheadAttention(
-        #     embed_dim=embedding_size,
-        #     num_heads=8,
-        #     dropout=0.1,
-        #     batch_first=True,
-        # )
+        self.mhead_attn = None
+        if self.hf_train_mode == "last":
+            self.mhead_attn = torch.nn.MultiheadAttention(
+                embed_dim=embedding_size,
+                num_heads=8,
+                dropout=0.1,
+                batch_first=True,
+            )
 
         # Trainer compatibility
         self.gradient_checkpointing_enable = self.backbone.gradient_checkpointing_enable
@@ -85,13 +86,14 @@ class TJDHuggingFace(TJD):
     def forward_backbone(self, *args, **kwargs):
         transformer_outputs = self.backbone(*args, **kwargs)
         h_targ = transformer_outputs.last_hidden_state
+        h_draft = h_targ
 
-        # # Pass throgh attn layer
-        # h_draft, _ = self.attn(
-        #     query=h_targ,
-        #     key=h_targ,
-        #     value=h_targ,
-        #     need_weights=False,
-        # )
+        if self.mhead_attn is not None:
+            h_draft, _ = self.attn(
+                query=h_targ,
+                key=h_targ,
+                value=h_targ,
+                need_weights=False,
+            )
 
-        return h_targ, h_targ
+        return h_targ, h_draft
