@@ -78,10 +78,15 @@ group:
               name: "sweep"
               type: sweep
               preamble: gpu4long
+              # ===== Main >>>>
               sweep: 
-                lr: [1e-3]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model gpt2 --max_num_samples 100 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
-
+                - lr: [1e-3, 1e-4, 1e-5]
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model meta-llama/Llama-3.2-3B-Instruct --max_num_samples 5000 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
+              # ================
+              # sweep:
+              #   lr: [1e-3]
+              # sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model gpt2 --max_num_samples 100 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"              
+              # <<<< Debug =====
           # 2. Tag best model for each (rank, horizon) combination
           - job:
               # aaa-bbb-bbb
@@ -106,7 +111,11 @@ group:
                       - job:
                           # aaa-bbb-ccc-XXXX-aaa-aaa
                           preamble: gpu4
-                          command: "python main.py train --lookup --epochs 1 --max_num_samples 100 --group_level 1 --group_id {group_id}"
+                          # ===== Main >>>>
+                          command: "python main.py train --lookup --epochs 1 --max_num_samples 68000 --group_level 1 --group_id {group_id}"
+                          # ================  
+                          # command: "python main.py train --lookup --epochs 1 --max_num_samples 100 --group_level 1 --group_id {group_id}"
+                          # <<<< Debug =====
                           name: "tbest"
 
                       # Run expensive tests on best models
