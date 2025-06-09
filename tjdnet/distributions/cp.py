@@ -82,14 +82,39 @@ class CPDist(TJDist):
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int] = None,
         return_logits: bool = False,
+        refine: bool = False,
         **kwargs,
     ):
-        horizon = self.get_horizon(horizon)
+        """Computes P(yh|x, y1:h-1) for h in [1, H].
+
+        Args:
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+            sample_fn (Callable): Sampling function.
+            horizon (Optional[int]): Horizon for sampling. Must be <= self.horizon.
+            return_logits (bool): Whether to return logits or probabilities.
+            refine (bool): Whether to refine the sampling process.
+
+        Returns:
+            tuple:
+                - Evaluation of the distribution at the points of shape (B, H).
+                - Probabilities of shape (B, H, V) or logits of shape (B, H, V).
+        """
+        horizon = self.get_horizon(horizon)  # Possibly override model horizon
         batch_size = x.size(0)
         dvc = x.device
+
+        # Output tokens will be placed in `y_hat`
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
         model_head_params = self.get_params(x)  # (B, R, H, V)
         py_tilde_list = []
+
+        # Autoregressive sampling
+        # Operations tensor (B, T). Describes batch operations to perform on the CP tensor
+        # modelled by `model_head_params`.
+        # Example:
+        #  y_hat = [[1, 2, 3]]  # (B, T)
+        #  ops_tensor = [[1, 2, -2]]  # (B, T)
+        #  p_ops_tilde = A^{(1))_1} * A^{(2)}_2 * (𝜮_r A^{(3)}_r)
         for h in range(horizon):
             ops_tensor = torch.cat(
                 (
