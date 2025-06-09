@@ -9,12 +9,29 @@ class GSM8k(AbstractDataset):
         "few_shot": (
             "You are a helpful assistant that answers math questions. "
             "The final answer should be preceeded by ####.\n"
+            "Here is an example:\n"
             "[QUESTION]\n"
             "Roger has 5 tennis balls. He buys 2 more cans of tennis balls. "
             "Each can has 3 tennis balls. How many tennis balls does he have now?\n"
             "[ANSWER]\n"
             "Roger started with 5 balls. 2 cans of 3 tennis balls each is 6 tennis balls. "
-            "5 + 6 = 11. The answer is 11. ##### 11\n"
+            "5 + 6 = 11. The answer is 11. #### 11\n"
+            "Now, answer the following question:\n"
+            "[QUESTION]\n"
+            "{question}\n"
+            "[ANSWER]\n"
+            "{answer}"
+        ),
+        "few_shot:standard": (
+            "You are a helpful assistant that answers math questions. "
+            "The final answer should be preceeded by ####.\n"
+            "Here is an example:\n"
+            "[QUESTION]\n"
+            "Roger has 5 tennis balls. He buys 2 more cans of tennis balls. "
+            "Each can has 3 tennis balls. How many tennis balls does he have now?\n"
+            "[ANSWER]\n"
+            "The answer is 11. #### 11\n"
+            "Now, answer the following question:\n"
             "[QUESTION]\n"
             "{question}\n"
             "[ANSWER]\n"
@@ -42,19 +59,19 @@ class GSM8k(AbstractDataset):
             return float("nan")
 
     def get_sample_prompt(self) -> str:
-        return self.templates[self.template_type].format(
+        return self.templates[self.template_mode].format(
             question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
             answer="",
         )
 
     def format_train_example(self, example):
-        return self.templates[self.template_type].format(
+        return self.templates[self.template_mode].format(
             question=example["question"],
             answer=example["answer"],
         )
 
     def format_test_example(self, example):
-        return self.templates[self.template_type].format(
+        return self.templates[self.template_mode].format(
             question=example["question"],
             answer="",
         )

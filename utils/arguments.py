@@ -102,7 +102,7 @@ def add_train_args(parser: argparse.ArgumentParser):
     )
     # TODO: rename to init_mode
     parser.add_argument(
-        "--init_method",
+        "--init_mode",
         type=str,
         default="random",
         choices=[
@@ -319,7 +319,7 @@ def add_test_args(parser: argparse.ArgumentParser):
         choices=DATASETS.keys(),
     )
     parser.add_argument(
-        "--template_type",
+        "--template_mode",
         type=str,
         default=None,
         help="Template type to use for evaluation.",

@@ -161,7 +161,7 @@ def train_cp(
             horizon=x_train.shape[1],
             rank=rank,
             device=x_train.device,
-            init_method=kwargs["init_method"],
+            init_mode=kwargs["init_mode"],
             loss_type=kwargs["loss_type"],
         )
         test_error = reg.fit(  # return self with best state
@@ -183,7 +183,7 @@ def train_cp(
         horizon=x_train.shape[1],
         rank=1,
         device=x_train.device,
-        init_method="zeros",
+        init_mode="zeros",
         loss_type=kwargs["loss_type"],
     )
     error_baseline = reg_baseline.loss_fn(reg_baseline.predict(x_test), y_test).item()
@@ -475,7 +475,7 @@ if __name__ == "__main__":
         help="Loss function to use. Options: mse (mean squared error), mae (mean absolute error), mare (mean absolute relative error).",
     )
     parser.add_argument(
-        "--init_method",
+        "--init_mode",
         type=str,
         default="normal",
         choices=["zeros", "normal"],

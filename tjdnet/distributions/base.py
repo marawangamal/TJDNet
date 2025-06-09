@@ -48,12 +48,33 @@ class BaseDist(TJDist):
         Returns:
             CPDist: CP distribution with the given configuration.
         """
+        # ==== Assertions ====
+        rules = [
+            {
+                "fn": lambda config: config.rank == 1,
+                "msg": "Rank must be 1 for base distribution",
+            },
+            {
+                "fn": lambda config: config.horizon == 1,
+                "msg": "Horizon must be 1 for base distribution",
+            },
+        ]
+        for rule in rules:
+            if not rule["fn"](config):
+                raise ValueError(rule["msg"])
+        # ====================
 
-        n_emb, vocab_size = linear.weight.shape
+        vocab_size, hidden_dim = linear.weight.shape
+        use_bias_encoder = False
         if linear.bias is not None:
+            use_bias_encoder = True
             raise Warning("BaseDist: Skiping bias initialization.")
 
-        return cls(
+        param_net_conf = config.param_net.to_dict()
+        param_net_conf["hidden_dim"] = hidden_dim
+        param_net_conf["use_decoder"] = False
+
+        obj = cls(
             config=BaseDistConfig(
                 vocab_size=vocab_size,
                 horizon=config.horizon,
@@ -62,6 +83,13 @@ class BaseDist(TJDist):
             ),
             **kwargs,
         )
+
+        # Initialize the parameters in obj.tensor_param_net
+        # with the parameters from the linear layer
+        obj.param_func.w.weight.data = linear.weight.data  # type: ignore
+        if use_bias_encoder:
+            obj.param_func.w.bias.data = linear.bias.data  # type: ignore
+        return obj
 
     def sample(
         self,

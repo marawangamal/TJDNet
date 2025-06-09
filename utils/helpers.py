@@ -128,7 +128,7 @@ def get_model_and_tokenizer(args):
                 hidden_dim=args.hidden_dim,
             ),
         ),
-        init_method=args.init_method,
+        init_mode=args.init_mode,
         loss_mode=args.loss_mode,
     )
     model = TJDHuggingFace(

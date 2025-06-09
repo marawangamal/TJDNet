@@ -54,7 +54,7 @@ class CPRegressor(nn.Module):
         horizon: int,
         rank: int,
         device: str = "cpu",
-        init_method: Literal["normal", "zeros"] = "zeros",
+        init_mode: Literal["normal", "zeros"] = "zeros",
         verbose: bool = False,
         loss_type: Literal["mse", "mae", "mare"] = "mse",
         **kwargs,
@@ -76,7 +76,7 @@ class CPRegressor(nn.Module):
 
         self.factors = nn.ParameterList(
             [
-                nn.Parameter(init_fn[init_method](h), requires_grad=True)
+                nn.Parameter(init_fn[init_mode](h), requires_grad=True)
                 for h in range(self.H)
             ]
         )

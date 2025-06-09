@@ -6,15 +6,15 @@ preambles:
     - "#SBATCH --output=slurm/slurm-%j.out"
     - "#SBATCH --error=slurm/slurm-%j.err"   
     # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    - "#SBATCH --partition=short-unkillable"
-    - "#SBATCH --gres=gpu:a100l:4"
-    - "#SBATCH --mem=128G"
-    - "#SBATCH --time=3:00:00"
-    - "#SBATCH --cpus-per-task=12"
+    # - "#SBATCH --partition=short-unkillable"
+    # - "#SBATCH --gres=gpu:a100l:4"
+    # - "#SBATCH --mem=128G"
+    # - "#SBATCH --time=3:00:00"
+    # - "#SBATCH --cpus-per-task=12"
     # =====================================
-    # - "#SBATCH --partition=main"
-    # - "#SBATCH --gres=gpu:rtx8000:2"
-    # - "#SBATCH --mem=32G"
+    - "#SBATCH --partition=main"
+    - "#SBATCH --gres=gpu:rtx8000:2"
+    - "#SBATCH --mem=32G"
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
     - "#SBATCH --nodes=1"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
@@ -24,9 +24,14 @@ preambles:
     - "#SBATCH --output=slurm/slurm-%j.out"
     - "#SBATCH --error=slurm/slurm-%j.err"   
     - "#SBATCH --partition=long"
-    - "#SBATCH --gres=gpu:a100l:4"
+    # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    # - "#SBATCH --gres=gpu:a100l:4"
+    # - "#SBATCH --mem=128G"
+    # =====================================
+    - "#SBATCH --gres=gpu:rtx8000:2"
+    - "#SBATCH --mem=32G"
+    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
     - "#SBATCH --cpus-per-task=12"
-    - "#SBATCH --mem=128G"
     - "#SBATCH --nodes=1"
     - "#SBATCH --time=3:00:00"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
@@ -85,7 +90,7 @@ group:
               # ================
               # sweep:
               #   lr: [1e-3]
-              # sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model gpt2 --max_num_samples 100 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"              
+              # sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model distilbert/distilgpt2 --max_num_samples 100 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"              
               # <<<< Debug =====
           # 2. Tag best model for each (rank, horizon) combination
           - job:
@@ -123,7 +128,7 @@ group:
                       - job:
                           # aaa-bbb-ccc-XXXX-aaa-bbb
                           preamble: gpu4
-                          command: "python main.py test --lookup --dataset gsm8k --template_type few_shot --group_level 1 --group_id {group_id} --gen_mode draft_multi_horizon" 
+                          command: "python main.py test --lookup --dataset gsm8k --template_mode few_shot --group_level 1 --group_id {group_id} --gen_mode draft_multi_horizon" 
                           name: "test"
 
 

@@ -32,7 +32,7 @@ class TJDConfig:
     model_head_config: BaseDistConfig
 
     # Training configuration
-    init_method: Literal["random", "pretrained"] = "random"
+    init_mode: Literal["random", "pretrained"] = "random"
     loss_mode: Literal["joint", "draft"] = "draft"
     joint_loss_lambda: float = 1.0  # Balance between draft and target model losses
     use_memory_efficient_loss: bool = True  # Use memory-efficient loss computation
@@ -75,7 +75,7 @@ class TJD(ABC, torch.nn.Module):
         self.vocab_size = config.model_head_config.vocab_size
 
         # Initialize model head
-        if config.init_method == "pretrained":
+        if config.init_mode == "pretrained":
             self.mhead = TJD_DISTS[config.model_head].from_pretrained(
                 linear=self.lm_head,
                 config=BaseDistFromLinearConfig(

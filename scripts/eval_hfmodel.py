@@ -2,6 +2,7 @@
 import argparse
 import logging
 import sys
+from typing import Literal
 
 import lightning as L
 import torch
@@ -35,6 +36,7 @@ class LModel(L.LightningModule):
         model,
         tokenizer,
         dataset,
+        template_mode: Literal["0_shot", "few_shot"] = "few_shot",
         max_new_tokens=256,
         do_sample=True,
         top_k=50,
@@ -44,10 +46,12 @@ class LModel(L.LightningModule):
         super().__init__()
         self.model = model
         self.tokenizer = tokenizer
-        self.dataset = DATASETS[dataset](tokenizer=tokenizer)
+        self.dataset = DATASETS[dataset](
+            tokenizer=tokenizer, template_mode=template_mode
+        )
 
         # save hyperparameters
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["model", "tokenizer"])
 
     def _generate_and_test(self, batch):
         output = self.model.generate(
@@ -59,6 +63,11 @@ class LModel(L.LightningModule):
 
         # Compute accuracy
         y_pred_str = self.tokenizer.batch_decode(output)
+        # slice off the input part of the generated text
+        y_pred_str = [
+            y[len(self.tokenizer.batch_decode(batch["input_ids"])[i]) :]  # type: ignore
+            for i, y in enumerate(y_pred_str)
+        ]
         y_pred = torch.tensor(
             [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
             device=output.device,
@@ -158,11 +167,7 @@ def main(model_name, ds_name, **kwargs):
     """Evaluate a Hugging Face model on a specified dataset."""
 
     # Init model & tokenizer
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype="auto",
-        device_map="auto",
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_name)
     tokenizer = get_auto_tokenizer(model_name)
 
     # Init lmodules
@@ -173,13 +178,13 @@ def main(model_name, ds_name, **kwargs):
         max_new_tokens=kwargs.get("max_new_tokens", 256),
         do_sample=kwargs.get("do_sample", True),
         top_k=kwargs.get("top_k", 50),
+        template_mode=kwargs.get("template_mode", "few_shot"),
     )
     ldata = LDataModule(model=model_name, dataset=ds_name)
 
     # Test
     trainer = L.Trainer(
         logger=False,
-        devices="auto",
         max_epochs=1,
         enable_progress_bar=True,
     )
@@ -202,6 +207,11 @@ if __name__ == "__main__":
         type=str,
         default="stemp",
     )
+    parser.add_argument(
+        "--template_mode",
+        type=str,
+        choices=["0_shot", "few_shot", "few_shot:standard"],
+    )
     args = parser.parse_args()
 
-    main(args.model, args.dataset)
+    main(args.model, args.dataset, template_mode=args.template_mode)

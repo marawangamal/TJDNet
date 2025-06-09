@@ -33,7 +33,7 @@ def setup_process_group():
     # Initialize process group
     dist.init_process_group(
         backend="nccl",  # Use nccl for GPU training
-        init_method="env://",
+        init_mode="env://",
     )
     # Set the device to current process's visible device
     local_rank = int(os.environ.get("LOCAL_RANK", 0))

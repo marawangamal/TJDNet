@@ -10,14 +10,14 @@ class AbstractDataset(ABC):
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
         seq_len: int = 512,
         max_num_samples: Optional[int] = None,
-        template_type: Literal["0_shot", "few_shot"] = "0_shot",
+        template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "few_shot",
         **kwargs
     ):
         self.tokenizer = tokenizer
         self.seq_len = seq_len
         self.eos: str = tokenizer.eos_token  # type: ignore
         self.max_num_samples = max_num_samples
-        self.template_type = template_type
+        self.template_mode = template_mode
 
     @classmethod
     @abstractmethod

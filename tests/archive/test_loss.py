@@ -24,13 +24,13 @@ class TestTTDist(unittest.TestCase):
         true_rank = 3
         output_size = 5
         batch_size = 1
-        true_dist_init_method = "sparse"
+        true_dist_init_mode = "sparse"
 
         # 1. Get the true distribution
         true_mpsdist = MPSDist(
             n_vocab=vocab_size,
             rank=true_rank,
-            init_method=true_dist_init_method,
+            init_mode=true_dist_init_mode,
         )
 
         learned_mpsdist = MPSDist(
