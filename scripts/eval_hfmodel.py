@@ -87,13 +87,25 @@ class LModel(L.LightningModule):
 
 
 class LDataModule(L.LightningDataModule):
-    def __init__(self, model, **kwargs):
+    def __init__(
+        self,
+        model,
+        dataset,
+        batch_size=1,
+        seq_len=128,
+        max_num_samples=None,
+        template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "few_shot",
+        **kwargs,
+    ):
         super().__init__()
         self.tokenizer = get_auto_tokenizer(model)
-        self.batch_size = kwargs.get("batch_size", 1)
-        self.seq_len = kwargs.get("seq_len", 8)
-        self.max_num_samples = kwargs.get("max_num_samples", None)
-        self.ds_name = kwargs.get("dataset", "stemp")
+        self.batch_size = batch_size
+        self.seq_len = seq_len
+        self.max_num_samples = max_num_samples
+        self.ds_name = dataset
+        self.template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = (
+            template_mode
+        )
         logger.info(
             f"Initialized DataModule - dataset: {self.ds_name}, batch_size: {self.batch_size}"
         )
@@ -104,6 +116,7 @@ class LDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer,
             seq_len=self.seq_len,
             max_num_samples=self.max_num_samples,
+            template_mode=self.template_mode,
         ).load_data()
         self.train_ds, self.eval_ds, self.test_ds = (
             self.lm_dataset["train"],
@@ -163,24 +176,16 @@ class LDataModule(L.LightningDataModule):
 ########################################################
 
 
-def main(model_name, ds_name, **kwargs):
+def main(model, **kwargs):
     """Evaluate a Hugging Face model on a specified dataset."""
 
     # Init model & tokenizer
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    tokenizer = get_auto_tokenizer(model_name)
+    hf_model = AutoModelForCausalLM.from_pretrained(model)
+    tokenizer = get_auto_tokenizer(model)
 
     # Init lmodules
-    lmodel = LModel(
-        model=model,
-        tokenizer=tokenizer,
-        dataset=ds_name,
-        max_new_tokens=kwargs.get("max_new_tokens", 256),
-        do_sample=kwargs.get("do_sample", True),
-        top_k=kwargs.get("top_k", 50),
-        template_mode=kwargs.get("template_mode", "few_shot"),
-    )
-    ldata = LDataModule(model=model_name, dataset=ds_name)
+    lmodel = LModel(model=hf_model, tokenizer=tokenizer, **kwargs)
+    ldata = LDataModule(model=model, **kwargs)
 
     # Test
     trainer = L.Trainer(
@@ -199,19 +204,44 @@ if __name__ == "__main__":
         "--model",
         type=str,
         help="Name of the Hugging Face model to evaluate.",
-        default="gpt2",
+        # default="gpt2",
+        default="meta-llama/Llama-3.2-3B-Instruct",  # Example model
     )
     parser.add_argument(
         "-d",
         "--dataset",
         type=str,
-        default="stemp",
+        default="gsm8k",
     )
     parser.add_argument(
         "--template_mode",
         type=str,
         choices=["0_shot", "few_shot", "few_shot:standard"],
+        default="few_shot",
+    )
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=256,
+        help="Maximum number of new tokens to generate.",
+    )
+    parser.add_argument(
+        "--max_num_samples",
+        default=None,
+        type=int,
+        help="Maximum number of samples to use from the dataset. If None, use all samples.",
+    )
+    parser.add_argument(
+        "--do_sample",
+        action="store_true",
+        help="Whether to use sampling; use greedy decoding otherwise.",
+    )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=50,
+        help="Top-k sampling parameter.",
     )
     args = parser.parse_args()
 
-    main(args.model, args.dataset, template_mode=args.template_mode)
+    main(**vars(args))
