@@ -62,6 +62,64 @@ class TestCPDist(unittest.TestCase):
             y=targets,
         )
 
+    def test_sample(self):
+        batch_size, vocab_size, rank, horizon, n_embd = 8, 128, 8, 2, 256
+
+        model_head = CPDist(
+            BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=horizon,
+                rank=rank,
+                param_net=TensorParamNetConfig(
+                    in_dim=n_embd,
+                ),
+            )
+        )
+
+        last_hidden_state = torch.randn(batch_size, n_embd)
+        y_hat, py_tilde = model_head.sample(
+            x=last_hidden_state,
+            sample_fn=lambda p: torch.multinomial(p, num_samples=1).squeeze(-1),
+            horizon=horizon,
+            return_logits=True,
+        )
+
+        self.assertEqual(y_hat.shape, (batch_size, horizon))
+        self.assertEqual(py_tilde.shape, (batch_size, horizon, vocab_size))
+
+    # def test_sample_refinement(self):
+    #     batch_size, vocab_size, rank, horizon, n_embd = 8, 128, 8, 2, 256
+
+    #     model_head = CPDist(
+    #         BaseDistConfig(
+    #             vocab_size=vocab_size,
+    #             horizon=horizon,
+    #             rank=rank,
+    #             param_net=TensorParamNetConfig(
+    #                 in_dim=n_embd,
+    #             ),
+    #         )
+    #     )
+
+    #     last_hidden_state = torch.randn(batch_size, n_embd)
+    #     y_hat, py_tilde = model_head.sample(
+    #         x=last_hidden_state,
+    #         sample_fn=lambda p: torch.multinomial(p, num_samples=1).squeeze(-1),
+    #         horizon=horizon,
+    #         return_logits=True,
+    #     )
+    #     # Expect that the refined sample probability is greater than the original sample probability
+    #     y_hat_refined, py_tilde_refined = model_head.sample(
+    #         x=last_hidden_state,
+    #         sample_fn=lambda p: torch.multinomial(p, num_samples=1).squeeze(-1),
+    #         horizon=horizon,
+    #         return_logits=True,
+    #     )
+    #     self.assertTrue(
+    #         (py_tilde_refined > py_tilde).all(),
+    #         "Refined sample probabilities should be greater than original sample probabilities",
+    #     )
+
 
 if __name__ == "__main__":
     unittest.main()
