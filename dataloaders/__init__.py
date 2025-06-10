@@ -1,3 +1,4 @@
+from dataloaders.aqua import AQUA
 from dataloaders.base import AbstractDataset
 from dataloaders.csqa import CSQA
 from dataloaders.gms8k import GSM8k
@@ -9,4 +10,6 @@ DATASETS: dict[str, type[AbstractDataset]] = {
     "stemp": STemp,
     "csqa": CSQA,
     "sharegpt": ShareGPT,
+    "aqua": AQUA,  # Uncomment if AQUA dataset is implemented
+    # Add more datasets here as needed
 }

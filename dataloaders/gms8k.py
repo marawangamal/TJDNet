@@ -65,9 +65,12 @@ class GSM8k(AbstractDataset):
         )
 
     def format_train_example(self, example):
-        return self.templates[self.template_mode].format(
-            question=example["question"],
-            answer=example["answer"],
+        return (
+            self.templates[self.template_mode].format(
+                question=example["question"],
+                answer=example["answer"],
+            )
+            + self.eos
         )
 
     def format_test_example(self, example):
@@ -106,12 +109,12 @@ class GSM8k(AbstractDataset):
 
         ds = DatasetDict({**base_datasets, **test_datasets})
 
-        # Limit the number of samples to 1000 for train and 100 for eval/test
         if self.max_num_samples is not None:
             for split in ds:
-                ds[split] = (
-                    ds[split].shuffle(seed=42).select(range(self.max_num_samples))
-                )
+                if len(ds[split]) > self.max_num_samples:
+                    ds[split] = (
+                        ds[split].shuffle(seed=42).select(range(self.max_num_samples))
+                    )
 
         return ds
 

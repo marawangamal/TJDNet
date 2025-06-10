@@ -212,6 +212,7 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         default="gsm8k",
+        choices=DATASETS.keys(),
     )
     parser.add_argument(
         "--template_mode",

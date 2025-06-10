@@ -10,7 +10,7 @@ class AbstractDataset(ABC):
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
         seq_len: int = 512,
         max_num_samples: Optional[int] = None,
-        template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "few_shot",
+        template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
         **kwargs
     ):
         self.tokenizer = tokenizer
@@ -26,7 +26,7 @@ class AbstractDataset(ABC):
         pass
 
     @abstractmethod
-    def parse_answer(self, generation: str):
+    def parse_answer(self, generation: str) -> float:
         """Parse the answer from the generated text"""
         pass
 
@@ -45,6 +45,7 @@ class AbstractDataset(ABC):
         """Format the test example"""
         pass
 
+    # TODO: change return type to be only str
     @abstractmethod
     def format_test_label(self, example) -> float:
         """Format the test label"""
@@ -103,3 +104,26 @@ class AbstractDataset(ABC):
             remove_columns=["text"],
         )
         return dataset
+
+    # # TODO: change format_test_label to return output string which will then be tokenized
+    # def _process_test_dataset_v2(self, dataset, tokenizer):
+    #     # Format text using template
+    #     dataset = dataset.map(
+    #         lambda x: {
+    #             "text": self.format_test_example(x),
+    #             "labels": self.format_test_label(x),
+    #         },
+    #         remove_columns=dataset.column_names,
+    #     )
+
+    #     # Tokenize + add float labels
+    #     dataset = dataset.map(
+    #         lambda x: {
+    #             **tokenizer(x["text"], add_special_tokens=False),
+    #             "labels": tokenizer(
+    #                 x["labels"], add_special_tokens=False
+    #             ).input_ids,  # tokenize labels
+    #         },
+    #         remove_columns=["text"],  # remove original text and labels
+    #     )
+    #     return dataset

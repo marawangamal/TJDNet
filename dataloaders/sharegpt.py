@@ -35,7 +35,7 @@ class ShareGPT(AbstractDataset):
             elif conv["from"] == "gpt":
                 substr = f"\n[ANSWER]{conv['value']}"
             output_str += substr
-        return output_str
+        return output_str + self.eos
 
     def format_test_example(self, example):
         raise NotImplementedError("ShareGPT dataset does not have a separate test set.")

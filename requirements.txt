@@ -9,6 +9,7 @@ scikit-learn
 pyaml
 tensorly
 huggingface_hub[cli]
+sentencepiece
 # matplotlib
 # tntorch
 # wandb

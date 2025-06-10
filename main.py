@@ -547,6 +547,7 @@ def test(exp_name: str, remove_ckpt=True, test_filename=TEST_FILENAME, **kwargs)
         kwargs = {
             k: v for k, v in kwargs.items() if k in overrideable_args and v is not None
         }
+        logger.info(f"Overriding test arguments: {kwargs}")
 
         ckpt_path = make_consolidated_ckpt(exp_name)
         lmodel = LModel.load_from_checkpoint(ckpt_path, **kwargs)
@@ -744,7 +745,18 @@ if __name__ == "__main__":
                     exp_kwargs = torch.load(meta_path, map_location="cpu")[
                         "hyper_parameters"
                     ]
-                    exp_kwargs["epochs"] = args.epochs  # Override epochs
+                    overrideable_args = [
+                        "epochs",
+                        "max_num_samples",
+                    ]
+                    okwargs = {
+                        k: v
+                        for k, v in vars(args).items()
+                        if k in overrideable_args and v is not None
+                    }
+                    logger.info(f"Overriding prospect experiment args: {okwargs}")
+                    exp_kwargs.update(okwargs)
+
                     exp_kwargs["delete_ckpt"] = False  # Don't delete new ckpt
 
                     new_exp_name = get_experiment_name(filter_kwargs(**exp_kwargs))
