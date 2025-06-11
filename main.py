@@ -10,7 +10,7 @@ Commands:
 
 Examples:
     # Basic training
-    python main.py train --model distilbert/distilgpt2 --batch_size 1 --seq_len 8
+    python main.py train --model lmsys/vicuna-7b-v1.5 --batch_size 1 --seq_len 8
 
     # Distributed training
     python main.py train --accel_strategy fsdp --dataset gsm8k --model meta-llama/Llama-3.2-3B-Instruct
@@ -25,7 +25,6 @@ Examples:
     python main.py test --lookup --group_id xxx-xxx-xxx-xxx
 """
 
-from ast import Name
 from collections import defaultdict
 import os
 import os.path as osp
@@ -39,9 +38,7 @@ import time
 from typing import List
 
 import torch
-from torch import optim
 from wandb.util import generate_id
-import torchmetrics as tm
 
 
 import lightning as L
@@ -55,7 +52,7 @@ from transformers.models.gpt2.modeling_gpt2 import GPT2Block
 
 from dataloaders import DATASETS
 from tjdnet.distributions._tjdist import TJDist
-from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
+from utils.helpers import get_auto_tokenizer, get_git_info
 from utils.lightning_callbacks.generate import GenerateCallback
 from utils.experiment_naming import get_experiment_name
 from utils.arguments import parse_args
@@ -94,6 +91,7 @@ SILENT_ARGS = [
     "lookup",
     "delete_ckpt",
     "idx",
+    "cache_dir",
 ]
 
 PROSPECT_FLAG_FILENAME = ".prospect"
@@ -454,14 +452,17 @@ def train(args, flag_filename=None):
 
     # Training strategy
     policy = {LlamaDecoderLayer, GPT2Block, TJDist}
-    strategy = {
-        "auto": "auto",
-        "ddp": "ddp",
-        "fsdp": FSDPStrategy(
-            auto_wrap_policy=policy,
-            sharding_strategy="FULL_SHARD",
-            state_dict_type="sharded",
-        ),
+    accel_strategy_kwargs = {
+        "auto": {"strategy": "auto"},
+        "ddp": {"strategy": "ddp"},
+        "fsdp": {
+            "strategy": FSDPStrategy(
+                auto_wrap_policy=policy,
+                sharding_strategy="FULL_SHARD",
+                state_dict_type="sharded",
+            )
+        },
+        "single": {"strategy": "auto", "devices": 1, "accelerator": "gpu"},
     }[args.accel_strategy]
 
     logger.info(f"Using acceleration strategy: {args.accel_strategy}")
@@ -469,7 +470,7 @@ def train(args, flag_filename=None):
     # Create trainer
     trainer = L.Trainer(
         fast_dev_run=args.fast_dev_run,
-        strategy=strategy,
+        # strategy=strategy,
         max_epochs=args.epochs,
         default_root_dir=osp.join(EXPERIMENTS_DIR, exp_name_filtered),
         callbacks=callbacks,
@@ -477,6 +478,7 @@ def train(args, flag_filename=None):
         accumulate_grad_batches=args.accum_grad_batches,
         gradient_clip_val=1,
         precision=args.precision,
+        **accel_strategy_kwargs,
     )
 
     # Start training

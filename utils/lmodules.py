@@ -25,33 +25,21 @@ Examples:
     python main.py test --lookup --group_id xxx-xxx-xxx-xxx
 """
 
-from ast import Name
-from collections import defaultdict
 import os
-import os.path as osp
 import logging
-from datetime import datetime
 
 from argparse import Namespace
-import subprocess
 import sys
-import time
 from typing import List, Literal, Optional, Union
 
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
-from wandb.util import generate_id
 import torchmetrics as tm
 
 
 import lightning as L
-from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.strategies import FSDPStrategy
-from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-from pytorch_lightning.utilities import rank_zero_only
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer
-from transformers.models.gpt2.modeling_gpt2 import GPT2Block
+from lightning.pytorch.callbacks import ModelCheckpoint
 from transformers import (
     DataCollatorForLanguageModeling,
     get_linear_schedule_with_warmup,
@@ -59,12 +47,8 @@ from transformers import (
 
 
 from dataloaders import DATASETS
-from tjdnet.distributions._tjdist import TJDist
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
-from utils.helpers import get_auto_tokenizer, get_git_info, get_model_and_tokenizer
-from utils.lightning_callbacks.generate import GenerateCallback
-from utils.experiment_naming import get_experiment_name
-from utils.arguments import parse_args
+from utils.helpers import get_auto_tokenizer, get_model_and_tokenizer
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 

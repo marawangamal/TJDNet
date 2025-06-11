@@ -44,34 +44,21 @@ class ShareGPT(AbstractDataset):
         raise NotImplementedError("ShareGPT dataset does not have a separate test set.")
 
     def load_data(self):
-        split_ratio = 0.1
-        ds_dict = {
-            "train": load_dataset(
-                "Aeala/ShareGPT_Vicuna_unfiltered",
-                split=f"train[:{int(100-split_ratio*100)}%]",
+        ds = load_dataset(
+            "Aeala/ShareGPT_Vicuna_unfiltered",
+            split=(
+                f"train[:{self.max_num_samples}]" if self.max_num_samples else "train"
             ),
-            "eval": load_dataset(
-                "Aeala/ShareGPT_Vicuna_unfiltered",
-                split=f"train[{int(100-split_ratio*100)}%:]",
-            ),
-        }
-        ds_dict["test"] = ds_dict["eval"]  # Use eval split as test split
+            cache_dir=self.cache_dir,
+        )
+        # Split the dataset into train and eval
+        ds_dict = ds.train_test_split(test_size=0.1, seed=42, shuffle=True)
+        ds_dict["eval"] = ds_dict["test"]  # Use eval split as test split
 
         for split in ds_dict:
             ds_dict[split] = self._process_train_dataset(ds_dict[split], self.tokenizer)
 
         ds_dict = DatasetDict(ds_dict)
-
-        if self.max_num_samples is not None:
-            for split in ds_dict:
-                n_samples = len(ds_dict[split])
-                if n_samples > self.max_num_samples:
-                    ds_dict[split] = (
-                        ds_dict[split]
-                        .shuffle(seed=42)
-                        .select(range(self.max_num_samples))
-                    )
-
         return ds_dict
 
 

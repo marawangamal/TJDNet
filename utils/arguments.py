@@ -219,8 +219,8 @@ def add_train_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--accel_strategy",
         type=str,
-        default="auto",
-        choices=["auto", "fsdp", "ddp", "deepspeed"],
+        default="single",
+        choices=["auto", "fsdp", "ddp", "deepspeed", "single"],
     )
     parser.add_argument(
         "--test",
@@ -269,6 +269,12 @@ def add_train_args(parser: argparse.ArgumentParser):
         type=int,
         default=None,
         help="Index of the model to train in the group.",
+    )
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default="/home/mila/m/marawan.gamal/scratch/hf_cache",
+        help="Path to the cache directory.",
     )
 
 
@@ -372,6 +378,12 @@ def add_test_args(parser: argparse.ArgumentParser):
         type=int,
         default=None,
         help="Index of the model to train in the group.",
+    )
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default="/home/mila/m/marawan.gamal/scratch/hf_cache",
+        help="Path to the cache directory.",
     )
 
 

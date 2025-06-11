@@ -25,11 +25,11 @@ preambles:
     - "#SBATCH --error=slurm/slurm-%j.err"   
     - "#SBATCH --partition=long"
     # MAIN >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    # - "#SBATCH --gres=gpu:a100l:4"
-    # - "#SBATCH --mem=128G"
+    - "#SBATCH --gres=gpu:a100l:1"
+    - "#SBATCH --mem=128G"
     # =====================================
-    - "#SBATCH --gres=gpu:rtx8000:2"
-    - "#SBATCH --mem=32G"
+    # - "#SBATCH --gres=gpu:rtx8000:2"
+    # - "#SBATCH --mem=32G"
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
     - "#SBATCH --cpus-per-task=12"
     - "#SBATCH --nodes=1"
@@ -86,7 +86,7 @@ group:
               sweep: 
                 lr: [1e-3, 1e-4, 1e-5]
                 init_mode: ["random", "pretrained"]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 5000 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
+              sweep_template:  "python main.py train --accel_strategy single --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 5000 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
               # ================
               # sweep:
               #   lr: [1e-3]
@@ -157,7 +157,7 @@ group:
                 init_mode: ["random", "pretrained"]
                 rank: [1, 8, 16]
                 horizon: [2, 4, 8]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 5000 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
+              sweep_template:  "python main.py train --accel_strategy single --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 5000 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head cp --rank {rank} --horizon {horizon} --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
           # 2. Tag best model for each (rank, horizon) combination
           - job:
               # aaa-bbb-bbb

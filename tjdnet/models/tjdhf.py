@@ -1,4 +1,5 @@
 from typing import Literal
+from transformers import AutoConfig
 import torch
 from transformers import AutoModelForCausalLM
 
@@ -13,6 +14,20 @@ EXCEPTIONS = {
 }
 
 
+def get_lm_head_size(model_name: str) -> tuple[int, int]:
+    hf_config = AutoConfig.from_pretrained(model_name)
+    vocab_size = hf_config.vocab_size
+    if model_name in EXCEPTIONS:
+        embedding_size = hf_config.n_embd
+    elif hasattr(hf_config, "hidden_size"):
+        embedding_size = hf_config.hidden_size
+    else:
+        raise ValueError(
+            f"Model {model_name} is not supported for determining lm_head size."
+        )
+    return vocab_size, embedding_size
+
+
 class TJDHuggingFace(TJD):
     def __init__(
         self,
@@ -24,20 +39,13 @@ class TJDHuggingFace(TJD):
     ):
 
         # Determine model_head dimensions
-        temp_model = AutoModelForCausalLM.from_pretrained(**auto_model_kwargs)
+        vocab_size, embedding_size = get_lm_head_size(
+            auto_model_kwargs["pretrained_model_name_or_path"]
+        )
+
         self.hf_lora_rank = lora_rank
         self.hf_auto_model_kwargs = auto_model_kwargs
         self.hf_train_mode = train_mode
-        lm_head = temp_model.lm_head
-        if hasattr(lm_head, "weight"):
-            vocab_size = lm_head.weight.size(0)
-            embedding_size = lm_head.weight.size(1)
-        else:
-            raise ValueError("lm_head does not have a weight attribute.")
-
-        # Clear the temporary model to free memory
-        del temp_model
-        torch.cuda.empty_cache()
 
         config.model_head_config.param_net.in_dim = embedding_size
         config.model_head_config.vocab_size = vocab_size
