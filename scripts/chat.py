@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
 Tiny chat REPL (ANSI colours, CR/LF-agnostic).
-
 $ python chat.py --model mistralai/Mistral-7B-Instruct-v0.3        # single GPU
-$ python chat.py --model big-model --multi-gpu                     # sharded
+$ python chat.py --ckpt experiments/my_exp/best.ckpt               # Lightning checkpoint
 """
-
 from __future__ import annotations
 import argparse, sys, threading, time
 from typing import List
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+# Add Lightning imports
+import lightning as L
+from utils.lmodules import LModel  # Your Lightning module
+from tjdnet.models.tjd import TJD, TJDGenerationConfig
+
 ANSI = {"user": "\033[1;32m", "bot": "\033[1;36m", "dim": "\033[2m", "rst": "\033[0m"}
-MAX_HISTORY = 20  # trim old turns so the prompt stays small
+MAX_HISTORY = 20
 
 
-# ---------------------- I/O helper ----------------------
 def read_line(prompt: str = "") -> str:
     sys.stdout.write(prompt)
     sys.stdout.flush()
@@ -27,8 +28,17 @@ def read_line(prompt: str = "") -> str:
     return "".join(buf)
 
 
-# ---------------------- model utils ----------------------
-def load(model_id: str, single_gpu: bool):
+def load_lightning_model(ckpt_path: str, device):
+    """Load Lightning checkpoint."""
+    print(f"Loading Lightning checkpoint: {ckpt_path}")
+    lmodel = LModel.load_from_checkpoint(ckpt_path)
+    lmodel.eval()
+    lmodel.to(device)
+    return lmodel.tokenizer, lmodel.model, device
+
+
+def load_hf_model(model_id: str, single_gpu: bool):
+    """Load HuggingFace model."""
     tok = AutoTokenizer.from_pretrained(model_id, use_fast=True)
     tok.pad_token = tok.pad_token or tok.eos_token or tok.unk_token or "<|pad|>"
     mdl = AutoModelForCausalLM.from_pretrained(
@@ -40,7 +50,7 @@ def load(model_id: str, single_gpu: bool):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         mdl.to(device)
     else:
-        device = torch.device("cpu")  # prompt stays on CPU, Accelerate moves it
+        device = torch.device("cpu")
     mdl.eval()
     return tok, mdl, device
 
@@ -48,8 +58,7 @@ def load(model_id: str, single_gpu: bool):
 def prompt(turns: List[dict], tok) -> torch.Tensor:
     if getattr(tok, "chat_template", None):
         chat_turns = [
-            {"role": t["role"], "content": t["msg"]}  # ★ adapt key name
-            for t in turns[-MAX_HISTORY:]
+            {"role": t["role"], "content": t["msg"]} for t in turns[-MAX_HISTORY:]
         ]
         txt = tok.apply_chat_template(
             chat_turns, tokenize=False, add_generation_prompt=True
@@ -79,14 +88,18 @@ class Spinner(threading.Thread):
         self.run_ = False
 
 
-# ---------------------- main ----------------------
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--model",
         type=str,
         default="meta-llama/Llama-3.2-3B-Instruct",
-        help="model name or path",
+        help="HuggingFace model name or path",
+    )
+    ap.add_argument(
+        "--ckpt",
+        type=str,
+        help="Lightning checkpoint path (overrides --model)",
     )
     ap.add_argument(
         "--multi-gpu",
@@ -99,7 +112,18 @@ def main() -> None:
     ap.add_argument("--top-k", type=int, default=50)
     args = ap.parse_args()
 
-    tok, mdl, device = load(args.model, single_gpu=not args.multi_gpu)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Load model based on arguments
+    if args.ckpt:
+        # Load Lightning checkpoint
+        tok, mdl, device = load_lightning_model(args.ckpt, device)
+        is_lightning = True
+    else:
+        # Load HuggingFace model
+        tok, mdl, device = load_hf_model(args.model, single_gpu=not args.multi_gpu)
+        is_lightning = False
+
     gen_cfg = dict(
         max_new_tokens=args.max_new_tokens,
         do_sample=True,
@@ -111,7 +135,10 @@ def main() -> None:
     )
 
     turns: List[dict] = []
-    print(f"{ANSI['bot']}💬  Chat ready — Ctrl-C or /exit to quit{ANSI['rst']}\n")
+    model_type = "Lightning TJD" if is_lightning else "HuggingFace"
+    print(
+        f"{ANSI['bot']}💬  Chat ready ({model_type}) — Ctrl-C or /exit to quit{ANSI['rst']}\n"
+    )
 
     try:
         while True:
@@ -128,13 +155,27 @@ def main() -> None:
 
             spin = Spinner()
             spin.start()
-            with torch.inference_mode():
-                out = mdl.generate(ids, **gen_cfg)
+
+            # Generate based on model type
+            if is_lightning:
+                out, _ = mdl.generate(
+                    input_ids=ids,
+                    generation_config=TJDGenerationConfig(
+                        max_new_tokens=gen_cfg.get("max_new_tokens", 256),
+                        do_sample=gen_cfg.get("do_sample", True),
+                        top_k=gen_cfg.get("top_k", 50),
+                        eos_token_id=tok.eos_token_id,  # type: ignore
+                    ),
+                )
+            else:
+                with torch.inference_mode():
+                    out = mdl.generate(ids, TJDGenerationConfig(**gen_cfg))
+
             spin.stop()
             spin.join()
 
             reply = tok.decode(
-                out[0, ids.shape[-1] :], skip_special_tokens=True
+                out[0, ids.shape[-1] :], skip_special_tokens=True  # type: ignore
             ).strip()
             print(f"{ANSI['bot']}Bot:{ANSI['rst']} {reply}\n")
             turns.append({"role": "assistant", "msg": reply})

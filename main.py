@@ -411,9 +411,11 @@ def train(args, flag_filename=None):
     else:
         ckpt_path = None
         wandb_id = generate_wandb_id()
-        args.wandb_id = wandb_id
-        args.experiment_name = exp_name_filtered
         logger.info("Starting training from scratch")
+
+    # Set wandb_id and experiment_name
+    args.wandb_id = wandb_id
+    args.experiment_name = exp_name_filtered
 
     logger.info(f"Experiment name: {exp_name_filtered}")
     logger.info(f"Group ID: {args.group_id}")
