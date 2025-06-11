@@ -25,6 +25,8 @@ Examples:
     python main.py test --lookup --group_id xxx-xxx-xxx-xxx
 """
 
+from collections import defaultdict
+import json
 import os
 import logging
 
@@ -121,9 +123,27 @@ class LModel(L.LightningModule):
             }
         )
 
+        # Testing progress tracking
+        self.test_progress = dict()
+        self.test_progress_file = os.path.join(
+            EXPERIMENTS_DIR, self.hparams["experiment_name"], "test_progress.json"
+        )
+        self._load_test_progress()
         logger.info(
             f"Initialized LModel with dataset: {self.hparams['dataset']}, model: {self.hparams['model']}"
         )
+
+    def _load_test_progress(self):
+        if self.test_progress_file and os.path.exists(self.test_progress_file):
+            with open(self.test_progress_file, "r") as f:
+                self.test_progress = json.load(f)
+
+    def _save_test_progress(self):
+        """Save completed test index."""
+        if not os.path.exists(os.path.dirname(self.test_progress_file)):
+            os.makedirs(os.path.dirname(self.test_progress_file))
+        with open(self.test_progress_file, "w") as f:
+            json.dump(self.test_progress, f, indent=4)
 
     # ==== Configuration
     def configure_model(self):
@@ -161,6 +181,7 @@ class LModel(L.LightningModule):
         output = self.model(**batch)
         loss = output["loss"]
         self.log("train_loss", loss, prog_bar=True)
+        self.log("train_nll", output["nll"], prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -168,6 +189,7 @@ class LModel(L.LightningModule):
             output = self.model(**batch)
         loss = output["loss"]
         self.log("eval_loss", loss, prog_bar=True, sync_dist=True)
+        self.log("eval_nll", output["nll"], prog_bar=True, sync_dist=True)
         return loss
 
     # ===== Testing
@@ -211,16 +233,21 @@ class LModel(L.LightningModule):
         )
         corr = (y_pred == batch["labels"]).float().sum()
         return {
-            "corr": corr,
-            "tokens_accepted": ardict["tokens_accepted"],
-            "tokens_generated": ardict["tokens_generated"],
+            "corr": corr.item(),  # Convert to Python float for logging
+            "tokens_accepted": ardict["tokens_accepted"],  # type: ignore
+            "tokens_generated": ardict["tokens_generated"],  # type: ignore
         }
 
     def test_step(self, batch, batch_idx):
         for hlabel in self._get_hlabels():
             for gmode in self._get_gen_modes():
+                batch_key = f"{batch_idx}-{hlabel}-{gmode}"
                 horizon = 1 if hlabel == "1" else self.hparams["horizon"]
-                out = self._generate_and_test(batch, gmode, horizon)
+                if batch_key in self.test_progress:
+                    out = self.test_progress[batch_key]
+                else:
+                    out = self._generate_and_test(batch, gmode, horizon)
+                    self.test_progress[batch_key] = out
 
                 # accuracy
                 self.metrics[hlabel][gmode].update(  # type: ignore
@@ -232,6 +259,8 @@ class LModel(L.LightningModule):
                     denom = out["tokens_generated"]
                     ar = (out["tokens_accepted"] / denom) if denom else 0.0
                     self.metrics[hlabel]["acceptance_rate"].update(ar, denom)  # type: ignore
+
+        self._save_test_progress()
 
     def on_test_epoch_end(self):
         # Lightning handles metric logging to progress bar and WandB
@@ -322,6 +351,7 @@ class LDataModule(L.LightningDataModule):
             batch_size=1,
             num_workers=0,
             collate_fn=self._collator_test(),
+            shuffle=False,  # Note shuffling would cause issues with test progress resuming
         )
 
     def _collator_test(self):

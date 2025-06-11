@@ -276,6 +276,12 @@ def add_train_args(parser: argparse.ArgumentParser):
         default="/home/mila/m/marawan.gamal/scratch/hf_cache",
         help="Path to the cache directory.",
     )
+    parser.add_argument(
+        "--val_check_interval",
+        type=float,
+        default=1.0,
+        help="Interval for validation checks during training.",
+    )
 
 
 def add_test_args(parser: argparse.ArgumentParser):

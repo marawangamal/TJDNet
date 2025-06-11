@@ -85,11 +85,31 @@ class GSM8k(AbstractDataset):
     def load_data(self):
 
         base_datasets = {
-            "train": load_dataset("openai/gsm8k", "main", split="train"),
-            "eval": load_dataset("openai/gsm8k", "main", split="test"),
+            "train": load_dataset(
+                "openai/gsm8k",
+                "main",
+                split=(
+                    f"train[:{self.max_num_samples}]"
+                    if self.max_num_samples
+                    else "train"
+                ),
+            ),
+            "eval": load_dataset(
+                "openai/gsm8k",
+                "main",
+                split=(
+                    f"test[:{self.max_num_samples}]" if self.max_num_samples else "test"
+                ),
+            ),
         }
         test_datasets = {
-            "test": load_dataset("openai/gsm8k", "main", split="test"),
+            "test": load_dataset(
+                "openai/gsm8k",
+                "main",
+                split=(
+                    f"test[:{self.max_num_samples}]" if self.max_num_samples else "test"
+                ),
+            ),
         }
         # AdHoc limit test set to 50% of total
         test_datasets["test"] = (
@@ -108,14 +128,6 @@ class GSM8k(AbstractDataset):
             )
 
         ds = DatasetDict({**base_datasets, **test_datasets})
-
-        if self.max_num_samples is not None:
-            for split in ds:
-                if len(ds[split]) > self.max_num_samples:
-                    ds[split] = (
-                        ds[split].shuffle(seed=42).select(range(self.max_num_samples))
-                    )
-
         return ds
 
 
