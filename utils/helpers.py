@@ -135,8 +135,9 @@ def get_model_and_tokenizer(args):
         model_config,
         auto_model_kwargs=dict(
             pretrained_model_name_or_path=args.model,
-            device_map="cpu",
-            torch_dtype=torch.float32,
+            # device_map="cpu",
+            # torch_dtype=torch.float32,
+            # torch_dtype=torch.bfloat16,  # Use bf16 instead of fp32
             low_cpu_mem_usage=True,
         ),
         train_mode=args.train_mode,
