@@ -23,6 +23,9 @@ Examples:
 
     # Test (w/ lookup) -- test tagged experiments
     python main.py test --lookup --group_id xxx-xxx-xxx-xxx
+
+Resources:
+https://github.com/huggingface/blog/blob/main/ram-efficient-pytorch-fsdp.md
 """
 
 from collections import defaultdict
@@ -92,6 +95,7 @@ SILENT_ARGS = [
     "delete_ckpt",
     "idx",
     "cache_dir",
+    "val_check_interval",
 ]
 
 PROSPECT_FLAG_FILENAME = ".prospect"
@@ -454,7 +458,7 @@ def train(args, flag_filename=None):
     policy = {LlamaDecoderLayer, GPT2Block, TJDist}
     accel_strategy_kwargs = {
         "auto": {"strategy": "auto"},
-        "ddp": {"strategy": "ddp"},
+        "ddp": {"strategy": "ddp", "devices": 2},
         "fsdp": {
             "strategy": FSDPStrategy(
                 auto_wrap_policy=policy,
@@ -478,6 +482,7 @@ def train(args, flag_filename=None):
         accumulate_grad_batches=args.accum_grad_batches,
         gradient_clip_val=1,
         precision=args.precision,
+        val_check_interval=args.val_check_interval,
         **accel_strategy_kwargs,
     )
 
@@ -819,8 +824,8 @@ if __name__ == "__main__":
                         )
 
         else:
-            logger.info(f"Test mode: Direct testing of {args.experiment_name}")
-            test(args.experiment_name, remove_ckpt=args.delete_ckpt, **vars(args))
+            logger.info(f"Test mode: Direct testing of {args.experiment}")
+            test(args.experiment, remove_ckpt=args.delete_ckpt, **vars(args))
 
     elif args.cmd == "tag":
         logger.info("Tag mode: Finding and tagging best models")
