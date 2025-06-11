@@ -33,7 +33,6 @@ preambles:
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DEBUG
     - "#SBATCH --cpus-per-task=12"
     - "#SBATCH --nodes=1"
-    - "#SBATCH --time=3:00:00"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
   cpu:

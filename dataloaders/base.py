@@ -73,7 +73,7 @@ class AbstractDataset(ABC):
     def _process_train_dataset(self, dataset, tokenizer):
         # Format text using template
         dataset = dataset.map(
-            lambda x: {"text": self.format_train_example(x) + self.eos},
+            lambda x: {"text": self.format_train_example(x)},
             remove_columns=dataset.column_names,
         )
 

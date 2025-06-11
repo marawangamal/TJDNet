@@ -1,3 +1,4 @@
+import os
 from dataloaders.base import AbstractDataset
 from datasets import load_dataset, DatasetDict
 
@@ -16,8 +17,7 @@ class Shakespeare(AbstractDataset):
         return "KATHARINA:"
 
     def format_train_example(self, example):
-        verses = example["text"].split("\n\n")
-        return f"{self.eos}".join(verses) + self.eos
+        return example["text"]
 
     def format_test_example(self, example):
         raise NotImplementedError(
@@ -30,19 +30,10 @@ class Shakespeare(AbstractDataset):
         )
 
     def load_data(self):
-        ds = load_dataset(
-            "karpathy/tiny_shakespeare",
-            split=(
-                f"train[:{self.max_num_samples}]" if self.max_num_samples else "train"
-            ),
-            # use local
-            data_files={"train": "tinyshakespeare.txt"},
-        )
-        ds_dict = {
-            "train": ds,
-            "eval": ds,
-            "test": ds,
-        }
+        local_path = os.path.join("data", "tinyshakespeare.txt")
+        ds = load_dataset("text", data_files={"train": local_path}, split="train")
+        ds_dict = ds.train_test_split(test_size=0.1, shuffle=False)
+        ds_dict["eval"] = ds_dict["test"]
 
         for split in ds_dict:
             ds_dict[split] = self._process_train_dataset(ds_dict[split], self.tokenizer)
