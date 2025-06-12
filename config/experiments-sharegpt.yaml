@@ -56,7 +56,7 @@ group:
               sweep: 
                 lr: [1e-3, 1e-4, 1e-5]
                 init_mode: ["random"]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 1000 --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
+              sweep_template:  "python main.py train --accel_strategy ddp --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 1000 --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
               # ================
               # sweep:
               #   lr: [1e-3]
