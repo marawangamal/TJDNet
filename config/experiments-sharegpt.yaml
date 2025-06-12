@@ -20,7 +20,7 @@ preambles:
     - "#!/bin/bash"
     - "#SBATCH --output=slurm/slurm-%j.out"
     - "#SBATCH --error=slurm/slurm-%j.err"   
-    - "#SBATCH --partition=unkillable-cpu"
+    - "#SBATCH --partition=long-cpu"
     - "#SBATCH --mem=32G"
     - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
 
@@ -88,7 +88,7 @@ group:
                           # aaa-bbb-ccc-XXXX-aaa-aaa
                           preamble: glong
                           # ===== Main >>>>
-                          # command: "python main.py train --lookup --epochs 2 --max_num_samples 68000 --group_level 1 --group_id {group_id} --val_check_interval 2000"
+                          # command: "python main.py train --lookup --epochs 1 --max_num_samples 68000 --group_level 1 --group_id {group_id} --val_check_interval 1000"
                           # ================  
                           command: "python main.py train --lookup --epochs 1 --max_num_samples 1000 --group_level 1 --group_id {group_id} --val_check_interval 500"
                           # <<<< Debug =====
@@ -99,7 +99,7 @@ group:
                       - job:
                           # aaa-bbb-ccc-XXXX-aaa-bbb
                           preamble: glong
-                          command: "python main.py test --lookup --dataset gsm8k --template_mode few_shot --group_level 1 --group_id {group_id} --gen_mode speculative" 
+                          command: "python main.py test --lookup --dataset gsm8k --template_mode few_shot --group_level 1 --group_id {group_id} --gen_mode speculative --delete_ckpt" 
                           name: "test"
 
 

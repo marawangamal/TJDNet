@@ -757,6 +757,7 @@ if __name__ == "__main__":
                     overrideable_args = [
                         "epochs",
                         "max_num_samples",
+                        "val_check_interval",
                     ]
                     okwargs = {
                         k: v
