@@ -1,7 +1,7 @@
 import argparse
 import lightning as L
 
-from utils.lmodules import LModel, LDataModule
+from utils.lmodules_v2 import LModel, LDataModule
 from utils.lightning_callbacks.generate import GenerateCallback
 
 
