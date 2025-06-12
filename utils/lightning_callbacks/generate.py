@@ -27,8 +27,6 @@ class GenerateCallback(Callback):
             ),
         )
         generated_text = pl_module.tokenizer.decode(output[0])
-        # linesep = "\n" + "-" * 80 + "\n"
-        # print(f"{linesep}\nGenerated text:\n{generated_text}\n{linesep}")
         line = "─" * 80
         summary = (
             f"\n{line}\n"

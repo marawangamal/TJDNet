@@ -9,16 +9,7 @@ def train(args: argparse.Namespace) -> None:
     L.seed_everything(42)
     model = LModel(
         model=args.model,
-        dataset=args.dataset,
-        batch_size=args.batch_size,
-        seq_len=args.seq_len,
         lr=args.lr,
-        warmup_steps=args.warmup_steps,
-        epochs=args.epochs,
-        horizon=args.horizon,
-        rank=args.rank,
-        hidden_dim=args.hidden_dim,
-        experiment_name=args.experiment_name,
     )
     data = LDataModule(
         model=args.model,
@@ -27,7 +18,7 @@ def train(args: argparse.Namespace) -> None:
         max_num_samples=None,
         dataset=args.dataset,
     )
-    trainer = L.Trainer(max_epochs=args.epochs, callbacks=[GenerateCallback()])
+    trainer = L.Trainer(max_epochs=args.epochs)
     trainer.fit(model, datamodule=data)
     trainer.save_checkpoint(args.checkpoint)
 
