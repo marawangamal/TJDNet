@@ -6,6 +6,11 @@ $ python chat.py --ckpt experiments/my_exp/best.ckpt               # Lightning c
 """
 from __future__ import annotations
 import argparse, sys, threading, time
+import os.path as osp
+import subprocess
+import logging
+
+
 from typing import List
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -14,6 +19,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import lightning as L
 from utils.lmodules import LModel  # Your Lightning module
 from tjdnet.models.tjd import TJD, TJDGenerationConfig
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 ANSI = {"user": "\033[1;32m", "bot": "\033[1;36m", "dim": "\033[2m", "rst": "\033[0m"}
 MAX_HISTORY = 20
@@ -30,11 +38,39 @@ def read_line(prompt: str = "") -> str:
 
 def load_lightning_model(ckpt_path: str, device):
     """Load Lightning checkpoint."""
+    ckpt_path = make_consolidated_ckpt(ckpt_path)
     print(f"Loading Lightning checkpoint: {ckpt_path}")
     lmodel = LModel.load_from_checkpoint(ckpt_path)
     lmodel.eval()
     lmodel.to(device)
     return lmodel.tokenizer, lmodel.model, device
+
+
+def make_consolidated_ckpt(ckpt_path: str):
+    if osp.isdir(ckpt_path):
+        if osp.exists(ckpt_path + ".consolidated"):
+            logger.info(
+                f"Using existing consolidated checkpoint: {ckpt_path}.consolidated"
+            )
+            return ckpt_path + ".consolidated"
+        else:
+            logger.info(f"Consolidating checkpoint: {ckpt_path}")
+            result = subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "lightning.pytorch.utilities.consolidate_checkpoint",
+                    str(ckpt_path),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                logger.error(f"Failed to consolidate checkpoint: {result.stderr}")
+            else:
+                logger.info("Checkpoint consolidation completed successfully")
+            return ckpt_path + ".consolidated"
+    return ckpt_path
 
 
 def load_hf_model(model_id: str, single_gpu: bool):
