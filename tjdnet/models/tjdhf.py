@@ -98,13 +98,13 @@ class TJDHuggingFace(TJD):
         h_targ, h_draft = None, None
 
         # Last mode: can share hidden state for both target and draft
-        if self.train_mode == "last":
+        if self.hf_train_mode == "last":
             transformer_outputs_shared = self.backbone(**kwargs)
             h_targ = transformer_outputs_shared.last_hidden_state
             h_draft = h_targ
 
         # Full mode: compute target and draft separately
-        elif self.train_mode == "lora":
+        elif self.hf_train_mode == "lora":
             # Compute h_targ
             if mode in ["targ", "mixed"]:
                 self.backbone.enable_adapters()

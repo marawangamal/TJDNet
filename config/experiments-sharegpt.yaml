@@ -53,15 +53,15 @@ group:
               type: sweep
               preamble: glong
               # ===== Main >>>>
-              # sweep: 
-              #   lr: [1e-3, 1e-4, 1e-5]
-              #   init_mode: ["random"]
-              # sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 500 --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt --val_check_interval 1000"
-              # ================
-              sweep:
-                lr: [1e-3]
+              sweep: 
+                lr: [1e-3, 1e-4, 1e-5]
                 init_mode: ["random"]
-              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 10 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
+              sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 1000 --epochs 5 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
+              # ================
+              # sweep:
+              #   lr: [1e-3]
+              #   init_mode: ["random"]
+              # sweep_template:  "python main.py train --accel_strategy fsdp --dataset sharegpt --model lmsys/vicuna-7b-v1.5 --max_num_samples 10 --epochs 2 --batch_size 8 --seq_len 128 --lr {lr} --model_head base --rank 1 --horizon 1 --init_mode {init_mode} --use_memory_efficient_loss --slurm_job_id $SLURM_JOB_ID --group_id {group_id} --delete_ckpt"
               # <<<< Debug ====
           # 2. Tag best model for each (rank, horizon) combination
           - job:
@@ -88,9 +88,9 @@ group:
                           # aaa-bbb-ccc-XXXX-aaa-aaa
                           preamble: glong
                           # ===== Main >>>>
-                          # command: "python main.py train --lookup --epochs 1 --max_num_samples 68000 --group_level 1 --group_id {group_id} --val_check_interval 1000"
+                          command: "python main.py train --lookup --epochs 1 --max_num_samples 68000 --group_level 1 --group_id {group_id} --val_check_interval 1000"
                           # ================  
-                          command: "python main.py train --lookup --epochs 1 --max_num_samples 1000 --group_level 1 --group_id {group_id} --val_check_interval 500"
+                          # command: "python main.py train --lookup --epochs 1 --max_num_samples 1000 --group_level 1 --group_id {group_id} --val_check_interval 500"
                           # <<<< Debug =====
                           name: "tbest"
 
@@ -99,7 +99,7 @@ group:
                       - job:
                           # aaa-bbb-ccc-XXXX-aaa-bbb
                           preamble: glong
-                          command: "python main.py test --lookup --dataset gsm8k --template_mode few_shot --group_level 1 --group_id {group_id} --gen_mode speculative --delete_ckpt" 
+                          command: "python main.py test --lookup --dataset gsm8k --template_mode few_shot --group_level 1 --group_id {group_id} --gen_mode speculative" 
                           name: "test"
 
 
