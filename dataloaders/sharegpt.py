@@ -51,13 +51,9 @@ class ShareGPT(AbstractDataset):
             ),
             cache_dir=self.cache_dir,
         )
-        # Split the dataset into train and eval
-        ds_dict = ds.train_test_split(test_size=0.01, seed=42, shuffle=True)
+        ds = self._process_train_dataset(ds, self.tokenizer)
+        ds_dict = ds.train_test_split(test_size=0.01, seed=42, shuffle=True)  # type: ignore
         ds_dict["eval"] = ds_dict["test"]  # Use eval split as test split
-
-        for split in ds_dict:
-            ds_dict[split] = self._process_train_dataset(ds_dict[split], self.tokenizer)
-
         ds_dict = DatasetDict(ds_dict)
         return ds_dict
 

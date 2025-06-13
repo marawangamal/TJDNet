@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Literal, Union
 import lightning as L
 import torch
 from torch.utils.data import DataLoader
@@ -10,14 +10,31 @@ from transformers import (
 
 from dataloaders import DATASETS
 
+from peft import LoraConfig, TaskType
+
 
 class LModel(L.LightningModule):
-    def __init__(self, model: str = "gpt2", lr: float = 1e-3):
+    def __init__(
+        self,
+        model: str = "gpt2",
+        lr: float = 1e-3,
+        train_mode: Literal["full", "lora"] = "lora",
+        lora_rank: int = 8,
+    ):
         super().__init__()
         self.save_hyperparameters()
-        self.model = AutoModelForCausalLM.from_pretrained(model)
 
-        # Reset last layer to random weights
+        # Initialize model
+        self.model = AutoModelForCausalLM.from_pretrained(model)
+        if self.hparams["train_mode"] == "lora":
+            peft_config = LoraConfig(
+                task_type=TaskType.FEATURE_EXTRACTION,
+                inference_mode=False,
+                r=self.hparams["lora_rank"],
+            )
+            self.model.add_adapter(peft_config, adapter_name="lora_1")
+
+        # Randomize lm_head weights
         if hasattr(self.model, "lm_head"):
             self.model.lm_head.weight.data.normal_(mean=0.0, std=0.02)
             print("Resetting lm_head weights to random values.")
@@ -43,7 +60,7 @@ class LDataModule(L.LightningDataModule):
         self,
         model: str = "gpt2",
         batch_size: int = 1,
-        seq_len: int = 32,
+        seq_len: int = 128,
         dataset: str = "stemp",
         max_num_samples: Union[int, None] = None,
     ):
