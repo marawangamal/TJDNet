@@ -7,26 +7,54 @@ from tjdnet.models.tjd import TJD, TJDGenerationConfig
 
 
 class GenerateCallback(Callback):
-    def __init__(self, prompt: str = "What is 20°C in Fahrenheit?"):
+    def __init__(
+        self, prompt: str = "What is 20°C in Fahrenheit?", tokenizer: Any = None
+    ):
         self.prompt = prompt
         self.generate_called = False
+        self.tokenizer = tokenizer
 
-    @rank_zero_only
+    # @rank_zero_only
+    # def _generate(self, pl_module: LightningModule) -> None:
+    #     # Generate sample text
+    #     model: TJD = pl_module.model
+    #     output, _ = model.generate(
+    #         input_ids=pl_module.tokenizer.encode(self.prompt, return_tensors="pt").to(
+    #             model.device
+    #         ),
+    #         generation_config=TJDGenerationConfig(
+    #             max_new_tokens=128,
+    #             do_sample=True,
+    #             top_k=200,
+    #             eos_token_id=pl_module.tokenizer.eos_token_id,
+    #         ),
+    #     )
+    #     generated_text = pl_module.tokenizer.decode(output[0])
+    #     line = "─" * 80
+    #     summary = (
+    #         f"\n{line}\n"
+    #         f"📊  SAMPLE \n"
+    #         f"{line}\n"
+    #         f"▶ Prompt      : {self.prompt}\n"
+    #         f"▶ Generation  : {generated_text}\n"
+    #         f"{line}\n"
+    #     )
+    #     print(summary)
+
+    #     @rank_zero_only
+
     def _generate(self, pl_module: LightningModule) -> None:
         # Generate sample text
-        model: TJD = pl_module.model
-        output, _ = model.generate(
-            input_ids=pl_module.tokenizer.encode(self.prompt, return_tensors="pt").to(
-                model.device
-            ),
-            generation_config=TJDGenerationConfig(
-                max_new_tokens=128,
-                do_sample=True,
-                top_k=200,
-                eos_token_id=pl_module.tokenizer.eos_token_id,
-            ),
+        model = pl_module.model
+        tok = self.tokenizer if self.tokenizer else pl_module.tokenizer
+        output = model.generate(
+            input_ids=tok.encode(self.prompt, return_tensors="pt").to(model.device),
+            max_new_tokens=128,
+            do_sample=True,
+            top_k=200,
+            eos_token_id=tok.eos_token_id,
         )
-        generated_text = pl_module.tokenizer.decode(output[0])
+        generated_text = tok.decode(output[0])
         line = "─" * 80
         summary = (
             f"\n{line}\n"

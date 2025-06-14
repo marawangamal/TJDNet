@@ -1,14 +1,16 @@
 import os.path as osp
-from datetime import datetime
 
 import lightning as L
 from lightning.pytorch.cli import LightningCLI
 from lightning.pytorch.tuner import Tuner
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
+from transformers import AutoTokenizer
 
+from dataloaders import DATASETS
 from utils.experiment_naming import get_experiment_name
 from utils.lmodules_v2 import LModel, LDataModule
+from utils.lightning_callbacks import GenerateCallback
 
 EXPERIMENTS_DIR = "experiments"
 
@@ -40,36 +42,42 @@ class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.model", "data.model")
 
-    def before_fit(self):
-        # Only run LR finder on the main process
-        if self.trainer.global_rank == 0:
-            print("🔍 Running learning rate finder...")
-            lr_trainer = L.Trainer(
-                accelerator="gpu",
-                devices=1,
-                logger=False,
-                enable_checkpointing=False,
-            )
+    # def before_fit(self):
+    #     # Only run LR finder on the main process
+    #     if self.trainer.global_rank == 0:
+    #         print("🔍 Running learning rate finder...")
+    #         lr_trainer = L.Trainer(
+    #             accelerator="gpu",
+    #             devices=1,
+    #             logger=False,
+    #             enable_checkpointing=False,
+    #         )
 
-            tuner = Tuner(lr_trainer)
-            lr_finder = tuner.lr_find(self.model, datamodule=self.datamodule)
+    #         tuner = Tuner(lr_trainer)
+    #         lr_finder = tuner.lr_find(self.model, datamodule=self.datamodule)
 
-            if lr_finder:
-                suggested_lr = lr_finder.suggestion()
-                print(f"🎯 Suggested learning rate: {suggested_lr}")
-                self.model.hparams.lr = suggested_lr
-        else:
-            print("🔍 Skipping LR finder on non-main process")
+    #         if lr_finder:
+    #             suggested_lr = lr_finder.suggestion()
+    #             print(f"🎯 Suggested learning rate: {suggested_lr}")
+    #             self.model.hparams.lr = suggested_lr
+    #     else:
+    #         print("🔍 Skipping LR finder on non-main process")
 
-        # Wait for all processes to sync
-        if hasattr(self.trainer.strategy, "barrier"):
-            self.trainer.strategy.barrier()
+    #     # Wait for all processes to sync
+    #     if hasattr(self.trainer.strategy, "barrier"):
+    #         self.trainer.strategy.barrier()
 
     def before_instantiate_classes(self):
 
         # 1. Experiment naming
         cfg = self.config
-        run_name = get_experiment_name({**vars(cfg.fit.model), **vars(cfg.fit.data)})
+        run_name = get_experiment_name(
+            {
+                **{k: cfg.fit["trainer"][k] for k in ["max_epochs"]},
+                **vars(cfg.fit.model),
+                **vars(cfg.fit.data),
+            }
+        )
         run_dir = osp.join(EXPERIMENTS_DIR, run_name)
         cfg.fit.trainer.default_root_dir = run_dir
 
@@ -85,7 +93,13 @@ class MyLightningCLI(LightningCLI):
             mode="min",
             save_top_k=1,
         )
-        cfg.fit.trainer.callbacks = [ckpt_best_cb]
+        generate_cb = GenerateCallback(
+            tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model),
+            prompt=DATASETS[cfg.fit.data.dataset](
+                tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model)
+            ).get_sample_prompt(),
+        )
+        cfg.fit.trainer.callbacks = [ckpt_best_cb, generate_cb]
 
         # 5. Logger
         project_name = "mtp"
