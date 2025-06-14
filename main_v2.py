@@ -71,11 +71,11 @@ class MyLightningCLI(LightningCLI):
     def before_instantiate_classes(self):
         cfg = self.config
 
-        if "fit" not in cfg:  # i.e. user called validate/test/…
+        if "test" in cfg:
             generate_cb = GenerateCallback(
                 tokenizer=AutoTokenizer.from_pretrained("gpt2"),
             )
-            cfg.fit.trainer.callbacks = [generate_cb]
+            cfg.test.trainer.callbacks = [generate_cb]
             return
 
         # 1. Experiment naming

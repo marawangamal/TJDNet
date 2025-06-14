@@ -6,6 +6,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     DataCollatorForLanguageModeling,
+    DataCollatorWithPadding,
     get_linear_schedule_with_warmup,
 )
 
@@ -13,6 +14,11 @@ from transformers import (
 from dataloaders import DATASETS
 
 from peft import LoraConfig, TaskType
+
+from tjdnet.distributions._tjdist import BaseDistConfig
+from tjdnet.distributions.tpnet import TensorParamNetConfig
+from tjdnet.models.tjd import TJDConfig
+from tjdnet.models.tjdhf import TJDHuggingFace
 
 
 class LModel(L.LightningModule):
@@ -33,12 +39,15 @@ class LModel(L.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        # Initialize model
-        self.strict_loading = False
-        self.model = AutoModelForCausalLM.from_pretrained(model)
+        # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model)
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.dataset = DATASETS[dataset](tokenizer=self.tokenizer)
+
+        # Initialize model
+        self.strict_loading = False
+        # ==== HF >>>>>>
+        self.model = AutoModelForCausalLM.from_pretrained(model)
         # if self.hparams["train_mode"] == "lora":
         #     peft_config = LoraConfig(
         #         task_type=TaskType.FEATURE_EXTRACTION,
@@ -48,6 +57,22 @@ class LModel(L.LightningModule):
         #         lora_dropout=0.1,
         #     )
         #     self.model.add_adapter(peft_config, adapter_name="lora_1")
+        # =========
+        # self.model = TJDHuggingFace(
+        #     auto_model_kwargs={"pretrained_model_name_or_path": model},
+        #     train_mode=self.hparams["train_mode"],
+        #     lora_rank=self.hparams["lora_rank"],
+        #     config=TJDConfig(
+        #         model_head="base",
+        #         model_head_config=BaseDistConfig(
+        #             vocab_size=-1,
+        #             horizon=1,
+        #             rank=1,
+        #             param_net=TensorParamNetConfig(),
+        #         ),
+        #     ),
+        # )
+        # ==== TJD >>>>>>
 
         # # Randomize lm_head weights
         # if hasattr(self.model, "lm_head"):
@@ -114,12 +139,12 @@ class LModel(L.LightningModule):
             "corr": corr.item(),
         }
 
-    def on_save_checkpoint(self, checkpoint):
-        state = checkpoint["state_dict"]
-        for name in list(state.keys()):
-            if not any([l in name for l in ["lora", "lm_head"]]):
-                state.pop(name)
-        return state
+    # def on_save_checkpoint(self, checkpoint):
+    #     state = checkpoint["state_dict"]
+    #     for name in list(state.keys()):
+    #         if not any([l in name for l in ["lora", "lm_head"]]):
+    #             state.pop(name)
+    #     return state
 
 
 class LDataModule(L.LightningDataModule):
@@ -166,7 +191,7 @@ class LDataModule(L.LightningDataModule):
         return DataLoader(self.val_ds, batch_size=self.batch_size, collate_fn=collator)  # type: ignore
 
     def test_dataloader(self):
-        collator = DataCollatorForLanguageModeling(
-            tokenizer=self.tokenizer, mlm=False, return_tensors="pt"
+        collator = DataCollatorWithPadding(
+            tokenizer=self.tokenizer, return_tensors="pt"
         )
         return DataLoader(self.test_ds, batch_size=1, collate_fn=collator)  # type: ignore

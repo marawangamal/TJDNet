@@ -6,6 +6,7 @@ from typing import Dict, Literal, Optional, Tuple
 
 import torch
 from wandb import config
+from transformers.utils import ModelOutput
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig, BaseDistFromLinearConfig
@@ -23,6 +24,7 @@ class TJDGenerationConfig:
     max_new_tokens: int = 32  # Maximum number of new tokens to generate
     eos_token_id: Optional[int] = None  # End of sequence token ID
     horizon: Optional[int] = None  # Horizon for the model head
+    pad_token_id: Optional[int] = None  # Padding token ID
 
 
 @dataclass
@@ -67,7 +69,11 @@ class TJD(ABC, torch.nn.Module):
     def __init__(self, config: TJDConfig, **kwargs):
         super().__init__()
         self.tjd_config = config
-        self.backbone, self.lm_head = self.get_model()
+        self.backbone, lm_head = self.get_model()
+
+        # Set requires_grad for lm_head off if loss_mode is "draft"
+        if not config.loss_mode == "draft":
+            self.lm_head = lm_head
 
         # Set dims
         self.horizon = config.model_head_config.horizon
@@ -151,8 +157,11 @@ class TJD(ABC, torch.nn.Module):
     def generate(
         self,
         input_ids: torch.Tensor,
-        generation_config: TJDGenerationConfig,
+        # generation_config: TJDGenerationConfig,
+        labels: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         return_full_text: bool = False,
+        return_ardict: bool = False,
         **kwargs,
     ):
         """Generate sequences given an input tensor.
@@ -164,6 +173,8 @@ class TJD(ABC, torch.nn.Module):
         Returns:
             torch.Tensor: Generated tokens of shape (B, T_out). T_out <= T + max_new_tokens if stop_token is used. Otherwise, T_out = T + max_new_tokens.
         """
+
+        generation_config = TJDGenerationConfig(**kwargs)
 
         # ==== Input validation
         input_validation_checks = [
@@ -289,7 +300,10 @@ class TJD(ABC, torch.nn.Module):
             y_out[torch.cumsum(stop_mask, dim=1) >= 1] = generation_config.eos_token_id
 
         y_out = y_out if return_full_text else y_out[:, input_ids.size(1) :]
-        return y_out, accept_rate_metrics
+        if return_ardict:
+            return y_out, accept_rate_metrics
+        else:
+            return y_out
 
     def forward(
         self,
@@ -397,9 +411,16 @@ class TJD(ABC, torch.nn.Module):
             if self.tjd_config.use_memory_efficient_loss
             else loss_mhead[:, ::H]
         ).sum(dim=-1)
-        return {
-            "loss": reduce_fn(loss_tot),
-            "nll": reduce_fn(nll),
-            "loss_draft": reduce_fn(loss_draft),
-            "loss_target": reduce_fn(loss_target),
-        }
+        # return {
+        #     "loss": reduce_fn(loss_tot),
+        #     "nll": reduce_fn(nll),
+        #     "loss_draft": reduce_fn(loss_draft),
+        #     "loss_target": reduce_fn(loss_target),
+        # }
+        # return as namespace
+        return ModelOutput(
+            loss=reduce_fn(loss_tot),
+            nll=reduce_fn(nll),
+            loss_draft=reduce_fn(loss_draft),
+            loss_target=reduce_fn(loss_target),
+        )
