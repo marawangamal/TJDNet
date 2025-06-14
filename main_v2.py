@@ -1,9 +1,8 @@
-import os.path as osp
-
+import os
 import lightning as L
 from lightning.pytorch.tuner import Tuner
-from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.cli import SaveConfigCallback
 from utils.experiment_naming import get_experiment_name
 from utils.lmodules_v2 import LModel, LDataModule
 from lightning.pytorch.cli import LightningCLI
@@ -11,42 +10,8 @@ from lightning.pytorch.cli import LightningCLI
 
 EXPERIMENTS_DIR = "experiments_v2"
 
-# def get_experiment_name(config):
-#     # Takes model config, data config and select trainer config
-
 
 class MyLightningCLI(LightningCLI):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Create config-based experiment name
-        self.experiment_name = get_experiment_name(
-            {
-                **{k: self.config["trainer"][k] for k in ["max_epochs"]},
-                **self.config["model"],
-                **self.config["data"],
-            }
-        )
-        checkpoint_cb = ModelCheckpoint(
-            dirpath=osp.join(EXPERIMENTS_DIR, self.experiment_name),
-            filename="best",
-            monitor="eval_loss",
-            mode="min",
-            save_top_k=1,
-        )
-        self.trainer.callbacks.append(checkpoint_cb)
-
-        # # Always add WandB logger if not already set
-        # if self.trainer.logger is None or not isinstance(
-        #     self.trainer.logger, WandbLogger
-        # ):
-        #     wandb_logger = WandbLogger(
-        #         project="tjdnet-dev",  # Change to your project name
-        #         name=None,  # Auto-generate run name
-        #         save_dir="./wandb_logs",
-        #     )
-        #     self.trainer.logger = wandb_logger
-        #     print("📊 Added WandB logging automatically")
-
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.model", "data.model")
 
@@ -68,8 +33,36 @@ class MyLightningCLI(LightningCLI):
             print(f"🎯 Suggested learning rate: {suggested_lr}")
             self.model.hparams.lr = suggested_lr
 
+        # Configure checkpointing
+        # print("🔧 Configuring checkpoint callback...")
+        # self.experiment_name = get_experiment_name(
+        #     {
+        #         **{k: self.config["fit"]["trainer"][k] for k in ["max_epochs"]},
+        #         **vars(self.config["fit"]["model"]),
+        #         **vars(self.config["fit"]["data"]),
+        #     }
+        # )
+        # ckpt_dir = os.path.join(EXPERIMENTS_DIR, self.experiment_name)
+        # os.makedirs(ckpt_dir, exist_ok=True)
+        # print(f"📂 Checkpoints will be saved to: {ckpt_dir}")
+
+        # # 1. Model Checkpoints
+        # checkpoint_cb = ModelCheckpoint(
+        #     dirpath=ckpt_dir,
+        #     filename="best",
+        #     monitor="eval_loss",
+        #     mode="min",
+        #     save_top_k=1,
+        # )
+        # self.trainer.callbacks.append(checkpoint_cb)
+
+        # # 2. Config
+        # self.trainer.callbacks.append(config_callback)
+
 
 def cli_main():
+    # Setup
+    L.seed_everything(42)  # For reproducibility
     cli = MyLightningCLI(LModel, LDataModule)
 
 

@@ -25,6 +25,7 @@ class LModel(L.LightningModule):
         self.save_hyperparameters()
 
         # Initialize model
+        self.strict_loading = False
         self.model = AutoModelForCausalLM.from_pretrained(model)
         if self.hparams["train_mode"] == "lora":
             peft_config = LoraConfig(
@@ -53,6 +54,13 @@ class LModel(L.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.hparams["lr"])
+
+    def on_save_checkpoint(self, checkpoint):
+        state = checkpoint["state_dict"]
+        for name in list(state.keys()):
+            if not any([l in name for l in ["lora", "lm_head"]]):
+                state.pop(name)
+        return state
 
 
 class LDataModule(L.LightningDataModule):

@@ -13,3 +13,5 @@ tmp.sh
 
 experiments
 datasets
+experiments_v2
+lightning_logs
