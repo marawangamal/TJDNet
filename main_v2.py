@@ -1,14 +1,39 @@
-import os
+import os.path as osp
+from datetime import datetime
+
 import lightning as L
+from lightning.pytorch.cli import LightningCLI
 from lightning.pytorch.tuner import Tuner
+from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.cli import SaveConfigCallback
+
 from utils.experiment_naming import get_experiment_name
 from utils.lmodules_v2 import LModel, LDataModule
-from lightning.pytorch.cli import LightningCLI
+
+EXPERIMENTS_DIR = "experiments"
 
 
-EXPERIMENTS_DIR = "experiments_v2"
+# utils/wandb_helpers.py
+import wandb
+from typing import Optional
+
+
+def lookup_wandb_id(
+    project_name: str, run_name: str, entity: Optional[str] = None
+) -> str:
+    try:
+        api = wandb.Api(timeout=15)
+        # "entity/project" or just "project" if entity=None
+        path = f"{entity}/{project_name}" if entity else project_name
+        for run in api.runs(path):
+            if run.name == run_name:
+                print(f"[wandb] Found existing run: {run.id} ({run.name})")
+                return run.id
+    except Exception as e:  # network error, project not found, etc.
+        print(f"[wandb] lookup failed ({e}); creating a new run id.")
+
+    # No existing run → make a fresh ID (8 chars, collision-safe)
+    return wandb.util.generate_id()
 
 
 class MyLightningCLI(LightningCLI):
@@ -16,54 +41,67 @@ class MyLightningCLI(LightningCLI):
         parser.link_arguments("model.model", "data.model")
 
     def before_fit(self):
-        print("🔍 Running learning rate finder...")
-        # Create a fresh trainer just for LR finding
-        lr_trainer = L.Trainer(
-            accelerator="gpu",
-            devices=1,  # Single GPU to avoid distributed issues
-            logger=False,
-            enable_checkpointing=False,
+        # Only run LR finder on the main process
+        if self.trainer.global_rank == 0:
+            print("🔍 Running learning rate finder...")
+            lr_trainer = L.Trainer(
+                accelerator="gpu",
+                devices=1,
+                logger=False,
+                enable_checkpointing=False,
+            )
+
+            tuner = Tuner(lr_trainer)
+            lr_finder = tuner.lr_find(self.model, datamodule=self.datamodule)
+
+            if lr_finder:
+                suggested_lr = lr_finder.suggestion()
+                print(f"🎯 Suggested learning rate: {suggested_lr}")
+                self.model.hparams.lr = suggested_lr
+        else:
+            print("🔍 Skipping LR finder on non-main process")
+
+        # Wait for all processes to sync
+        if hasattr(self.trainer.strategy, "barrier"):
+            self.trainer.strategy.barrier()
+
+    def before_instantiate_classes(self):
+
+        # 1. Experiment naming
+        cfg = self.config
+        run_name = get_experiment_name({**vars(cfg.fit.model), **vars(cfg.fit.data)})
+        run_dir = osp.join(EXPERIMENTS_DIR, run_name)
+        cfg.fit.trainer.default_root_dir = run_dir
+
+        # 2. Auto-resume
+        ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "best.ckpt")
+        cfg.fit.ckpt_path = ckpt_path if osp.exists(ckpt_path) else None
+
+        # 4. Callbacks
+        ckpt_best_cb = ModelCheckpoint(
+            dirpath=osp.join(EXPERIMENTS_DIR, run_name),
+            filename="best",
+            monitor="val_loss",
+            mode="min",
+            save_top_k=1,
         )
+        cfg.fit.trainer.callbacks = [ckpt_best_cb]
 
-        tuner = Tuner(lr_trainer)
-        lr_finder = tuner.lr_find(self.model, datamodule=self.datamodule)
-
-        if lr_finder:
-            suggested_lr = lr_finder.suggestion()
-            print(f"🎯 Suggested learning rate: {suggested_lr}")
-            self.model.hparams.lr = suggested_lr
-
-        # Configure checkpointing
-        # print("🔧 Configuring checkpoint callback...")
-        # self.experiment_name = get_experiment_name(
-        #     {
-        #         **{k: self.config["fit"]["trainer"][k] for k in ["max_epochs"]},
-        #         **vars(self.config["fit"]["model"]),
-        #         **vars(self.config["fit"]["data"]),
-        #     }
-        # )
-        # ckpt_dir = os.path.join(EXPERIMENTS_DIR, self.experiment_name)
-        # os.makedirs(ckpt_dir, exist_ok=True)
-        # print(f"📂 Checkpoints will be saved to: {ckpt_dir}")
-
-        # # 1. Model Checkpoints
-        # checkpoint_cb = ModelCheckpoint(
-        #     dirpath=ckpt_dir,
-        #     filename="best",
-        #     monitor="eval_loss",
-        #     mode="min",
-        #     save_top_k=1,
-        # )
-        # self.trainer.callbacks.append(checkpoint_cb)
-
-        # # 2. Config
-        # self.trainer.callbacks.append(config_callback)
+        # 5. Logger
+        project_name = "mtp"
+        wandb_logger = WandbLogger(
+            project=project_name,
+            name=run_name,
+            id=lookup_wandb_id(project_name, run_name),
+            resume="allow",
+            save_dir=osp.join(EXPERIMENTS_DIR, run_name),
+        )
+        cfg.fit.trainer.logger = wandb_logger
 
 
-def cli_main():
-    # Setup
-    L.seed_everything(42)  # For reproducibility
-    cli = MyLightningCLI(LModel, LDataModule)
+def cli_main() -> None:
+    L.seed_everything(42)
+    MyLightningCLI(LModel, LDataModule, save_config_kwargs={"overwrite": True})
 
 
 def main() -> None:
