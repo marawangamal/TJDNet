@@ -52,9 +52,12 @@ class STemp(AbstractDataset):
         )
 
     def format_train_example(self, example):
-        return self.template.format(
-            question=example["question"],
-            answer=example["answer"],
+        return (
+            self.template.format(
+                question=example["question"],
+                answer=example["answer"],
+            )
+            + self.eos
         )
 
     def format_test_example(self, example):

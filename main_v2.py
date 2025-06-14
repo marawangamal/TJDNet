@@ -41,6 +41,7 @@ def lookup_wandb_id(
 class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.model", "data.model")
+        parser.link_arguments("model.dataset", "data.dataset")
 
     # def before_fit(self):
     #     # Only run LR finder on the main process
@@ -68,9 +69,16 @@ class MyLightningCLI(LightningCLI):
     #         self.trainer.strategy.barrier()
 
     def before_instantiate_classes(self):
+        cfg = self.config
+
+        if "fit" not in cfg:  # i.e. user called validate/test/…
+            generate_cb = GenerateCallback(
+                tokenizer=AutoTokenizer.from_pretrained("gpt2"),
+            )
+            cfg.fit.trainer.callbacks = [generate_cb]
+            return
 
         # 1. Experiment naming
-        cfg = self.config
         run_name = get_experiment_name(
             {
                 **{k: cfg.fit["trainer"][k] for k in ["max_epochs"]},

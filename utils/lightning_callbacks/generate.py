@@ -53,6 +53,7 @@ class GenerateCallback(Callback):
             do_sample=True,
             top_k=200,
             eos_token_id=tok.eos_token_id,
+            pad_token_id=tok.pad_token_id if tok.pad_token_id else tok.eos_token_id,
         )
         generated_text = tok.decode(output[0])
         line = "─" * 80
