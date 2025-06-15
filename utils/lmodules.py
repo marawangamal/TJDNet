@@ -179,17 +179,17 @@ class LModel(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         output = self.model(**batch)
-        loss = output["loss"]
+        loss = output.loss
         self.log("train_loss", loss, prog_bar=True)
-        self.log("train_nll", output["nll"], prog_bar=True)
+        self.log("train_nll", output.nll, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
             output = self.model(**batch)
-        loss = output["loss"]
+        loss = output.loss
         self.log("eval_loss", loss, prog_bar=True, sync_dist=True)
-        self.log("eval_nll", output["nll"], prog_bar=True, sync_dist=True)
+        self.log("eval_nll", output.nll, prog_bar=True, sync_dist=True)
         return loss
 
     # ===== Testing

@@ -1,9 +1,8 @@
-from typing import Literal, Optional, Union
+from typing import Literal, Union
 import lightning as L
 import torch
 from torch.utils.data import DataLoader
 from transformers import (
-    AutoModelForCausalLM,
     AutoTokenizer,
     DataCollatorForLanguageModeling,
     DataCollatorWithPadding,
@@ -12,8 +11,7 @@ from transformers import (
 
 
 from dataloaders import DATASETS
-
-from peft import LoraConfig, TaskType
+from transformers import AutoModelForCausalLM
 
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
@@ -31,7 +29,7 @@ class LModel(L.LightningModule):
         warmup_steps: int = 100,
         # sampling parameters
         max_new_tokens: int = 128,
-        do_sample: bool = True,
+        do_sample: bool = False,
         top_k: int = 200,
         seq_len: int = 128,
         dataset: str = "stemp",
@@ -45,7 +43,7 @@ class LModel(L.LightningModule):
         self.dataset = DATASETS[dataset](tokenizer=self.tokenizer)
 
         # Initialize model
-        self.strict_loading = False
+        # self.strict_loading = False
         # ==== HF >>>>>>
         self.model = AutoModelForCausalLM.from_pretrained(model)
         # if self.hparams["train_mode"] == "lora":
@@ -72,12 +70,7 @@ class LModel(L.LightningModule):
         #         ),
         #     ),
         # )
-        # ==== TJD >>>>>>
-
-        # # Randomize lm_head weights
-        # if hasattr(self.model, "lm_head"):
-        #     self.model.lm_head.weight.data.normal_(mean=0.0, std=0.02)
-        #     print("Resetting lm_head weights to random values.")
+        # <<<< TJD ======
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams["lr"])
@@ -87,16 +80,6 @@ class LModel(L.LightningModule):
             num_training_steps=self.trainer.estimated_stepping_batches,
         )
         return [optimizer], [scheduler]
-
-    def configure_gradient_clipping(
-        self,
-        optimizer,
-        gradient_clip_val: Optional[Union[int, float]] = None,
-        gradient_clip_algorithm: Optional[str] = None,
-    ) -> None:
-        assert gradient_clip_algorithm in ("norm", None), gradient_clip_algorithm
-        if gradient_clip_val is not None:
-            torch.nn.utils.clip_grad_norm_(self.parameters(), gradient_clip_val)
 
     def training_step(self, batch, batch_idx):
         out = self.model(**batch)
@@ -130,6 +113,7 @@ class LModel(L.LightningModule):
 
         # Compute accuracy
         y_pred_str = self.tokenizer.batch_decode(outputs)
+        y_pred_str = [y.split(self.tokenizer.eos_token)[0] for y in y_pred_str]  # type: ignore
         y_pred = torch.tensor(
             [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
             device=outputs.device,

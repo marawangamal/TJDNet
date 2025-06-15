@@ -1,3 +1,14 @@
+"""
+Main entry point for the Lightning CLI application.
+
+This script sets up the Lightning CLI for training and testing models, including
+experiment management, learning rate finding, and integration with Weights & Biases (wandb).
+
+Example usage:
+    python main_v2.py fit --trainer.max_epochs 15 --data.batch_size 32 --model.lr 5e-3 --trainer.gradient_clip_val 1.0
+    python main_v2.py test --ckpt_path experiments/<run_name>/best.ckpt
+"""
+
 import os.path as osp
 
 import lightning as L
@@ -24,6 +35,10 @@ def lookup_wandb_id(
     project_name: str, run_name: str, entity: Optional[str] = None
 ) -> str:
     try:
+        if not osp.exists(osp.join(EXPERIMENTS_DIR, run_name)):
+            print(f"[wandb] No existing run found for {run_name} in {EXPERIMENTS_DIR}.")
+            return wandb.util.generate_id()  # type: ignore
+
         api = wandb.Api(timeout=15)
         # "entity/project" or just "project" if entity=None
         path = f"{entity}/{project_name}" if entity else project_name
@@ -35,38 +50,48 @@ def lookup_wandb_id(
         print(f"[wandb] lookup failed ({e}); creating a new run id.")
 
     # No existing run → make a fresh ID (8 chars, collision-safe)
-    return wandb.util.generate_id()
+    return wandb.util.generate_id()  # type: ignore
 
 
 class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.model", "data.model")
         parser.link_arguments("model.dataset", "data.dataset")
+        parser.add_argument(
+            "--find_lr",
+            action="store_true",
+            default=False,
+            help="Run LR finder before training",
+        )
 
-    # def before_fit(self):
-    #     # Only run LR finder on the main process
-    #     if self.trainer.global_rank == 0:
-    #         print("🔍 Running learning rate finder...")
-    #         lr_trainer = L.Trainer(
-    #             accelerator="gpu",
-    #             devices=1,
-    #             logger=False,
-    #             enable_checkpointing=False,
-    #         )
+    def before_fit(self):
+        # Only run LR finder on the main process
+        if not self.config.fit["find_lr"]:
+            print("🔍 Skipping LR finder as per configuration")
+            return
 
-    #         tuner = Tuner(lr_trainer)
-    #         lr_finder = tuner.lr_find(self.model, datamodule=self.datamodule)
+        if self.trainer.global_rank == 0:
+            print("🔍 Running learning rate finder...")
+            lr_trainer = L.Trainer(
+                accelerator="gpu",
+                devices=1,
+                logger=False,
+                enable_checkpointing=False,
+            )
 
-    #         if lr_finder:
-    #             suggested_lr = lr_finder.suggestion()
-    #             print(f"🎯 Suggested learning rate: {suggested_lr}")
-    #             self.model.hparams.lr = suggested_lr
-    #     else:
-    #         print("🔍 Skipping LR finder on non-main process")
+            tuner = Tuner(lr_trainer)
+            lr_finder = tuner.lr_find(self.model, datamodule=self.datamodule)
 
-    #     # Wait for all processes to sync
-    #     if hasattr(self.trainer.strategy, "barrier"):
-    #         self.trainer.strategy.barrier()
+            if lr_finder:
+                suggested_lr = lr_finder.suggestion()
+                print(f"🎯 Suggested learning rate: {suggested_lr}")
+                self.model.hparams.lr = suggested_lr
+        else:
+            print("🔍 Skipping LR finder on non-main process")
+
+        # Wait for all processes to sync
+        if hasattr(self.trainer.strategy, "barrier"):
+            self.trainer.strategy.barrier()
 
     def before_instantiate_classes(self):
         cfg = self.config

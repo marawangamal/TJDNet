@@ -57,6 +57,7 @@ class STemp(AbstractDataset):
                 question=example["question"],
                 answer=example["answer"],
             )
+            + "\n"
             + self.eos
         )
 
