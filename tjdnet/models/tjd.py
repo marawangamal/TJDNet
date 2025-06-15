@@ -69,11 +69,7 @@ class TJD(ABC, torch.nn.Module):
     def __init__(self, config: TJDConfig, **kwargs):
         super().__init__()
         self.tjd_config = config
-        self.backbone, lm_head = self.get_model()
-
-        # Set requires_grad for lm_head off if loss_mode is "draft"
-        if not config.loss_mode == "draft":
-            self.lm_head = lm_head
+        self.backbone, self.lm_head = self.get_model()
 
         # Set dims
         self.horizon = config.model_head_config.horizon
@@ -114,9 +110,7 @@ class TJD(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
-    def forward_backbone(
-        self, mode: Literal["draft", "target", "mixed"] = "mixed", **kwargs
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward_backbone(self, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward pass of the backbone model.
 
         Returns:
@@ -146,7 +140,6 @@ class TJD(ABC, torch.nn.Module):
         h_targ, _ = self.forward_backbone(
             input_ids=x,
             attention_mask=attn_mask,
-            mode="target",  # Use target mode to get h_targ
             **kwargs,
         )
         logits = self.lm_head(h_targ)
@@ -240,7 +233,7 @@ class TJD(ABC, torch.nn.Module):
 
                 # Get hidden state
                 x = y_out[mask_active, : T + t]  # (B', T + t)
-                _, h_draft = self.forward_backbone(input_ids=x, mode="draft")
+                _, h_draft = self.forward_backbone(input_ids=x)
                 h_last_draft = h_draft[:, -1]
 
                 # Sample
@@ -353,7 +346,7 @@ class TJD(ABC, torch.nn.Module):
         H = self.horizon
 
         h_targ, h_draft = self.forward_backbone(
-            input_ids=input_ids, attention_mask=attention_mask
+            input_ids, attention_mask=attention_mask
         )  # (B, T, D), (B, T, D)
 
         # 1. Create targets
