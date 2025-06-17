@@ -1,7 +1,8 @@
-from typing import Literal
+from typing import Literal, Optional
 from transformers import AutoConfig
 import torch
 from transformers import AutoModelForCausalLM
+from transformers.utils import ModelOutput
 
 from tjdnet.models.tjd import TJD, TJDConfig
 
@@ -105,3 +106,16 @@ class TJDHuggingFace(TJD):
             )
 
         return h_targ, h_draft
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
+        attention_mask=None,
+        reduce="mean",
+        **kwargs,
+    ):
+        # This is a workaround for the Trainer's forward method
+        # which expects a forward method in the model.
+        out_dict = super().forward(input_ids, labels, attention_mask, reduce, **kwargs)
+        return ModelOutput(**out_dict)

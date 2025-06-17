@@ -82,13 +82,13 @@ class LModel(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         out = self.model(**batch)
-        loss = out["loss"]
+        loss = out.loss
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         out = self.model(**batch)
-        loss = out["loss"]
+        loss = out.loss
         self.log("val_loss", loss, prog_bar=True)
         return loss
 
