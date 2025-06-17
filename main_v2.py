@@ -14,7 +14,6 @@ import os.path as osp
 
 import lightning as L
 from lightning.pytorch.cli import LightningCLI
-from lightning.pytorch.tuner import Tuner
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from transformers import AutoTokenizer
@@ -32,9 +31,20 @@ import wandb
 from typing import Optional
 
 
+# TODO: save/load to a <EXPERIMENTS_DIR>/<run_name>/wandb_id.txt file
 def lookup_wandb_id(
     project_name: str, run_name: str, entity: Optional[str] = None
 ) -> str:
+    """Lookup the WandB run ID for a given project and run name.
+
+    Args:
+        project_name (str): The name of the WandB project.
+        run_name (str): The name of the run to look up.
+        entity (Optional[str], optional): The WandB entity (team or user). Defaults to None.
+
+    Returns:
+        str: The WandB run ID.
+    """
     try:
         if not osp.exists(osp.join(EXPERIMENTS_DIR, run_name)):
             print(f"[wandb] No existing run found for {run_name} in {EXPERIMENTS_DIR}.")
@@ -58,41 +68,6 @@ class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.model", "data.model")
         parser.link_arguments("model.dataset", "data.dataset")
-        parser.add_argument(
-            "--find_lr",
-            action="store_true",
-            default=False,
-            help="Run LR finder before training",
-        )
-
-    def before_fit(self):
-        # Only run LR finder on the main process
-        if not self.config.fit["find_lr"]:
-            print("🔍 Skipping LR finder as per configuration")
-            return
-
-        if self.trainer.global_rank == 0:
-            print("🔍 Running learning rate finder...")
-            lr_trainer = L.Trainer(
-                accelerator="gpu",
-                devices=1,
-                logger=False,
-                enable_checkpointing=False,
-            )
-
-            tuner = Tuner(lr_trainer)
-            lr_finder = tuner.lr_find(self.model, datamodule=self.datamodule)
-
-            if lr_finder:
-                suggested_lr = lr_finder.suggestion()
-                print(f"🎯 Suggested learning rate: {suggested_lr}")
-                self.model.hparams.lr = suggested_lr
-        else:
-            print("🔍 Skipping LR finder on non-main process")
-
-        # Wait for all processes to sync
-        if hasattr(self.trainer.strategy, "barrier"):
-            self.trainer.strategy.barrier()
 
     def before_instantiate_classes(self):
         cfg = self.config
@@ -102,7 +77,7 @@ class MyLightningCLI(LightningCLI):
             cfg.test.trainer.callbacks = [generate_cb]
             return
 
-        # 1. Experiment naming
+        # 1. Set root dir
         run_name = get_experiment_name(
             {
                 **{k: cfg.fit["trainer"][k] for k in ["max_epochs"]},
@@ -113,11 +88,11 @@ class MyLightningCLI(LightningCLI):
         run_dir = osp.join(EXPERIMENTS_DIR, run_name)
         cfg.fit.trainer.default_root_dir = run_dir
 
-        # 2. Auto-resume
+        # 2. Auto-resume if <EXPERIMENTS_DIR>/<run_name> exists
         ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "best.ckpt")
         cfg.fit.ckpt_path = ckpt_path if osp.exists(ckpt_path) else None
 
-        # 4. Callbacks
+        # 3. Add callbacks
         ckpt_best_cb = ModelCheckpoint(
             dirpath=osp.join(EXPERIMENTS_DIR, run_name),
             filename="best",
@@ -126,14 +101,15 @@ class MyLightningCLI(LightningCLI):
             save_top_k=1,
         )
         generate_cb = GenerateCallback(
-            # tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model),
             prompt=DATASETS[cfg.fit.data.dataset](
                 tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model)
             ).get_sample_prompt(),
         )
-        cfg.fit.trainer.callbacks = [ckpt_best_cb, generate_cb]
+        if cfg.fit.trainer.callbacks is None:
+            cfg.fit.trainer.callbacks = []
+        cfg.fit.trainer.callbacks.extend([ckpt_best_cb, generate_cb])
 
-        # 5. Logger
+        # 4. Add logger
         project_name = "mtp"
         wandb_logger = WandbLogger(
             project=project_name,

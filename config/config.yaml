@@ -1,0 +1,10 @@
+# config.yaml
+trainer:
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.LearningRateFinder
+      init_args:
+        min_lr: 1e-06
+        max_lr: 1e-01
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: 'epoch'

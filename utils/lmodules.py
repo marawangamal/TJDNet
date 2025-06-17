@@ -188,8 +188,8 @@ class LModel(L.LightningModule):
         with torch.no_grad():
             output = self.model(**batch)
         loss = output.loss
-        self.log("eval_loss", loss, prog_bar=True, sync_dist=True)
-        self.log("eval_nll", output.nll, prog_bar=True, sync_dist=True)
+        self.log("eval_loss", loss, prog_bar=True)
+        self.log("eval_nll", output.nll, prog_bar=True)
         return loss
 
     # ===== Testing
