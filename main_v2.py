@@ -5,8 +5,9 @@ This script sets up the Lightning CLI for training and testing models, including
 experiment management, learning rate finding, and integration with Weights & Biases (wandb).
 
 Example usage:
-    python main_v2.py fit --trainer.max_epochs 15 --data.batch_size 32 --model.lr 5e-3 --trainer.gradient_clip_val 1.0
+    python main_v2.py fit --model.model gpt2 --trainer.max_epochs 8 --trainer.gradient_clip_val 1.0
     python main_v2.py test --ckpt_path experiments/<run_name>/best.ckpt
+
 """
 
 import os.path as osp
@@ -97,9 +98,7 @@ class MyLightningCLI(LightningCLI):
         cfg = self.config
 
         if "test" in cfg:
-            generate_cb = GenerateCallback(
-                tokenizer=AutoTokenizer.from_pretrained("gpt2"),
-            )
+            generate_cb = GenerateCallback()
             cfg.test.trainer.callbacks = [generate_cb]
             return
 
@@ -127,7 +126,7 @@ class MyLightningCLI(LightningCLI):
             save_top_k=1,
         )
         generate_cb = GenerateCallback(
-            tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model),
+            # tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model),
             prompt=DATASETS[cfg.fit.data.dataset](
                 tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model)
             ).get_sample_prompt(),

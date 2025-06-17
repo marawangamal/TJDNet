@@ -15,14 +15,16 @@ from transformers import AutoModelForCausalLM
 
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models.tjd import TJDConfig
+from tjdnet.models.tjd import TJDConfig, TJDGenerationConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
 
 
 class LModel(L.LightningModule):
     def __init__(
         self,
+        # model
         model: str = "gpt2",
+        hidden_dim: int = 128,
         lr: float = 1e-3,
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
@@ -45,7 +47,7 @@ class LModel(L.LightningModule):
         # Initialize model
         # self.strict_loading = False
         # ==== HF >>>>>>
-        self.model = AutoModelForCausalLM.from_pretrained(model)
+        # self.model = AutoModelForCausalLM.from_pretrained(model)
         # if self.hparams["train_mode"] == "lora":
         #     peft_config = LoraConfig(
         #         task_type=TaskType.FEATURE_EXTRACTION,
@@ -56,58 +58,60 @@ class LModel(L.LightningModule):
         #     )
         #     self.model.add_adapter(peft_config, adapter_name="lora_1")
         # =========
-        # self.model = TJDHuggingFace(
-        #     auto_model_kwargs={"pretrained_model_name_or_path": model},
-        #     train_mode=self.hparams["train_mode"],
-        #     lora_rank=self.hparams["lora_rank"],
-        #     config=TJDConfig(
-        #         model_head="base",
-        #         model_head_config=BaseDistConfig(
-        #             vocab_size=-1,
-        #             horizon=1,
-        #             rank=1,
-        #             param_net=TensorParamNetConfig(),
-        #         ),
-        #     ),
-        # )
+        self.model = TJDHuggingFace(
+            auto_model_kwargs={"pretrained_model_name_or_path": model},
+            train_mode=self.hparams["train_mode"],
+            lora_rank=self.hparams["lora_rank"],
+            config=TJDConfig(
+                model_head="base",
+                model_head_config=BaseDistConfig(
+                    vocab_size=-1,
+                    horizon=1,
+                    rank=1,
+                    param_net=TensorParamNetConfig(
+                        hidden_dim=self.hparams["hidden_dim"],
+                    ),
+                ),
+            ),
+        )
         # <<<< TJD ======
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams["lr"])
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=self.hparams["warmup_steps"],
-            num_training_steps=self.trainer.estimated_stepping_batches,
-        )
-        return [optimizer], [scheduler]
+        return optimizer
 
     def training_step(self, batch, batch_idx):
         out = self.model(**batch)
-        loss = out.loss
+        loss = out["loss"]
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         out = self.model(**batch)
-        loss = out.loss
+        loss = out["loss"]
         self.log("val_loss", loss, prog_bar=True)
         return loss
 
     def test_step(self, batch, batch_idx):
-        results = self._run_test(
-            batch, gen_mode="draft", horizon=self.hparams["seq_len"]
-        )
+        results = self._run_test(batch)
         self.log("test_acc", results["corr"], prog_bar=True)
 
-    def _run_test(
-        self, batch, gen_mode: Literal["draft", "base", "speculative"], horizon: int
-    ):
-        outputs = self.model.generate(
-            max_new_tokens=self.hparams["max_new_tokens"],
-            do_sample=self.hparams["do_sample"],
-            top_k=self.hparams["top_k"],
-            eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
-            pad_token_id=int(self.tokenizer.pad_token_id),  # type: ignore
+    def _run_test(self, batch):
+        # outputs = self.model.generate(
+        #     max_new_tokens=self.hparams["max_new_tokens"],
+        #     do_sample=self.hparams["do_sample"],
+        #     top_k=self.hparams["top_k"],
+        #     eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
+        #     pad_token_id=int(self.tokenizer.pad_token_id),  # type: ignore
+        #     **batch,
+        # )
+        outputs, _ = self.model.generate(
+            generation_config=TJDGenerationConfig(
+                max_new_tokens=self.hparams["max_new_tokens"],
+                do_sample=self.hparams["do_sample"],
+                top_k=self.hparams["top_k"],
+                eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
+            ),
             **batch,
         )
 
