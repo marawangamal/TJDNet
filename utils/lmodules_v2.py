@@ -105,14 +105,15 @@ class LModel(L.LightningModule):
         #     pad_token_id=int(self.tokenizer.pad_token_id),  # type: ignore
         #     **batch,
         # )
-        outputs, _ = self.model.generate(
+        outputs = self.model.generate(
             generation_config=TJDGenerationConfig(
                 max_new_tokens=self.hparams["max_new_tokens"],
                 do_sample=self.hparams["do_sample"],
                 top_k=self.hparams["top_k"],
                 eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
             ),
-            **batch,
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
         )
 
         # Compute accuracy

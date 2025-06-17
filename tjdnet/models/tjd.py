@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from math import e
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple, overload
 
 
 import torch
@@ -145,11 +145,37 @@ class TJD(ABC, torch.nn.Module):
             return logits
         return torch.nn.functional.softmax(logits, dim=-1)
 
+    # ─── generate ────────────────────────────────────────────────────────────
+    @overload
     def generate(
         self,
         input_ids: torch.Tensor,
-        generation_config: TJDGenerationConfig,
+        *,
+        generation_config: Optional[TJDGenerationConfig] = ...,
+        return_full_text: bool = ...,
+        return_ardict: Literal[True],
+        **kwargs,
+    ) -> Tuple[torch.Tensor, Dict[str, int]]: ...
+
+    @overload
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        *,
+        generation_config: Optional[TJDGenerationConfig] = ...,
+        return_full_text: bool = ...,
+        return_ardict: Literal[False] = False,  # default branch
+        **kwargs,
+    ) -> torch.Tensor: ...
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        *,
+        attention_mask: Optional[torch.Tensor] = None,
+        generation_config: Optional[TJDGenerationConfig] = None,
         return_full_text: bool = False,
+        return_ardict: bool = False,
         **kwargs,
     ):
         """Generate sequences given an input tensor.
@@ -161,6 +187,13 @@ class TJD(ABC, torch.nn.Module):
         Returns:
             torch.Tensor: Generated tokens of shape (B, T_out). T_out <= T + max_new_tokens if stop_token is used. Otherwise, T_out = T + max_new_tokens.
         """
+
+        # ==== Build generation config
+        if generation_config is None:
+            generation_config = TJDGenerationConfig()
+        for key, value in kwargs.items():  # Override using with kwargs
+            if hasattr(generation_config, key):
+                setattr(generation_config, key, value)
 
         # ==== Input validation
         input_validation_checks = [
@@ -233,7 +266,7 @@ class TJD(ABC, torch.nn.Module):
                 if generation_config.gen_mode == "speculative":
 
                     def model_p(y):
-                        attn_mask = kwargs.get("attention_mask", None)
+                        attn_mask = attention_mask
                         if attn_mask is not None:
                             attn_mask = extend_attn_mask(attn_mask, horizon=H)
                         return self.prob_y_bar_x_backbone(
@@ -286,7 +319,9 @@ class TJD(ABC, torch.nn.Module):
             y_out[torch.cumsum(stop_mask, dim=1) >= 1] = generation_config.eos_token_id
 
         y_out = y_out if return_full_text else y_out[:, input_ids.size(1) :]
-        return y_out, accept_rate_metrics
+        if return_ardict:
+            return y_out, accept_rate_metrics
+        return y_out
 
     def forward(
         self,

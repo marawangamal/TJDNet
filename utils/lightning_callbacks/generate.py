@@ -15,7 +15,7 @@ class GenerateCallback(Callback):
     def _generate(self, pl_module: LightningModule) -> None:
         # Generate sample text
         model: TJD = pl_module.model
-        output, _ = model.generate(
+        output = model.generate(
             input_ids=pl_module.tokenizer.encode(self.prompt, return_tensors="pt").to(
                 model.device
             ),
