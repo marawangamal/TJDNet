@@ -13,6 +13,7 @@ Example usage:
 import os.path as osp
 
 import lightning as L
+from lightning.pytorch.tuner import Tuner
 from lightning.pytorch.cli import LightningCLI
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -68,6 +69,38 @@ class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.model", "data.model")
         parser.link_arguments("model.dataset", "data.dataset")
+        parser.add_argument("--test_after_fit", action="store_true")
+        parser.add_argument("--auto_lr_find", action="store_true", default=False)
+
+    def after_fit(self):
+        if self.config.get("test_after_fit"):
+            print("[INFO] Running test after fit...")
+            self.trainer.test(ckpt_path="best")
+
+    def before_fit(self):
+        # Only run LR finder on the main process
+        if not self.config.fit["auto_lr_find"]:
+            print("🔍 Skipping LR finder as per configuration")
+            return
+
+        if self.trainer.global_rank == 0 and self.trainer.ckpt_path is None:
+            print("🔍 Running learning rate finder...")
+            lr_trainer = L.Trainer(
+                accelerator="gpu",
+                devices=1,
+                logger=False,
+                enable_checkpointing=False,
+            )
+
+            tuner = Tuner(lr_trainer)
+            lr_finder = tuner.lr_find(
+                self.model, datamodule=self.datamodule, min_lr=1e-6, max_lr=1e-2
+            )
+
+            if lr_finder:
+                suggested_lr = lr_finder.suggestion()
+                print(f"  ↳ suggested lr = {suggested_lr:.2e}")
+                self.model.hparams.lr = suggested_lr
 
     def before_instantiate_classes(self):
         cfg = self.config
@@ -90,7 +123,9 @@ class MyLightningCLI(LightningCLI):
 
         # 2. Auto-resume if <EXPERIMENTS_DIR>/<run_name> exists
         ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "best.ckpt")
-        cfg.fit.ckpt_path = ckpt_path if osp.exists(ckpt_path) else None
+        if osp.exists(ckpt_path):
+            print(f"[INFO] Resuming from existing checkpoint: {ckpt_path}")
+            cfg.fit.ckpt_path = ckpt_path
 
         # 3. Add callbacks
         ckpt_best_cb = ModelCheckpoint(
