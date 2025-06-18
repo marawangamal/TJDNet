@@ -1,6 +1,9 @@
 # config.yaml
 trainer:
+  max_epochs: 8
+  gradient_clip_val: 1.0
   callbacks:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: 'epoch'
+

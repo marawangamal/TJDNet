@@ -56,7 +56,7 @@ huggingface-cli login
 To verify that your installation and setup are correct train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
 
 ```bash
-python main.py train
+python main.py fit --model.model gpt2 --model.model_head cp --trainer.max_epochs 8
 ```
 
 After training for 4 epochs (~5 minutes on a single 40GB GPU), you should observe **100% accuracy** on the stemp dataset and an output like this
@@ -81,35 +81,32 @@ Eval accuracy: 1.0
 
 To fine-tune Llama using the Canonical Polyadic (CP) head, run this command (best checkpoint will be saved under `checkpoints`)
 ```bash 
-python main.py train\
-    --accel_strategy fsdp \
-    --dataset gsm8k \
-    --model meta-llama/Llama-3.2-3B-Instruct \
-    --epochs 10 \
-    --batch_size 8 \
-    --seq_len 128 \
-    --lr 5e-5 \
-    --model_head cp \
-    --hidden_dim 8192 \
-    --horizon 2 \
-    --rank 2 \
-    --use_memory_efficient_loss
+python main.py fit --data.dataset sharegpt \
+    --model.model lmsys/vicuna-7b-v1.5 
+    --model.model_head cp \
+    --model.hidden_dim 8192 \
+    --model.horizon 2 \
+    --model.rank 2 \
+    --model.use_memory_efficient_loss
+    --trainer.max_epochs 1 \
+    --trainer.batch_size 8 
 ```
 
 ## Evaluation
 To run evaluation (compute accuracy) run the following command
 ```bash 
-python -m lightning.pytorch.utilities.consolidate_checkpoint path/to/my/checkpoint
-python main.py test --ckpt path/to/my/checkpoint
+python main.py test --ckpt_path path/to/my/checkpoint --data.dataset gsm8k
 ```
 
+## Reproducing figures from the paper
+Results obtained after training Vicuna 7b on ShareGPT and testing on GSM8k.
 
-### Generate Huggingface Dataset
 
-Use `scripts/create_hf_tjdnet_ds.py` to create the hf dataset then run 
+<!-- ### Figure 1.
+
+Run `scripts/plots/plot_output_dist_spectrum.py`
+
+Use  to create the hf dataset then run 
 ```bash
 huggingface-cli upload mremila/tjdnet datasets/tjdnet --repo-type dataset
-```
-
-## Results
-Results obtained after training LLama7b on GSM8k for 50 epochs are given
+``` -->
