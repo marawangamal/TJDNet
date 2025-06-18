@@ -1,84 +1,168 @@
-import argparse
+"""
+Main entry point for the Lightning CLI application.
+
+This script sets up the Lightning CLI for training and testing models, including
+experiment management, learning rate finding, and integration with Weights & Biases (wandb).
+
+Example usage:
+    python main_v2.py fit --model.model gpt2 --trainer.max_epochs 8 --trainer.gradient_clip_val 1.0
+    python main_v2.py test --ckpt_path experiments/<run_name>/best.ckpt
+
+"""
+
+import os.path as osp
+
 import lightning as L
+from lightning.pytorch.tuner import Tuner
+from lightning.pytorch.cli import LightningCLI
+from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
+from transformers import AutoTokenizer
 
+from dataloaders import DATASETS
+from utils.experiment_naming import get_experiment_name
 from utils.lmodules_v2 import LModel, LDataModule
-from utils.lightning_callbacks.generate import GenerateCallback
+from utils.lightning_callbacks import GenerateCallback
+
+EXPERIMENTS_DIR = "experiments"
 
 
-def train(args: argparse.Namespace) -> None:
+# utils/wandb_helpers.py
+import wandb
+from typing import Optional
+
+
+# TODO: save/load to a <EXPERIMENTS_DIR>/<run_name>/wandb_id.txt file
+def lookup_wandb_id(
+    project_name: str, run_name: str, entity: Optional[str] = None
+) -> str:
+    """Lookup the WandB run ID for a given project and run name.
+
+    Args:
+        project_name (str): The name of the WandB project.
+        run_name (str): The name of the run to look up.
+        entity (Optional[str], optional): The WandB entity (team or user). Defaults to None.
+
+    Returns:
+        str: The WandB run ID.
+    """
+    try:
+        if not osp.exists(osp.join(EXPERIMENTS_DIR, run_name)):
+            print(f"[wandb] No existing run found for {run_name} in {EXPERIMENTS_DIR}.")
+            return wandb.util.generate_id()  # type: ignore
+
+        api = wandb.Api(timeout=15)
+        # "entity/project" or just "project" if entity=None
+        path = f"{entity}/{project_name}" if entity else project_name
+        for run in api.runs(path):
+            if run.name == run_name:
+                print(f"[wandb] Found existing run: {run.id} ({run.name})")
+                return run.id
+    except Exception as e:  # network error, project not found, etc.
+        print(f"[wandb] lookup failed ({e}); creating a new run id.")
+
+    # No existing run → make a fresh ID (8 chars, collision-safe)
+    return wandb.util.generate_id()  # type: ignore
+
+
+class MyLightningCLI(LightningCLI):
+    def add_arguments_to_parser(self, parser):
+        parser.link_arguments("model.model", "data.model")
+        parser.link_arguments("model.dataset", "data.dataset")
+        parser.add_argument("--test_after_fit", action="store_true")
+        parser.add_argument("--auto_lr_find", action="store_true", default=False)
+
+    def after_fit(self):
+        if self.config.get("test_after_fit"):
+            print("[INFO] Running test after fit...")
+            self.trainer.test(ckpt_path="best")
+
+    def before_fit(self):
+        # Only run LR finder on the main process
+        if not self.config.fit["auto_lr_find"]:
+            print("🔍 Skipping LR finder as per configuration")
+            return
+
+        if self.trainer.global_rank == 0 and self.trainer.ckpt_path is None:
+            print("🔍 Running learning rate finder...")
+            lr_trainer = L.Trainer(
+                accelerator="gpu",
+                devices=1,
+                logger=False,
+                enable_checkpointing=False,
+            )
+
+            tuner = Tuner(lr_trainer)
+            lr_finder = tuner.lr_find(
+                self.model, datamodule=self.datamodule, min_lr=1e-6, max_lr=1e-2
+            )
+
+            if lr_finder:
+                suggested_lr = lr_finder.suggestion()
+                print(f"  ↳ suggested lr = {suggested_lr:.2e}")
+                self.model.hparams.lr = suggested_lr
+
+    def before_instantiate_classes(self):
+        cfg = self.config
+
+        if "test" in cfg:
+            generate_cb = GenerateCallback()
+            cfg.test.trainer.callbacks = [generate_cb]
+            return
+
+        # 1. Set root dir
+        run_name = get_experiment_name(
+            {
+                **{k: cfg.fit["trainer"][k] for k in ["max_epochs"]},
+                **vars(cfg.fit.model),
+                **vars(cfg.fit.data),
+            }
+        )
+        run_dir = osp.join(EXPERIMENTS_DIR, run_name)
+        cfg.fit.trainer.default_root_dir = run_dir
+
+        # 2. Auto-resume if <EXPERIMENTS_DIR>/<run_name> exists
+        ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "best.ckpt")
+        if osp.exists(ckpt_path):
+            print(f"[INFO] Resuming from existing checkpoint: {ckpt_path}")
+            cfg.fit.ckpt_path = ckpt_path
+
+        # 3. Add callbacks
+        ckpt_best_cb = ModelCheckpoint(
+            dirpath=osp.join(EXPERIMENTS_DIR, run_name),
+            filename="best",
+            monitor="val_loss",
+            mode="min",
+            save_top_k=1,
+        )
+        generate_cb = GenerateCallback(
+            prompt=DATASETS[cfg.fit.data.dataset](
+                tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model)
+            ).get_sample_prompt(),
+        )
+        if cfg.fit.trainer.callbacks is None:
+            cfg.fit.trainer.callbacks = []
+        cfg.fit.trainer.callbacks.extend([ckpt_best_cb, generate_cb])
+
+        # 4. Add logger
+        project_name = "mtp"
+        wandb_logger = WandbLogger(
+            project=project_name,
+            name=run_name,
+            id=lookup_wandb_id(project_name, run_name),
+            resume="allow",
+            save_dir=osp.join(EXPERIMENTS_DIR, run_name),
+        )
+        cfg.fit.trainer.logger = wandb_logger
+
+
+def cli_main() -> None:
     L.seed_everything(42)
-    model = LModel(
-        model=args.model,
-        lr=args.lr,
-    )
-    data = LDataModule(
-        model=args.model,
-        batch_size=args.batch_size,
-        seq_len=args.seq_len,
-        max_num_samples=None,
-        dataset=args.dataset,
-    )
-    trainer = L.Trainer(max_epochs=args.epochs)
-    trainer.fit(model, datamodule=data)
-    trainer.save_checkpoint(args.checkpoint)
-
-
-def test(args: argparse.Namespace) -> None:
-    model = LModel.load_from_checkpoint(args.ckpt)
-    data = LDataModule(
-        model=model.hparams["model"],
-        batch_size=args.batch_size,
-        seq_len=args.seq_len,
-        dataset=args.dataset or model.hparams.get("dataset", "stemp"),
-    )
-    model.hparams.update(vars(args))
-    trainer = L.Trainer(callbacks=[GenerateCallback()])
-    trainer.test(model, datamodule=data)
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Minimal train/test script")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    train_p = sub.add_parser("train", help="Train a model")
-    train_p.add_argument("--model", default="gpt2")
-    train_p.add_argument("--dataset", default="stemp")
-    train_p.add_argument("--batch_size", type=int, default=32)
-    train_p.add_argument("--seq_len", type=int, default=128)
-    train_p.add_argument("--epochs", type=int, default=4)
-    train_p.add_argument("--lr", type=float, default=1e-3)
-    train_p.add_argument("--warmup_steps", type=int, default=100)
-    train_p.add_argument("--horizon", type=int, default=2)
-    train_p.add_argument("--rank", type=int, default=2)
-    train_p.add_argument("--hidden_dim", type=int, default=128)
-    train_p.add_argument("--experiment_name", default="main_v2")
-    train_p.add_argument("--checkpoint", default="model.ckpt")
-
-    test_p = sub.add_parser("test", help="Evaluate a checkpoint")
-    test_p.add_argument("ckpt")
-    test_p.add_argument("--dataset", default=None)
-    test_p.add_argument("--batch_size", type=int, default=32)
-    test_p.add_argument("--seq_len", type=int, default=128)
-    test_p.add_argument("--max_new_tokens", type=int, default=32)
-    test_p.add_argument("--top_k", type=int, default=1)
-    test_p.add_argument("--do_sample", action="store_true")
-    test_p.add_argument(
-        "--gen_mode",
-        default="draft",
-        choices=["draft", "base", "speculative"],
-    )
-
-    return parser
+    MyLightningCLI(LModel, LDataModule, save_config_kwargs={"overwrite": True})
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-
-    if args.cmd == "train":
-        train(args)
-    else:
-        test(args)
+    cli_main()
 
 
 if __name__ == "__main__":

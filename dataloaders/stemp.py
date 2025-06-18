@@ -52,9 +52,13 @@ class STemp(AbstractDataset):
         )
 
     def format_train_example(self, example):
-        return self.template.format(
-            question=example["question"],
-            answer=example["answer"],
+        return (
+            self.template.format(
+                question=example["question"],
+                answer=example["answer"],
+            )
+            + "\n"
+            + self.eos
         )
 
     def format_test_example(self, example):
@@ -94,4 +98,13 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     stemp = STemp(tokenizer).load_data()
-    print(stemp)
+
+    # Print a sample from the dataset
+    print("Train example:")
+    print(tokenizer.decode(stemp["train"][0]["input_ids"]))
+
+    print("Test example (input):")
+    print(tokenizer.decode(stemp["test"][0]["input_ids"]))
+
+    print("Test example (label):")
+    print(stemp["test"][0]["labels"])

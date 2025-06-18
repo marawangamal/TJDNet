@@ -15,7 +15,7 @@ class GenerateCallback(Callback):
     def _generate(self, pl_module: LightningModule) -> None:
         # Generate sample text
         model: TJD = pl_module.model
-        output, _ = model.generate(
+        output = model.generate(
             input_ids=pl_module.tokenizer.encode(self.prompt, return_tensors="pt").to(
                 model.device
             ),
@@ -27,6 +27,8 @@ class GenerateCallback(Callback):
             ),
         )
         generated_text = pl_module.tokenizer.decode(output[0])
+        # linesep = "\n" + "-" * 80 + "\n"
+        # print(f"{linesep}\nGenerated text:\n{generated_text}\n{linesep}")
         line = "─" * 80
         summary = (
             f"\n{line}\n"

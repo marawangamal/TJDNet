@@ -1,11 +1,12 @@
-from typing import Literal
+from typing import Literal, Optional
 from transformers import AutoConfig
 import torch
 from transformers import AutoModelForCausalLM
+from transformers.utils import ModelOutput
 
 from tjdnet.models.tjd import TJD, TJDConfig
 
-from peft import LoraConfig, TaskType
+from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 
 # Not all models have the same structure
 EXCEPTIONS = {
@@ -81,7 +82,7 @@ class TJDHuggingFace(TJD):
                 lora_alpha=32,
                 lora_dropout=0.1,
             )
-            backbone.add_adapter(peft_config, adapter_name="lora_1")
+            backbone = get_peft_model(backbone, peft_config)  # type: ignore
 
         self.config = hfmodel.config
 
@@ -91,36 +92,13 @@ class TJDHuggingFace(TJD):
 
         return backbone, lm_head
 
-    def forward_backbone(
-        self, mode: Literal["draft", "target", "mixed"] = "mixed", **kwargs
-    ):
+    def forward_backbone(self, *args, **kwargs):
+        transformer_outputs = self.backbone(*args, **kwargs)
+        h_targ = transformer_outputs.last_hidden_state
+        h_draft = h_targ
 
-        h_targ, h_draft = None, None
-
-        # Last mode: can share hidden state for both target and draft
-        if self.hf_train_mode == "last":
-            transformer_outputs_shared = self.backbone(**kwargs)
-            h_targ = transformer_outputs_shared.last_hidden_state
-            h_draft = h_targ
-
-        # Full mode: compute target and draft separately
-        elif self.hf_train_mode == "lora":
-            # Compute h_targ
-            if mode in ["targ", "mixed"]:
-                self.backbone.enable_adapters()
-                transformer_outputs_targ = self.backbone(**kwargs)
-                h_targ = transformer_outputs_targ.last_hidden_state
-
-            # Compute h_draft
-            if mode in ["draft", "mixed"]:
-                # Disable adapter for draft mode
-                self.backbone.disable_adapters()
-                transformer_outputs_draft = self.backbone(**kwargs)
-                h_draft = transformer_outputs_draft.last_hidden_state
-
-        # (Optional) final attn layer for last mode
-        if h_draft is not None and self.mhead_attn is not None:
-            h_draft, _ = self.mhead_attn(
+        if self.mhead_attn is not None:
+            h_draft, _ = self.attn(
                 query=h_targ,
                 key=h_targ,
                 value=h_targ,
@@ -128,3 +106,16 @@ class TJDHuggingFace(TJD):
             )
 
         return h_targ, h_draft
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
+        attention_mask=None,
+        reduce="mean",
+        **kwargs,
+    ):
+        # This is a workaround for the Trainer's forward method
+        # which expects a forward method in the model.
+        out_dict = super().forward(input_ids, labels, attention_mask, reduce, **kwargs)
+        return ModelOutput(**out_dict)
