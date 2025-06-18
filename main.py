@@ -68,7 +68,7 @@ def lookup_wandb_id(
 class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.model", "data.model")
-        parser.link_arguments("model.dataset", "data.dataset")
+        parser.link_arguments("data.dataset", "model.dataset")
         parser.add_argument("--test_after_fit", action="store_true")
         parser.add_argument("--auto_lr_find", action="store_true", default=False)
 
@@ -90,11 +90,16 @@ class MyLightningCLI(LightningCLI):
                 devices=1,
                 logger=False,
                 enable_checkpointing=False,
+                precision=self.config.fit.trainer.get("precision", 32),
             )
 
             tuner = Tuner(lr_trainer)
             lr_finder = tuner.lr_find(
-                self.model, datamodule=self.datamodule, min_lr=1e-6, max_lr=1e-2
+                self.model,
+                datamodule=self.datamodule,
+                min_lr=1e-6,
+                max_lr=1e-3,
+                num_training=50,
             )
 
             if lr_finder:
@@ -113,7 +118,10 @@ class MyLightningCLI(LightningCLI):
         # 1. Set root dir
         run_name = get_experiment_name(
             {
-                **{k: cfg.fit["trainer"][k] for k in ["max_epochs"]},
+                **{
+                    k: cfg.fit["trainer"][k]
+                    for k in ["max_epochs", "gradient_clip_val", "precision"]
+                },
                 **vars(cfg.fit.model),
                 **vars(cfg.fit.data),
             }
