@@ -8,15 +8,14 @@ from transformers import (
     DataCollatorWithPadding,
     get_linear_schedule_with_warmup,
 )
-
-
-from dataloaders import DATASETS
+from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 from transformers import AutoModelForCausalLM
 
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models.tjd import TJDConfig, TJDGenerationConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
+from dataloaders import DATASETS
 
 
 class LModel(L.LightningModule):
@@ -35,6 +34,8 @@ class LModel(L.LightningModule):
         top_k: int = 200,
         seq_len: int = 128,
         dataset: str = "stemp",
+        # Automodel kwargs (e.g., float16, device_map, etc. can be passed here
+        # auto_model_kwargs: dict = {},)
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -97,21 +98,12 @@ class LModel(L.LightningModule):
         self.log("test_acc", results["corr"], prog_bar=True)
 
     def _run_test(self, batch):
-        # outputs = self.model.generate(
-        #     max_new_tokens=self.hparams["max_new_tokens"],
-        #     do_sample=self.hparams["do_sample"],
-        #     top_k=self.hparams["top_k"],
-        #     eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
-        #     pad_token_id=int(self.tokenizer.pad_token_id),  # type: ignore
-        #     **batch,
-        # )
         outputs = self.model.generate(
-            generation_config=TJDGenerationConfig(
-                max_new_tokens=self.hparams["max_new_tokens"],
-                do_sample=self.hparams["do_sample"],
-                top_k=self.hparams["top_k"],
-                eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
-            ),
+            max_new_tokens=self.hparams["max_new_tokens"],
+            do_sample=self.hparams["do_sample"],
+            top_k=self.hparams["top_k"],
+            eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
+            pad_token_id=int(self.tokenizer.pad_token_id),  # type: ignore
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
         )

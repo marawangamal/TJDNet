@@ -363,4 +363,4 @@ group:
 # --time=3:00:00 \
 # --output=slurm/slurm-%j.out \
 # --error=slurm/slurm-%j.err \
-# --wrap="source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate; python main.py train --model_head cpo --rank 1"
+# --wrap="source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate; python main.py fit --config config/config.yaml --model.model lmsys/vicuna-7b-v1.5 --trainer.max_epochs 4  --auto_lr_find --data.batch_size 8 --trainer.strategy ddp_find_unused_parameters_true"

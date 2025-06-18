@@ -39,19 +39,20 @@ class TJDHuggingFace(TJD):
         **kwargs,
     ):
 
-        # Determine model_head dimensions
-        vocab_size, embedding_size = get_lm_head_size(
-            auto_model_kwargs["pretrained_model_name_or_path"]
-        )
-
+        # 1. Initialize config
         self.hf_lora_rank = lora_rank
         self.hf_auto_model_kwargs = auto_model_kwargs
         self.hf_train_mode = train_mode
 
+        # 2. Override `config`
+        vocab_size, embedding_size = get_lm_head_size(
+            auto_model_kwargs["pretrained_model_name_or_path"]
+        )
         config.model_head_config.param_net.in_dim = embedding_size
         config.model_head_config.vocab_size = vocab_size
-        super().__init__(config)
 
+        # 3. Initialize the backbone, lm_head, mhead_attn
+        super().__init__(config)
         self.mhead_attn = None
         if self.hf_train_mode == "last":
             self.mhead_attn = torch.nn.MultiheadAttention(
@@ -63,6 +64,18 @@ class TJDHuggingFace(TJD):
 
         # Trainer compatibility
         self.gradient_checkpointing_enable = self.backbone.gradient_checkpointing_enable
+
+        # Freeze backbone params if using LoRA
+        if self.hf_train_mode == "lora":
+            print("Trainable LoRA params:")
+            for name, param in self.backbone.named_parameters():
+                if "lora" not in name:
+                    param.requires_grad = False
+
+        # Freeze lm_head
+        if config.loss_mode == "draft":
+            for name, param in self.lm_head.named_parameters():
+                param.requires_grad = False
 
     def get_model(self):
         hfmodel = AutoModelForCausalLM.from_pretrained(**self.hf_auto_model_kwargs)
@@ -82,7 +95,8 @@ class TJDHuggingFace(TJD):
                 lora_alpha=32,
                 lora_dropout=0.1,
             )
-            backbone = get_peft_model(backbone, peft_config)  # type: ignore
+            backbone.add_adapter(peft_config, adapter_name="lora_1")
+            # backbone = get_peft_model(backbone, peft_config)  # type: ignore
 
         self.config = hfmodel.config
 
