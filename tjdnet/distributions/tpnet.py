@@ -67,15 +67,73 @@ class TensorParamNet(nn.Module):
         Returns:
             torch.Tensor: Output tensor of shape (*, `out_dim_encoder x out_dim_decoder`)
         """
+        self._check_nan_inf(x, "input")
+
         # e.g., (B, D) -> (B, RH, d)
         params = self.w(x)  # (*, D) => (*, `out_dim_encoder x hidden_dim`)
+        self._check_nan_inf(
+            params,
+            "encoder",
+            context={"input": x, "weight": self.w.weight, "bias": self.w.bias},
+        )
+
         params = params.reshape(
             *params.size()[:-1],
             self.tpnet_config.out_dim_encoder,
-            self.tpnet_config.hidden_dim
+            self.tpnet_config.hidden_dim,
         )  # (*, `out_dim_encoder`, `hidden_dim`)
+
         if self.decoder:
+            params_before_decoder = params
             params = self.decoder(
                 params
             )  # (*, `out_dim_encoder`, `hidden_dim`) => (*, `out_dim_encoder,  out_dim_decoder`)  i.e. (BT, RH, V)
-        return self.positivity_func(params)
+            self._check_nan_inf(
+                params,
+                "decoder",
+                context={
+                    "input": params_before_decoder,
+                    "weight": self.decoder.weight,
+                    "bias": self.decoder.bias,
+                },
+            )
+
+        # Apply positivity function
+        params_before_positivity = params
+        output = self.positivity_func(params)
+        self._check_nan_inf(
+            output,
+            "positivity",
+            context={
+                "input": params_before_positivity,
+                "func": self.tpnet_config.positivity_func,
+            },
+        )
+
+        return output
+
+    def _check_nan_inf(
+        self, tensor: torch.Tensor, stage: str, context: Optional[dict] = None
+    ):
+        """Simple NaN/Inf check with minimal diagnostics."""
+        if torch.isnan(tensor).any() or torch.isinf(tensor).any():
+            self._describe_tensor(tensor, stage)
+
+            # Show all context tensors/values
+            if context:
+                for key, value in context.items():
+                    if isinstance(value, torch.Tensor):
+                        self._describe_tensor(value, f"{stage}_{key}")
+                    else:
+                        print(f"{stage}_{key}: {value}")
+
+            raise ValueError(f"TensorParamNet: NaN/Inf detected at {stage} stage")
+
+    def _describe_tensor(self, tensor: torch.Tensor, name: str):
+        """Print essential tensor statistics for debugging."""
+        nan_count = torch.isnan(tensor).sum().item()
+        inf_count = torch.isinf(tensor).sum().item()
+        print(
+            f"TPNet - {name}: {tensor.shape}, min={tensor.min().item():.3f}, max={tensor.max().item():.3f}, "
+            f"NaN={nan_count}/{tensor.numel()}, Inf={inf_count}/{tensor.numel()}"
+        )

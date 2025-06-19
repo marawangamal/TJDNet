@@ -74,11 +74,58 @@ class TJDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__(config)
 
+    @staticmethod
+    def _describe_tensor(tensor: torch.Tensor, name: str):
+        """Print essential tensor statistics for debugging."""
+        nan_count = torch.isnan(tensor).sum().item()
+        inf_count = torch.isinf(tensor).sum().item()
+        print(
+            f"{name}: {tensor.shape}, min={tensor.min().item():.3f}, max={tensor.max().item():.3f}, "
+            f"NaN={nan_count}/{tensor.numel()}, Inf={inf_count}/{tensor.numel()}"
+        )
+
+    def _run_diagnostics(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        p_tilde: torch.Tensor,
+        gammas_p: List[torch.Tensor],
+        z_tilde: torch.Tensor,
+        gammas_z: List[torch.Tensor],
+    ):
+        """Run diagnostics to check for NaN values in the tensors."""
+        print("=== DIAGNOSTIC REPORT ===")
+
+        # Check inputs first
+        self._describe_tensor(x, "input_x")
+        self._describe_tensor(y, "input_y")
+
+        # Check outputs from evaluate
+        self._describe_tensor(p_tilde, "p_tilde")
+        self._describe_tensor(z_tilde, "z_tilde")
+
+        for i, gamma in enumerate(gammas_p):
+            self._describe_tensor(gamma, f"gamma_p_{i}")
+
+        for i, gamma in enumerate(gammas_z):
+            self._describe_tensor(gamma, f"gamma_z_{i}")
+
+        # Check param_func parameters
+        print("--- Parameter Function State ---")
+        for name, param in self.param_func.named_parameters():
+            self._describe_tensor(param, f"param_func.{name}")
+
+        print("=== END DIAGNOSTIC REPORT ===\n")
+
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
         p_tilde, gammas_p, z_tilde, gammas_z = self.evaluate(x, y)
 
         #  === Health checks >>>
+        if torch.isnan(p_tilde).any() or torch.isnan(z_tilde).any():
+            print("NaN detected! Running diagnostics...")
+            self._run_diagnostics(x, y, p_tilde, gammas_p, z_tilde, gammas_z)
+
         assert not torch.isnan(p_tilde).any(), "p_tilde NaN"
         assert not torch.isnan(z_tilde).any(), "norm_const NaN"
         if len(gammas_p) == 0 and len(gammas_z) == 0:

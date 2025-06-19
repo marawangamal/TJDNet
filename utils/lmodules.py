@@ -35,7 +35,6 @@ class LModel(L.LightningModule):
         seq_len: int = 128,
         dataset: str = "stemp",
         # Automodel kwargs (e.g., float16, device_map, etc. can be passed here
-        # auto_model_kwargs: dict = {},)
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -136,6 +135,8 @@ class LDataModule(L.LightningDataModule):
         seq_len: int = 128,
         dataset: str = "stemp",
         max_num_samples: Union[int, None] = None,
+        num_workers: int = 4,
+        # template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
     ):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained(model)
@@ -145,12 +146,14 @@ class LDataModule(L.LightningDataModule):
         self.seq_len = seq_len
         self.dataset_name = dataset
         self.max_num_samples = max_num_samples
+        self.num_workers = num_workers
 
     def setup(self, stage=None):
         dataset = DATASETS[self.dataset_name](
             tokenizer=self.tokenizer,
             seq_len=self.seq_len,
             max_num_samples=self.max_num_samples,
+            template_mode="few_shot",
         ).load_data()
 
         self.train_ds = dataset["train"]
@@ -162,14 +165,23 @@ class LDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer, mlm=False, return_tensors="pt"
         )
         return DataLoader(
-            self.train_ds, batch_size=self.batch_size, shuffle=True, collate_fn=collator  # type: ignore
+            self.train_ds,  # type: ignore
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=collator,
+            num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
         collator = DataCollatorForLanguageModeling(
             tokenizer=self.tokenizer, mlm=False, return_tensors="pt"
         )
-        return DataLoader(self.val_ds, batch_size=self.batch_size, collate_fn=collator)  # type: ignore
+        return DataLoader(
+            self.val_ds,  # type: ignore
+            batch_size=self.batch_size,
+            collate_fn=collator,
+            num_workers=self.num_workers,
+        )
 
     def test_dataloader(self):
         collator = DataCollatorWithPadding(
