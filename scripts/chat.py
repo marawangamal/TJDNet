@@ -194,18 +194,18 @@ def main() -> None:
 
             # Generate based on model type
             if is_lightning:
-                out, _ = mdl.generate(
+                out = mdl.generate(
                     input_ids=ids,
-                    generation_config=TJDGenerationConfig(
-                        max_new_tokens=gen_cfg.get("max_new_tokens", 256),
-                        do_sample=gen_cfg.get("do_sample", True),
-                        top_k=gen_cfg.get("top_k", 50),
-                        eos_token_id=tok.eos_token_id,  # type: ignore
-                    ),
+                    # max_new_tokens=gen_cfg.get("max_new_tokens", 256),
+                    # do_sample=gen_cfg.get("do_sample", True),
+                    # top_k=gen_cfg.get("top_k", 50),
+                    # eos_token_id=tok.eos_token_id,
+                    **gen_cfg,
+                    return_ardict=False,
                 )
             else:
                 with torch.inference_mode():
-                    out = mdl.generate(ids, TJDGenerationConfig(**gen_cfg))
+                    out = mdl.generate(ids, **gen_cfg)
 
             spin.stop()
             spin.join()
