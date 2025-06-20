@@ -11,6 +11,7 @@ Example usage:
 """
 
 import os.path as osp
+from datetime import timedelta
 
 import lightning as L
 from lightning.pytorch.tuner import Tuner
@@ -68,7 +69,7 @@ def lookup_wandb_id(
 class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.model", "data.model")
-        parser.link_arguments("model.dataset", "data.dataset")
+        parser.link_arguments("data.dataset", "model.dataset")
         parser.add_argument("--test_after_fit", action="store_true")
         parser.add_argument("--auto_lr_find", action="store_true", default=False)
 
@@ -90,11 +91,16 @@ class MyLightningCLI(LightningCLI):
                 devices=1,
                 logger=False,
                 enable_checkpointing=False,
+                precision=self.config.fit.trainer.get("precision", 32),
             )
 
             tuner = Tuner(lr_trainer)
             lr_finder = tuner.lr_find(
-                self.model, datamodule=self.datamodule, min_lr=1e-6, max_lr=1e-2
+                self.model,
+                datamodule=self.datamodule,
+                min_lr=1e-6,
+                max_lr=1e-3,
+                num_training=50,
             )
 
             if lr_finder:
@@ -106,14 +112,15 @@ class MyLightningCLI(LightningCLI):
         cfg = self.config
 
         if "test" in cfg:
-            generate_cb = GenerateCallback()
-            cfg.test.trainer.callbacks = [generate_cb]
             return
 
         # 1. Set root dir
         run_name = get_experiment_name(
             {
-                **{k: cfg.fit["trainer"][k] for k in ["max_epochs"]},
+                **{
+                    k: cfg.fit["trainer"][k]
+                    for k in ["max_epochs", "gradient_clip_val", "precision"]
+                },
                 **vars(cfg.fit.model),
                 **vars(cfg.fit.data),
             }
@@ -122,10 +129,14 @@ class MyLightningCLI(LightningCLI):
         cfg.fit.trainer.default_root_dir = run_dir
 
         # 2. Auto-resume if <EXPERIMENTS_DIR>/<run_name> exists
-        ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "best.ckpt")
-        if osp.exists(ckpt_path):
-            print(f"[INFO] Resuming from existing checkpoint: {ckpt_path}")
-            cfg.fit.ckpt_path = ckpt_path
+        last_ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "last.ckpt")
+        best_ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "best.ckpt")
+        if osp.exists(last_ckpt_path):
+            print(f"[INFO] Resuming from last checkpoint: {last_ckpt_path}")
+            cfg.fit.ckpt_path = last_ckpt_path
+        elif osp.exists(best_ckpt_path):
+            print(f"[INFO] Resuming from best checkpoint: {best_ckpt_path}")
+            cfg.fit.ckpt_path = best_ckpt_path
 
         # 3. Add callbacks
         ckpt_best_cb = ModelCheckpoint(
@@ -140,9 +151,16 @@ class MyLightningCLI(LightningCLI):
                 tokenizer=AutoTokenizer.from_pretrained(cfg.fit.model.model)
             ).get_sample_prompt(),
         )
+        ckpt_time_cb = ModelCheckpoint(
+            dirpath=osp.join(EXPERIMENTS_DIR, run_name),
+            filename="last",
+            every_n_train_steps=None,
+            train_time_interval=timedelta(minutes=30),  # Save every 30 minutes
+        )
+
         if cfg.fit.trainer.callbacks is None:
             cfg.fit.trainer.callbacks = []
-        cfg.fit.trainer.callbacks.extend([ckpt_best_cb, generate_cb])
+        cfg.fit.trainer.callbacks.extend([ckpt_best_cb, generate_cb, ckpt_time_cb])
 
         # 4. Add logger
         project_name = "mtp"

@@ -397,7 +397,7 @@ class TJD(ABC, torch.nn.Module):
         ).reshape(
             B, -1
         )  # (B, T-H // H)
-        loss_tot = loss_mhead.sum(-1)  # (B,)
+        loss_tot = loss_mhead.mean(-1)  # (B,)
 
         # 3b. Compute lm_head loss (target model)
         loss_target = torch.zeros(1, device=input_ids.device)

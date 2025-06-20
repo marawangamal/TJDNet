@@ -8,15 +8,14 @@ from transformers import (
     DataCollatorWithPadding,
     get_linear_schedule_with_warmup,
 )
-
-
-from dataloaders import DATASETS
+from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 from transformers import AutoModelForCausalLM
 
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models.tjd import TJDConfig, TJDGenerationConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
+from dataloaders import DATASETS
 
 
 class LModel(L.LightningModule):
@@ -35,6 +34,11 @@ class LModel(L.LightningModule):
         top_k: int = 200,
         seq_len: int = 128,
         dataset: str = "stemp",
+        debug: bool = False,
+        # dist parameters
+        positivity_func: Literal[
+            "sq", "abs", "exp", "safe_exp", "sigmoid", "none"
+        ] = "safe_exp",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -70,6 +74,7 @@ class LModel(L.LightningModule):
                     rank=1,
                     param_net=TensorParamNetConfig(
                         hidden_dim=self.hparams["hidden_dim"],
+                        positivity_func=self.hparams["positivity_func"],
                     ),
                 ),
             ),
@@ -97,21 +102,12 @@ class LModel(L.LightningModule):
         self.log("test_acc", results["corr"], prog_bar=True)
 
     def _run_test(self, batch):
-        # outputs = self.model.generate(
-        #     max_new_tokens=self.hparams["max_new_tokens"],
-        #     do_sample=self.hparams["do_sample"],
-        #     top_k=self.hparams["top_k"],
-        #     eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
-        #     pad_token_id=int(self.tokenizer.pad_token_id),  # type: ignore
-        #     **batch,
-        # )
         outputs = self.model.generate(
-            generation_config=TJDGenerationConfig(
-                max_new_tokens=self.hparams["max_new_tokens"],
-                do_sample=self.hparams["do_sample"],
-                top_k=self.hparams["top_k"],
-                eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
-            ),
+            max_new_tokens=self.hparams["max_new_tokens"],
+            do_sample=self.hparams["do_sample"],
+            top_k=self.hparams["top_k"],
+            eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
+            pad_token_id=int(self.tokenizer.pad_token_id),  # type: ignore
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
         )
@@ -124,6 +120,13 @@ class LModel(L.LightningModule):
             device=outputs.device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
+
+        if self.hparams["debug"]:
+            print("inputs:", self.tokenizer.batch_decode(batch["input_ids"]))
+            print("outputs:", y_pred_str)
+            print("labels:", batch["labels"])
+            print("corr:", corr.item())
+
         return {
             "corr": corr.item(),
         }
@@ -144,6 +147,9 @@ class LDataModule(L.LightningDataModule):
         seq_len: int = 128,
         dataset: str = "stemp",
         max_num_samples: Union[int, None] = None,
+        max_test_samples: Union[int, None] = None,
+        num_workers: int = 4,
+        template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
     ):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained(model)
@@ -153,12 +159,18 @@ class LDataModule(L.LightningDataModule):
         self.seq_len = seq_len
         self.dataset_name = dataset
         self.max_num_samples = max_num_samples
+        self.num_workers = num_workers
+        self.template_mode = template_mode
+        self.max_test_samples = max_test_samples
+        print("Using template mode:", self.template_mode)
 
     def setup(self, stage=None):
         dataset = DATASETS[self.dataset_name](
             tokenizer=self.tokenizer,
             seq_len=self.seq_len,
             max_num_samples=self.max_num_samples,
+            template_mode=self.template_mode,  # type: ignore
+            max_test_samples=self.max_test_samples,
         ).load_data()
 
         self.train_ds = dataset["train"]
@@ -170,14 +182,23 @@ class LDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer, mlm=False, return_tensors="pt"
         )
         return DataLoader(
-            self.train_ds, batch_size=self.batch_size, shuffle=True, collate_fn=collator  # type: ignore
+            self.train_ds,  # type: ignore
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=collator,
+            num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
         collator = DataCollatorForLanguageModeling(
             tokenizer=self.tokenizer, mlm=False, return_tensors="pt"
         )
-        return DataLoader(self.val_ds, batch_size=self.batch_size, collate_fn=collator)  # type: ignore
+        return DataLoader(
+            self.val_ds,  # type: ignore
+            batch_size=self.batch_size,
+            collate_fn=collator,
+            num_workers=self.num_workers,
+        )
 
     def test_dataloader(self):
         collator = DataCollatorWithPadding(

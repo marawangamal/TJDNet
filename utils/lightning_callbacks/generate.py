@@ -19,16 +19,13 @@ class GenerateCallback(Callback):
             input_ids=pl_module.tokenizer.encode(self.prompt, return_tensors="pt").to(
                 model.device
             ),
-            generation_config=TJDGenerationConfig(
-                max_new_tokens=128,
-                do_sample=True,
-                top_k=200,
-                eos_token_id=pl_module.tokenizer.eos_token_id,
-            ),
+            max_new_tokens=128,
+            do_sample=True,
+            top_k=200,
+            eos_token_id=pl_module.tokenizer.eos_token_id,
+            pad_token_id=pl_module.tokenizer.eos_token_id,
         )
         generated_text = pl_module.tokenizer.decode(output[0])
-        # linesep = "\n" + "-" * 80 + "\n"
-        # print(f"{linesep}\nGenerated text:\n{generated_text}\n{linesep}")
         line = "─" * 80
         summary = (
             f"\n{line}\n"
