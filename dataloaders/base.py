@@ -13,6 +13,7 @@ class AbstractDataset(ABC):
         max_test_samples: Optional[int] = None,
         template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
         cache_dir: Optional[str] = None,
+        domain_shift: Literal["in", "mild", "hard"] = "in",
         **kwargs
     ):
         self.tokenizer = tokenizer
@@ -22,6 +23,7 @@ class AbstractDataset(ABC):
         self.max_test_samples = max_test_samples
         self.template_mode = template_mode
         self.cache_dir = cache_dir
+        self.domain_shift = domain_shift
 
     @classmethod
     @abstractmethod

@@ -11,6 +11,7 @@ from transformers import (
 from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 from transformers import AutoModelForCausalLM
 
+from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.models.tjd import TJDConfig, TJDGenerationConfig
@@ -24,9 +25,17 @@ class LModel(L.LightningModule):
         # model
         model: str = "gpt2",
         hidden_dim: int = 128,
-        lr: float = 1e-3,
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
+        # tjdist parameters
+        model_head: Literal["cp", "base"] = "cp",
+        horizon: int = 1,
+        rank: int = 1,
+        positivity_func: Literal[
+            "sq", "abs", "exp", "safe_exp", "sigmoid", "none"
+        ] = "safe_exp",
+        # trainer
+        lr: float = 1e-3,
         warmup_steps: int = 100,
         # sampling parameters
         max_new_tokens: int = 128,
@@ -35,10 +44,6 @@ class LModel(L.LightningModule):
         seq_len: int = 128,
         dataset: str = "stemp",
         debug: bool = False,
-        # dist parameters
-        positivity_func: Literal[
-            "sq", "abs", "exp", "safe_exp", "sigmoid", "none"
-        ] = "safe_exp",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -67,11 +72,11 @@ class LModel(L.LightningModule):
             train_mode=self.hparams["train_mode"],
             lora_rank=self.hparams["lora_rank"],
             config=TJDConfig(
-                model_head="base",
+                model_head=self.hparams["model_head"],
                 model_head_config=BaseDistConfig(
-                    vocab_size=-1,
-                    horizon=1,
-                    rank=1,
+                    vocab_size=-1,  # Automatically set by the model
+                    horizon=self.hparams["horizon"],
+                    rank=self.hparams["rank"],
                     param_net=TensorParamNetConfig(
                         hidden_dim=self.hparams["hidden_dim"],
                         positivity_func=self.hparams["positivity_func"],
@@ -150,6 +155,7 @@ class LDataModule(L.LightningDataModule):
         max_test_samples: Union[int, None] = None,
         num_workers: int = 4,
         template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
+        domain_shift: Literal["in", "mild", "hard"] = "in",
     ):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained(model)
@@ -162,6 +168,7 @@ class LDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.template_mode = template_mode
         self.max_test_samples = max_test_samples
+        self.domain_shift = domain_shift
         print("Using template mode:", self.template_mode)
 
     def setup(self, stage=None):
@@ -171,6 +178,7 @@ class LDataModule(L.LightningDataModule):
             max_num_samples=self.max_num_samples,
             template_mode=self.template_mode,  # type: ignore
             max_test_samples=self.max_test_samples,
+            domain_shift=self.domain_shift,  # type: ignore
         ).load_data()
 
         self.train_ds = dataset["train"]

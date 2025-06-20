@@ -1,0 +1,55 @@
+# test.yaml
+preambles:
+  glong:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long"
+    - "#SBATCH --gres=gpu:a100l:1"
+    - "#SBATCH --mem=128G"
+    - "#SBATCH --cpus-per-task=12"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
+  cshort:
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long-cpu"
+    - "#SBATCH --mem=32G"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
+# MAIN: meta-llama/Llama-3.2-3B-Instruct
+# DEBUG: distilbert/distilgpt2
+
+# Root group executed in sequence
+group:
+  # aaa
+  name: "main"
+  type: parallel
+  jobs:
+
+  ################################################
+  #                 BASE                         #  
+  ################################################
+
+
+    # w/o speculation
+    - group:
+        # aaa-bbb
+        name: "sharegpt:base"
+        type: sequential
+        jobs:
+          #  Train on ShareGPT dataset
+          #  1. Sweep over lr, rank, horizon
+          - group:
+              # aaa-bbb-XXXX
+              name: "sweep"
+              type: parallel
+              jobs:
+                - job:
+                    preamble: glong
+                    command: "python main.py fit --config config/config.yaml --model.model distilbert/distilgpt2 --trainer.max_epochs 4  --auto_lr_find --data.dataset stemp"
+                - job:
+                    preamble: glong
+                    command: "python main.py fit --config config/config.yaml --model.model distilbert/distilgpt2 --model.model_head cp --model.horizon 2 --model.rank 2 --trainer.max_epochs 4  --auto_lr_find --data.dataset stemp"

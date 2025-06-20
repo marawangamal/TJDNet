@@ -36,9 +36,8 @@ class DataIterator:
 class STemp(AbstractDataset):
     template = """[QUESTION]\n{question}\n[ANSWER]{answer}"""
 
-    def __init__(self, *args, domain_shift: str = "in", **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.domain_shift = domain_shift
 
     def parse_answer(self, generation: str) -> float:
         try:
