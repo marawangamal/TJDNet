@@ -253,23 +253,26 @@ class TJD(ABC, torch.nn.Module):
                     break
 
                 # Get hidden state with KV-caching
-                x = y_out[mask_active, : T + t]  # (B', T + t)
-                fb_out: tuple
-                if t == 0:
-                    fb_out = self.forward_backbone(
-                        input_ids=x, attention_mask=attention_mask, use_cache=use_cache
-                    )
+                x = y_out[mask_active, : T + t]
+                if use_cache and past_key_values is not None:
+                    # If we have a KV cache, we only need to pass the last generated token
+                    input_ids_t = x[:, -1:]
+                    attention_mask_t = None
                 else:
-                    fb_out = self.forward_backbone(
-                        input_ids=x[:, -1:],
-                        attention_mask=(
-                            attention_mask[:, -1:]
-                            if attention_mask is not None
-                            else None
-                        ),
-                        past_key_values=past_key_values,
-                        use_cache=use_cache,
+                    # This is the first forward pass, so we pass the full prompt
+                    input_ids_t = x
+                    attention_mask_t = (
+                        attention_mask[mask_active]
+                        if attention_mask is not None
+                        else None
                     )
+
+                fb_out = self.forward_backbone(
+                    input_ids=input_ids_t,
+                    attention_mask=attention_mask_t,
+                    past_key_values=past_key_values,
+                    use_cache=use_cache,
+                )
                 if not isinstance(fb_out, tuple):
                     raise TypeError(
                         "forward_backbone must return a tuple of length 2 or 3."

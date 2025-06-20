@@ -7,7 +7,7 @@ from tjdnet.distributions.tpnet import TensorParamNetConfig
 from transformers import AutoTokenizer
 
 MODEL_NAME = "lmsys/vicuna-7b-v1.5"
-horizon, rank, hidden_dim, max_new_tokens = 2, 2, 64, 512
+horizon, rank, hidden_dim, max_new_tokens = 2, 2, 64, 256
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 tokenizer.pad_token = tokenizer.eos_token
