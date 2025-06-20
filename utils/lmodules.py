@@ -34,7 +34,7 @@ class LModel(L.LightningModule):
         top_k: int = 200,
         seq_len: int = 128,
         dataset: str = "stemp",
-        # Automodel kwargs (e.g., float16, device_map, etc. can be passed here
+        debug: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -115,6 +115,13 @@ class LModel(L.LightningModule):
             device=outputs.device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
+
+        if self.hparams["debug"]:
+            print("inputs:", self.tokenizer.batch_decode(batch["input_ids"]))
+            print("outputs:", y_pred_str)
+            print("labels:", batch["labels"])
+            print("corr:", corr.item())
+
         return {
             "corr": corr.item(),
         }
@@ -135,8 +142,9 @@ class LDataModule(L.LightningDataModule):
         seq_len: int = 128,
         dataset: str = "stemp",
         max_num_samples: Union[int, None] = None,
+        max_test_samples: Union[int, None] = None,
         num_workers: int = 4,
-        # template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
+        template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
     ):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained(model)
@@ -147,13 +155,17 @@ class LDataModule(L.LightningDataModule):
         self.dataset_name = dataset
         self.max_num_samples = max_num_samples
         self.num_workers = num_workers
+        self.template_mode = template_mode
+        self.max_test_samples = max_test_samples
+        print("Using template mode:", self.template_mode)
 
     def setup(self, stage=None):
         dataset = DATASETS[self.dataset_name](
             tokenizer=self.tokenizer,
             seq_len=self.seq_len,
             max_num_samples=self.max_num_samples,
-            template_mode="few_shot",
+            template_mode=self.template_mode,  # type: ignore
+            max_test_samples=self.max_test_samples,
         ).load_data()
 
         self.train_ds = dataset["train"]

@@ -107,16 +107,12 @@ class GSM8k(AbstractDataset):
                 "openai/gsm8k",
                 "main",
                 split=(
-                    f"test[:{self.max_num_samples}]" if self.max_num_samples else "test"
+                    f"test[:{self.max_test_samples}]"
+                    if self.max_test_samples
+                    else "test"
                 ),
             ),
         }
-        # AdHoc limit test set to 50% of total
-        test_datasets["test"] = (
-            test_datasets["test"]
-            .shuffle(seed=42)
-            .select(range(int(len(test_datasets["test"]) * 0.5)))  # type: ignore
-        )
 
         for split in base_datasets:
             base_datasets[split] = self._process_train_dataset(

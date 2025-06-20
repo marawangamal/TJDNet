@@ -112,8 +112,6 @@ class MyLightningCLI(LightningCLI):
         cfg = self.config
 
         if "test" in cfg:
-            generate_cb = GenerateCallback()
-            cfg.test.trainer.callbacks = [generate_cb]
             return
 
         # 1. Set root dir
