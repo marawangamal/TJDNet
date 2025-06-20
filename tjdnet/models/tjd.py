@@ -176,18 +176,20 @@ class TJD(ABC, torch.nn.Module):
         generation_config: Optional[TJDGenerationConfig] = None,
         return_full_text: bool = False,
         return_ardict: bool = False,
+        use_cache: bool = True,
         **kwargs,
     ):
-        """Generate sequences given an input tensor.
+        """
+        Generate sequences given an input tensor, with support for KV-caching.
 
         Args:
             inputs (torch.Tensor): Previous tokens of shape (B, T)
             generation_config (TJDGenerationConfig): Generation configuration.
-
+            use_cache (bool): Whether to use key-value caching (KV-caching) for efficient generation. Defaults to True.
+            ...
         Returns:
             torch.Tensor: Generated tokens of shape (B, T_out). T_out <= T + max_new_tokens if stop_token is used. Otherwise, T_out = T + max_new_tokens.
         """
-
         # ==== Build generation config
         if generation_config is None:
             generation_config = TJDGenerationConfig()
@@ -232,6 +234,7 @@ class TJD(ABC, torch.nn.Module):
             "tokens_accepted": 0,
         }
 
+        past_key_values = None
         with torch.no_grad():
             t = 0
             while t < generation_config.max_new_tokens:
@@ -239,16 +242,8 @@ class TJD(ABC, torch.nn.Module):
                     H, generation_config.max_new_tokens - t
                 )  # Handle case when < horizon tokens are left
 
-                if t >= 70:
-                    dummy = 1
-                    pass
-
                 mask_active = torch.ones(B, device=device).bool()
                 if generation_config.eos_token_id is not None:
-                    # mask_active = ~torch.any(
-                    #     y_out[:, inputs.size(1) :] == generation_config.eos_token_id,
-                    #     dim=1,
-                    # )
                     mask_active = ~torch.any(
                         y_out == torch.tensor(generation_config.eos_token_id), dim=1
                     )
@@ -257,9 +252,38 @@ class TJD(ABC, torch.nn.Module):
                 if not mask_active.any():
                     break
 
-                # Get hidden state
+                # Get hidden state with KV-caching
                 x = y_out[mask_active, : T + t]  # (B', T + t)
-                _, h_draft = self.forward_backbone(input_ids=x)
+                fb_out: tuple
+                if t == 0:
+                    fb_out = self.forward_backbone(
+                        input_ids=x, attention_mask=attention_mask, use_cache=use_cache
+                    )
+                else:
+                    fb_out = self.forward_backbone(
+                        input_ids=x[:, -1:],
+                        attention_mask=(
+                            attention_mask[:, -1:]
+                            if attention_mask is not None
+                            else None
+                        ),
+                        past_key_values=past_key_values,
+                        use_cache=use_cache,
+                    )
+                if not isinstance(fb_out, tuple):
+                    raise TypeError(
+                        "forward_backbone must return a tuple of length 2 or 3."
+                    )
+                if len(fb_out) == 3:
+                    h_targ, h_draft, past_key_values_new = fb_out
+                elif len(fb_out) == 2:
+                    h_targ, h_draft = fb_out
+                    past_key_values_new = None
+                else:
+                    raise TypeError(
+                        "forward_backbone must return a tuple of length 2 or 3."
+                    )
+                past_key_values = past_key_values_new
                 h_last_draft = h_draft[:, -1]
 
                 # Sample

@@ -106,8 +106,24 @@ class TJDHuggingFace(TJD):
 
         return backbone, lm_head
 
-    def forward_backbone(self, *args, **kwargs):
-        transformer_outputs = self.backbone(*args, **kwargs)
+    def forward_backbone(self, *args, past_key_values=None, use_cache=False, **kwargs):
+        """
+        Forward pass of the backbone model with optional KV-caching.
+
+        Args:
+            past_key_values (tuple, optional): Cached key/value states for efficient generation.
+            use_cache (bool, optional): Whether to use KV-caching. Defaults to False.
+            *args, **kwargs: Other arguments passed to the transformer backbone.
+
+        Returns:
+            h_targ (torch.Tensor): Hidden state for use by target head.
+            h_draft (torch.Tensor): Hidden state for use by draft head.
+            past_key_values (tuple, optional): Updated cache if use_cache is True.
+        """
+        # Pass KV-caching args to the HuggingFace transformer
+        transformer_outputs = self.backbone(
+            *args, past_key_values=past_key_values, use_cache=use_cache, **kwargs
+        )
         h_targ = transformer_outputs.last_hidden_state
         h_draft = h_targ
 
@@ -119,7 +135,10 @@ class TJDHuggingFace(TJD):
                 need_weights=False,
             )
 
-        return h_targ, h_draft
+        # Return past_key_values if present (for generation)
+        if hasattr(transformer_outputs, "past_key_values"):
+            return h_targ, h_draft, transformer_outputs.past_key_values
+        return h_targ, h_draft, None
 
     def forward(
         self,
