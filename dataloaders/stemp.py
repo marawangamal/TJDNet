@@ -4,22 +4,33 @@ from datasets import DatasetDict, Dataset
 
 
 class DataIterator:
-    def __init__(self, num_samples):
+    def __init__(self, num_samples, split="train", shift="in"):
         self.num_samples = num_samples
+        self.split = split
+        self.shift = shift
+
+    def _sample_celsius(self):
+        # Train distribution is always the same
+        if self.split == "train":
+            return random.randint(-20, 40)
+        # Eval/Test distribution depends on shift level
+        if self.shift == "in":
+            return random.randint(-20, 40)  # IID
+        if self.shift == "mild":
+            return random.randint(-40, 80)  # larger but overlapping
+        return random.randint(80, 200)  # disjoint (hard)
 
     def __iter__(self):
         for _ in range(self.num_samples):
-            yield self._generate_sample()
-
-    def _generate_sample(self):
-        """Generate a single synthetic QA sample."""
-        temp_c = random.randint(-20, 40)
-        temp_f = (temp_c * 9 / 5) + 32
-
-        question = f"What is {temp_c}°C in Fahrenheit?"
-        response = f"\nLet's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n2) Plugging in {temp_c}°C:\n   °F = ({temp_c} x 9/5) + 32\n   °F = {temp_f}\n\n####\n{temp_f}"
-
-        return {"question": question, "answer": response}
+            temp_c = self._sample_celsius()
+            temp_f = (temp_c * 9 / 5) + 32
+            question = f"What is {temp_c}°C in Fahrenheit?"
+            response = (
+                "\nLet's solve this step by step:\n"
+                "1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n"
+                f"2) Plugging in {temp_c}°C:\n   °F = ({temp_c} x 9/5) + 32\n   °F = {temp_f}\n\n####\n{temp_f}"
+            )
+            yield {"question": question, "answer": response}
 
 
 class STemp(AbstractDataset):
@@ -74,11 +85,23 @@ class STemp(AbstractDataset):
         num_train_samples = self.max_num_samples if self.max_num_samples else 10000
         num_test_samples = 100
         base_datasets = {
-            "train": Dataset.from_generator(lambda: DataIterator(num_train_samples)),
-            "eval": Dataset.from_generator(lambda: DataIterator(num_test_samples)),
+            "train": Dataset.from_generator(
+                lambda: DataIterator(
+                    num_train_samples, split="train", shift=self.domain_shift
+                )
+            ),
+            "eval": Dataset.from_generator(
+                lambda: DataIterator(
+                    num_test_samples, split="eval", shift=self.domain_shift
+                )
+            ),
         }
         test_datasets = {
-            "test": Dataset.from_generator(lambda: DataIterator(num_test_samples))
+            "test": Dataset.from_generator(
+                lambda: DataIterator(
+                    num_test_samples, split="test", shift=self.domain_shift
+                )
+            )
         }
 
         for split in base_datasets:
