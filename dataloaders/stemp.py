@@ -10,15 +10,24 @@ class DataIterator:
         self.shift = shift
 
     def _sample_celsius(self):
-        # Train distribution is always the same
+        # Base distribution with normal shape
         if self.split == "train":
-            return random.randint(-20, 40)
+            # Normal distribution centered at 20°C
+            temp = int(random.gauss(20, 15))
+            return max(-40, min(80, temp))  # Clip to valid range
+
         # Eval/Test distribution depends on shift level
         if self.shift == "in":
-            return random.randint(-20, 40)  # IID
+            # Same as train (IID)
+            temp = int(random.gauss(20, 15))
+            return max(-40, min(80, temp))
         if self.shift == "mild":
-            return random.randint(-40, 80)  # larger but overlapping
-        return random.randint(80, 200)  # disjoint (hard)
+            # Shift peak to warmer temperatures
+            temp = int(random.gauss(40, 15))
+            return max(-40, min(80, temp))
+        # Hard shift - peak at cold temperatures
+        temp = int(random.gauss(-20, 15))
+        return max(-40, min(80, temp))
 
     def __iter__(self):
         for _ in range(self.num_samples):
