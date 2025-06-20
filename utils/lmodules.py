@@ -35,6 +35,10 @@ class LModel(L.LightningModule):
         seq_len: int = 128,
         dataset: str = "stemp",
         debug: bool = False,
+        # dist parameters
+        positivity_func: Literal[
+            "sq", "abs", "exp", "safe_exp", "sigmoid", "none"
+        ] = "safe_exp",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -70,6 +74,7 @@ class LModel(L.LightningModule):
                     rank=1,
                     param_net=TensorParamNetConfig(
                         hidden_dim=self.hparams["hidden_dim"],
+                        positivity_func=self.hparams["positivity_func"],
                     ),
                 ),
             ),

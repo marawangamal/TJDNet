@@ -22,7 +22,7 @@ class TensorParamNetConfig:
     hidden_dim: int = 512
     out_dim_encoder: int = 1
     out_dim_decoder: int = 1
-    positivity_func: Literal["sq", "abs", "exp", "none"] = "exp"
+    positivity_func: Literal["sq", "abs", "exp", "safe_exp", "sigmoid", "none"] = "exp"
     use_decoder: bool = True
     use_bias_encoder: bool = True
     use_bias_decoder: bool = True
@@ -30,6 +30,11 @@ class TensorParamNetConfig:
     def to_dict(self) -> dict:
         """Convert the configuration to a dictionary."""
         return asdict(self)
+
+
+def safe_exp(x: torch.Tensor) -> torch.Tensor:
+    """Safe exponential function to avoid overflow."""
+    return torch.exp(torch.clamp(x, max=20.0))  # Clamp to avoid overflow
 
 
 class TensorParamNet(nn.Module):
@@ -40,6 +45,8 @@ class TensorParamNet(nn.Module):
             "sq": lambda x: x**2,
             "abs": lambda x: torch.abs(x),
             "exp": torch.exp,
+            "safe_exp": safe_exp,
+            "sigmoid": torch.sigmoid,
             "none": lambda x: x,
         }[config.positivity_func]
         self.tpnet_config = config
@@ -107,6 +114,8 @@ class TensorParamNet(nn.Module):
             context={
                 "input": params_before_positivity,
                 "func": self.tpnet_config.positivity_func,
+                # "decoder.weight": self.decoder.weight if self.decoder else None,
+                # "decoder.bias": self.decoder.bias if self.decoder else None,
             },
         )
 
