@@ -1,7 +1,6 @@
 from typing import Callable, List, Optional, Tuple
 
 import torch
-import line_profiler
 
 
 # TODO: scores are log probs, does this cause any issues with softmax?

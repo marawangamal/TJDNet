@@ -10,36 +10,30 @@ class DataIterator:
         self.shift = shift
 
     def _sample_celsius(self):
-        # Base distribution with normal shape
+        # Distribution shift for evaluation/testing
+        means = {
+            "in": 20,    # In-distribution: same as train
+            "mild": 30,  # Mild shift: +10°C warmer
+            "hard": 40,  # Hard shift: +20°C colder
+        }
+        std = 5
         if self.split == "train":
-            # Normal distribution centered at 20°C
-            temp = int(random.gauss(20, 15))
-            return max(-40, min(80, temp))  # Clip to valid range
-
-        # Eval/Test distribution depends on shift level
-        if self.shift == "in":
-            # Same as train (IID)
-            temp = int(random.gauss(20, 15))
-            return max(-40, min(80, temp))
-        if self.shift == "mild":
-            # Shift peak to warmer temperatures
-            temp = int(random.gauss(40, 15))
-            return max(-40, min(80, temp))
-        # Hard shift - peak at cold temperatures
-        temp = int(random.gauss(-20, 15))
-        return max(-40, min(80, temp))
+            return int(random.gauss(means['in'], std))
+        return int(random.gauss(means[self.shift], std))
 
     def __iter__(self):
         for _ in range(self.num_samples):
-            temp_c = self._sample_celsius()
-            temp_f = (temp_c * 9 / 5) + 32
-            question = f"What is {temp_c}°C in Fahrenheit?"
-            response = (
-                "\nLet's solve this step by step:\n"
-                "1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n"
-                f"2) Plugging in {temp_c}°C:\n   °F = ({temp_c} x 9/5) + 32\n   °F = {temp_f}\n\n####\n{temp_f}"
-            )
-            yield {"question": question, "answer": response}
+            yield self._generate_sample()
+
+    def _generate_sample(self):
+        """Generate a single synthetic QA sample."""
+        temp_c = random.randint(-20, 40)
+        temp_f = (temp_c * 9 / 5) + 32
+
+        question = f"What is {temp_c}°C in Fahrenheit?"
+        response = f"\nLet's solve this step by step:\n1) To convert Celsius to Fahrenheit, use the formula: °F = (°C x 9/5) + 32\n2) Plugging in {temp_c}°C:\n   °F = ({temp_c} x 9/5) + 32\n   °F = {temp_f}\n\n####\n{temp_f}"
+
+        return {"question": question, "answer": response}
 
 
 class STemp(AbstractDataset):

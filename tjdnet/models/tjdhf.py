@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, Tuple
 from transformers import AutoConfig
 import torch
 from transformers import AutoModelForCausalLM
@@ -15,7 +15,7 @@ EXCEPTIONS = {
 }
 
 
-def get_lm_head_size(model_name: str) -> tuple[int, int]:
+def get_lm_head_size(model_name: str) -> Tuple[int, int]:
     hf_config = AutoConfig.from_pretrained(model_name)
     vocab_size = hf_config.vocab_size
     if model_name in EXCEPTIONS:

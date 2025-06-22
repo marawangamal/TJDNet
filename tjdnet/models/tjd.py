@@ -5,7 +5,6 @@ from typing import Dict, Literal, Optional, Tuple, overload
 
 
 import torch
-from wandb import config
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig, BaseDistFromLinearConfig
@@ -108,13 +107,16 @@ class TJD(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
-    def forward_backbone(self, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward_backbone(
+        self, *args, **kwargs
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Forward pass of the backbone model.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: Tuple containing
                 - h_targ (torch.Tensor): Hidden state for use by target head
                 - h_draft (torch.Tensor): Hidden state for use by draft head
+                - past_key_values (Optional[torch.Tensor]): Past key values for use by the model head.
 
         """
         pass
@@ -135,7 +137,7 @@ class TJD(ABC, torch.nn.Module):
         Returns:
             torch.Tensor: Probabilities of shape (B, T, V).
         """
-        h_targ, _ = self.forward_backbone(
+        h_targ, _, _ = self.forward_backbone(
             input_ids=x,
             attention_mask=attn_mask,
             **kwargs,
@@ -267,25 +269,12 @@ class TJD(ABC, torch.nn.Module):
                         else None
                     )
 
-                fb_out = self.forward_backbone(
+                _, h_draft, past_key_values_new = self.forward_backbone(
                     input_ids=input_ids_t,
                     attention_mask=attention_mask_t,
                     past_key_values=past_key_values,
                     use_cache=use_cache,
                 )
-                if not isinstance(fb_out, tuple):
-                    raise TypeError(
-                        "forward_backbone must return a tuple of length 2 or 3."
-                    )
-                if len(fb_out) == 3:
-                    h_targ, h_draft, past_key_values_new = fb_out
-                elif len(fb_out) == 2:
-                    h_targ, h_draft = fb_out
-                    past_key_values_new = None
-                else:
-                    raise TypeError(
-                        "forward_backbone must return a tuple of length 2 or 3."
-                    )
                 past_key_values = past_key_values_new
                 h_last_draft = h_draft[:, -1]
 
@@ -397,7 +386,7 @@ class TJD(ABC, torch.nn.Module):
         B, _ = input_ids.size()
         H = self.horizon
 
-        h_targ, h_draft = self.forward_backbone(
+        h_targ, h_draft, _ = self.forward_backbone(
             input_ids, attention_mask=attention_mask
         )  # (B, T, D), (B, T, D)
 
