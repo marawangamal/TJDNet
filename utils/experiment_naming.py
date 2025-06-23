@@ -1,7 +1,11 @@
-from utils.utils import replace_spec_chars
+import re
 
 
 from typing import Dict, Optional
+
+def replace_spec_chars(value: str, replacement: str = "_") -> str:
+    # Remove special characters and replace with underscores
+    return re.sub(r"[^a-zA-Z0-9]", replacement, str(value))
 
 
 def get_experiment_name(

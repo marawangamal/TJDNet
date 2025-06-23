@@ -183,6 +183,8 @@ class LDataModule(L.LightningDataModule):
 
         self.train_ds = dataset["train"]
         self.val_ds = dataset.get("eval")
+        if "test" not in dataset:
+            print(f"[WARNING] No 'test' split found in dataset '{self.dataset_name}'. Test will be unavailable.")
         self.test_ds = dataset.get("test")
 
     def train_dataloader(self):
@@ -209,6 +211,8 @@ class LDataModule(L.LightningDataModule):
         )
 
     def test_dataloader(self):
+        if self.test_ds is None:
+            raise RuntimeError(f"[ERROR] test_dataloader called but no test set is available for dataset '{self.dataset_name}'. Please ensure your dataset provides a test split.")
         collator = DataCollatorWithPadding(
             tokenizer=self.tokenizer, return_tensors="pt"
         )

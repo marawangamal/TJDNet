@@ -10,8 +10,8 @@ pyaml
 tensorly
 huggingface_hub[cli]
 sentencepiece
+lightning
 lightning[pytorch-extra]  >=2.2.0
-jsonargparse[signatures]  >=4.27,<5
 # matplotlib
 # tntorch
 # wandb

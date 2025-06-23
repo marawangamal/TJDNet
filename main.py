@@ -52,7 +52,7 @@ def lookup_wandb_id(
             print(f"[wandb] No existing run found for {run_name} in {EXPERIMENTS_DIR}.")
             return wandb.util.generate_id()  # type: ignore
 
-        api = wandb.Api(timeout=15)
+        api = wandb.Api(timeout=15)  # type: ignore
         # "entity/project" or just "project" if entity=None
         path = f"{entity}/{project_name}" if entity else project_name
         for run in api.runs(path):
@@ -63,7 +63,7 @@ def lookup_wandb_id(
         print(f"[wandb] lookup failed ({e}); creating a new run id.")
 
     # No existing run → make a fresh ID (8 chars, collision-safe)
-    return wandb.util.generate_id()  # type: ignore
+    return wandb.utils.generate_id()  # type: ignore
 
 
 class MyLightningCLI(LightningCLI):
@@ -74,9 +74,10 @@ class MyLightningCLI(LightningCLI):
         parser.add_argument("--auto_lr_find", action="store_true", default=False)
 
     def after_fit(self):
-        if self.config.get("test_after_fit"):
+        if self.config.fit.get("test_after_fit"):
             print("[INFO] Running test after fit...")
-            self.trainer.test(ckpt_path="best")
+            results = self.trainer.test(ckpt_path="best")
+            print("[INFO] Test results after fit:\n", results)
 
     def before_fit(self):
         # Only run LR finder on the main process

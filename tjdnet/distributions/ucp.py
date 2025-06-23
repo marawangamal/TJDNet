@@ -1,5 +1,4 @@
-from typing import List, Tuple
-from git import Optional
+from typing import List, Optional, Tuple
 import torch
 import torch.autograd.profiler as profiler
 

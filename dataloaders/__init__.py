@@ -1,3 +1,5 @@
+from typing import Dict, Type
+
 from dataloaders.aqua import AQUA
 from dataloaders.base import AbstractDataset
 from dataloaders.csqa import CSQA
@@ -6,7 +8,8 @@ from dataloaders.shakespeare import Shakespeare
 from dataloaders.sharegpt import ShareGPT
 from dataloaders.stemp import STemp
 
-DATASETS: dict[str, type[AbstractDataset]] = {
+
+DATASETS: Dict[str, Type[AbstractDataset]] = {
     "gsm8k": GSM8k,
     "stemp": STemp,
     "csqa": CSQA,
