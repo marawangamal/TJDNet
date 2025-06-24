@@ -130,8 +130,6 @@ class TJDHuggingFace(TJD):
             self.backbone.disable_adapters()  # type: ignore
             transformer_outputs = self.backbone(**kwargs)
             h_targ = transformer_outputs.last_hidden_state
-        else:
-            raise ValueError(f"Invalid mode: {mode}")
 
         if self.mhead_attn is not None:
             h_draft, _ = self.attn(
