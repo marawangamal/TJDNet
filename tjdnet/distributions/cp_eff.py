@@ -82,6 +82,7 @@ class CPEffDist(TJDist):
 
     def get_params(self, x: torch.Tensor, **kwargs):
         B = x.size(0)
+        #  W: (B, d) -> (B, R, H, d) [dxRHd]
         # params = safe_exp(self.cp_w(x))  # (B, RHd)
         params = self.param_func.w(x)  # (B, RHd)
         params_reshaped = params.reshape(B, self.rank, self.horizon, -1)
