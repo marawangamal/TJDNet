@@ -23,9 +23,9 @@ class DataIterator:
         if self.shift == "in":
             return self._clip_temp(int(random.gauss(20, 2)))
         elif self.shift == "mild":
-            return self._clip_temp(int(random.gauss(37, 2)))
+            return self._clip_temp(int(random.gauss(25, 2)))
         elif self.shift == "hard":
-            return self._clip_temp(int(random.gauss(40, 2)))  # 45-35
+            return self._clip_temp(int(random.gauss(30, 2)))  # 45-35
         else:
             raise ValueError(f"Invalid shift: {self.shift}")
 
