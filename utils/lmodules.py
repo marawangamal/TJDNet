@@ -44,6 +44,7 @@ class LModel(L.LightningModule):
         seq_len: int = 128,
         dataset: str = "stemp",
         debug: bool = False,
+        gen_mode: Literal["draft", "base", "speculative"] = "draft",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -105,16 +106,21 @@ class LModel(L.LightningModule):
     def test_step(self, batch, batch_idx):
         results = self._run_test(batch)
         self.log("test_acc", results["corr"], prog_bar=True)
+        if "acceptance_rate" in results:
+            self.log("test_acceptance_rate", results["acceptance_rate"], prog_bar=True)
+        return results["corr"]
 
     def _run_test(self, batch):
-        outputs = self.model.generate(
+        outputs, ardict = self.model.generate(
             max_new_tokens=self.hparams["max_new_tokens"],
             do_sample=self.hparams["do_sample"],
             top_k=self.hparams["top_k"],
+            gen_mode=self.hparams["gen_mode"],
             eos_token_id=int(self.tokenizer.eos_token_id),  # type: ignore
             pad_token_id=int(self.tokenizer.pad_token_id),  # type: ignore
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
+            return_ardict=True,
         )
 
         # Compute accuracy
@@ -132,9 +138,12 @@ class LModel(L.LightningModule):
             print("labels:", batch["labels"])
             print("corr:", corr.item())
 
-        return {
-            "corr": corr.item(),
-        }
+        # Acceptance rate
+        if ardict is not None and ardict["tokens_generated"] > 0:
+            acceptance_rate = ardict["tokens_accepted"] / ardict["tokens_generated"]
+            return {"corr": corr.item(), "acceptance_rate": acceptance_rate}
+
+        return {"corr": corr.item()}
 
     # def on_save_checkpoint(self, checkpoint):
     #     state = checkpoint["state_dict"]
