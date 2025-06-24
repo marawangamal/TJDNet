@@ -1,5 +1,4 @@
-from typing import Callable
-from git import Optional
+from typing import Callable, Optional
 import torch
 
 from tjdnet.distributions._tjdist import (

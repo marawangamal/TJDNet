@@ -192,9 +192,9 @@ def select_margin_cp_tensor_batched_w_decoder(
         batch_size, rank, vocab_size, device=cp_params.device, dtype=cp_params.dtype
     )
 
-    core_margins = torch.einsum(
-        "brtd,d -> brt", cp_params, decoder.sum(dim=-1)
-    )  # (B, R, T)
+    # core_margins = torch.einsum(
+    #     "brtd,d -> brt", cp_params, decoder.sum(dim=-1)
+    # )  # (B, R, T)
 
     scale_factors = []
     for t in range(horizon):
@@ -207,7 +207,7 @@ def select_margin_cp_tensor_batched_w_decoder(
             # Selection
             decoder_selected = torch.gather(
                 # (d,D) -> (B', d, D)
-                decoder.unsqueeze(0).expand(len(mask_select), -1, -1),
+                decoder.unsqueeze(0).expand(int(mask_select.sum()), -1, -1),
                 dim=-1,
                 index=ops[mask_select, t]
                 .reshape(-1, 1, 1)
@@ -233,7 +233,15 @@ def select_margin_cp_tensor_batched_w_decoder(
 
         # Marginalize
         if mask_margin.any():
-            update = core_margins[mask_margin, :, t]  # (B', R)
+            # update = core_margins[mask_margin, :, t]  # (B', R)
+            decoder_selected = (
+                decoder.sum(dim=-1).unsqueeze(0).expand(int(mask_margin.sum()), -1)
+            )  # (B', d)
+            update = torch.einsum(
+                "brd,bd -> br",
+                cp_params[mask_margin, :, t, :],
+                decoder_selected,
+            )  # (B', R)
             sf = torch.ones(
                 batch_size, device=cp_params.device, dtype=cp_params.dtype
             )  # (B,)
