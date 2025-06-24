@@ -26,28 +26,17 @@ class CPEffDist(TJDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        # config.param_net.out_dim_encoder = config.rank * config.horizon
-        # config.param_net.out_dim_decoder = config.vocab_size
-
-        # Note: hacky way to ignore the param_net
-        config.param_net.out_dim_encoder = 1
-        config.param_net.out_dim_decoder = 1
+        config.param_net.out_dim_encoder = config.rank * config.horizon
+        config.param_net.out_dim_decoder = config.vocab_size
+        config.param_net.use_bias_decoder = False
         super().__init__(config)
-        self.param_func = None
 
-        self.cp_hidden_dim = config.param_net.hidden_dim
-        self.cp_rank = config.rank
-        self.cp_horizon = config.horizon
-        self.cp_vocab_size = config.vocab_size
-
-        # CP projection
-        self.cp_w = torch.nn.Linear(
-            config.param_net.in_dim,
-            config.rank * config.horizon * config.param_net.hidden_dim,
-        )
-        self.cp_decoder = torch.nn.Parameter(
-            torch.randn(config.param_net.hidden_dim, config.vocab_size)
-        )
+    @property
+    def cp_decoder(self):
+        if self.param_func.decoder:
+            return self.param_func.decoder.weight.T
+        else:
+            raise ValueError("Decoder not found")
 
     @classmethod
     def from_pretrained(
@@ -60,7 +49,7 @@ class CPEffDist(TJDist):
             config (BaseDistFromLinearConfig): Configuration for the distribution.
 
         Returns:
-            CPDist: CP distribution with the given configuration.
+            CPEffDist: CP distribution with the given configuration.
         """
 
         vocab_size, hidden_dim = linear.weight.shape
@@ -93,10 +82,9 @@ class CPEffDist(TJDist):
 
     def get_params(self, x: torch.Tensor, **kwargs):
         B = x.size(0)
-        params = safe_exp(self.cp_w(x))  # (B, RHd)
-        params_reshaped = params.reshape(
-            B, self.cp_rank, self.cp_horizon, self.cp_hidden_dim
-        )
+        # params = safe_exp(self.cp_w(x))  # (B, RHd)
+        params = self.param_func.w(x)  # (B, RHd)
+        params_reshaped = params.reshape(B, self.rank, self.horizon, -1)
         return params_reshaped  # (B, R, H, d)  // H* is model level horizon
 
     def sample(
@@ -174,19 +162,20 @@ class CPEffDist(TJDist):
         **kwargs,
     ):
         # Get indexed distribution
-        horizon = self.horizon
+        print("[CPEffDist.evaluate] running")
+        H = self.horizon
         B = x.size(0)
         params = self.get_params(x)  # (B, R, H, d)
         p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched_w_decoder(
             cp_params=params,
-            ops=y.reshape(B, horizon),
+            ops=y.reshape(B, H),
             decoder=self.cp_decoder,
         )  # (B,), (B, H)
         norm_consts, norm_consts_scale_factors = (
             select_margin_cp_tensor_batched_w_decoder(
                 cp_params=params,
                 ops=torch.full(
-                    (B, horizon),
+                    (B, H),
                     -2,
                     dtype=torch.long,
                     device=x.device,

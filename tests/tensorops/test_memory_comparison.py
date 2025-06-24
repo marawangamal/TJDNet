@@ -8,19 +8,34 @@ from tjdnet.tensorops.cp import (
 )
 
 
-def decoder_method(B, d, R, T, D, device):
+def decoder_method_select(B, D, R, H, V, device):
     """Original memory-intensive approach"""
-    cp_params = torch.randn(B, R, T, d, device=device)
-    ops = torch.randint(-2, D, (B, T), device=device)
-    decoder = torch.randn(d, D, device=device)
+    cp_params = torch.randn(B, R, H, D, device=device)
+    ops = torch.randint(0, V, (B, H), device=device)
+    decoder = torch.randn(D, V, device=device)
     select_margin_cp_tensor_batched_w_decoder(cp_params, ops, decoder)
 
 
-def gather_method(B, d, R, T, D, device):
+def gather_method_select(B, D, R, H, V, device):
     """Original memory-intensive approach"""
-    cp_params = torch.randn(B, R, T, D, device=device)
-    ops = torch.randint(-2, D, (B, T), device=device)
+    cp_params = torch.randn(B, R, H, V, device=device)
+    ops = torch.randint(0, V, (B, H), device=device)
     select_margin_cp_tensor_batched(cp_params, ops)
+
+
+def gather_method_margin(B, D, R, H, V, device):
+    """Original memory-intensive approach"""
+    cp_params = torch.randn(B, R, H, V, device=device)
+    ops = torch.full((B, H), -2, dtype=torch.long, device=device)
+    select_margin_cp_tensor_batched(cp_params, ops)
+
+
+def decoder_method_margin(B, D, R, H, V, device):
+    """Original memory-intensive approach"""
+    cp_params = torch.randn(B, R, H, D, device=device)
+    ops = torch.full((B, H), -2, dtype=torch.long, device=device)
+    decoder = torch.randn(D, V, device=device)
+    select_margin_cp_tensor_batched_w_decoder(cp_params, ops, decoder)
 
 
 class TestMemoryComparison(unittest.TestCase):
@@ -34,39 +49,49 @@ class TestMemoryComparison(unittest.TestCase):
         self.device = torch.device("cuda")
 
     def measure_memory(self, func, *args, **kwargs):
-        """Measure peak memory usage during function execution."""
         torch.cuda.empty_cache()
         gc.collect()
         torch.cuda.reset_peak_memory_stats()
-
-        initial_memory = torch.cuda.memory_allocated()
         result = func(*args, **kwargs)
         peak_memory = torch.cuda.max_memory_allocated()
-
         torch.cuda.empty_cache()
         gc.collect()
-
-        return result, peak_memory - initial_memory
+        return result, peak_memory
 
     def test_memory_comparison(self):
         """Compare memory usage between the two functions with random values."""
 
         # hparams
-        B, d, R, T, D = 32, 4096, 8, 128, 60000
+        B, D, H, R, V = 32, 4096, 32, 32, 100000
         device = self.device
         methods = [
             (
-                gather_method,
-                "gather_method",
-                (B, d, R, T, D, device),
+                gather_method_select,
+                "gather_method_select",
+                (B, D, R, H, V, device),
             ),
             (
-                decoder_method,
-                "decoder_method",
-                (B, d, R, T, D, device),
+                decoder_method_select,
+                "decoder_method_select",
+                (B, D, R, H, V, device),
+            ),
+            (
+                gather_method_margin,
+                "gather_method_margin",
+                (B, D, R, H, V, device),
+            ),
+            (
+                decoder_method_margin,
+                "decoder_method_margin",
+                (B, D, R, H, V, device),
             ),
         ]
-        results = {"decoder_method": -1, "gather_method": -1}
+        results = {
+            "gather_method_select": -1,
+            "decoder_method_select": -1,
+            "gather_method_margin": -1,
+            "decoder_method_margin": -1,
+        }
         for method, name, args in methods:
             result, mem = self.measure_memory(method, *args)
             print(f"{name}: {mem/1024**2:.2f} MB")
@@ -74,8 +99,14 @@ class TestMemoryComparison(unittest.TestCase):
 
         # Assert that decoder function uses less memory
         self.assertLess(
-            results["decoder_method"],
-            results["gather_method"],
+            results["decoder_method_select"],
+            results["gather_method_select"],
+            "Decoder function should use less memory",
+        )
+
+        self.assertLess(
+            results["decoder_method_margin"],
+            results["gather_method_margin"],
             "Decoder function should use less memory",
         )
 
