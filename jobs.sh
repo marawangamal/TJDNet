@@ -1,14 +1,4 @@
-# python main.py fit --trainer.max_epochs 8  --model.model_head base --model.rank 1 --model.horizon 1 --model.positivity_func safe_exp --model.hidden_dim 768
-# python main.py test --model.model_head base --model.rank 1 --model.horizon 1 --model.positivity_func safe_exp --model.hidden_dim 768 --ckpt_path experiments/me8_gcvNone_pNone_mgpt2_hd768_tmlora_lr32_mhbase_h1_r1_pfsafe_exp_l0_001_ws100_mnt128_dsFalse_tk200_sl128_dFalse_dastemp_bs32_mnsNone_mtsNone_nw4_te0_shot_doin/best.ckpt --data.domain_shift in
-# python main.py test --model.model_head base --model.rank 1 --model.horizon 1 --model.positivity_func safe_exp --model.hidden_dim 768 --ckpt_path experiments/me8_gcvNone_pNone_mgpt2_hd768_tmlora_lr32_mhbase_h1_r1_pfsafe_exp_l0_001_ws100_mnt128_dsFalse_tk200_sl128_dFalse_dastemp_bs32_mnsNone_mtsNone_nw4_te0_shot_doin/best.ckpt --data.domain_shift mild
-# python main.py test --model.model_head base --model.rank 1 --model.horizon 1 --model.positivity_func safe_exp --model.hidden_dim 768 --ckpt_path experiments/me8_gcvNone_pNone_mgpt2_hd768_tmlora_lr32_mhbase_h1_r1_pfsafe_exp_l0_001_ws100_mnt128_dsFalse_tk200_sl128_dFalse_dastemp_bs32_mnsNone_mtsNone_nw4_te0_shot_doin/best.ckpt --data.domain_shift hard
-
-
-python main.py fit --trainer.max_epochs 8  --model.model_head cp --model.rank 1 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768
-python main.py test --model.model_head cp --model.rank 1 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --ckpt_path experiments/me8_gcvNone_pNone_mgpt2_hd768_tmlora_lr32_mhcp_h2_r1_pfsafe_exp_l0_001_ws100_mnt128_dsFalse_tk200_sl128_dFalse_dastemp_bs32_mnsNone_mtsNone_nw4_te0_shot_doin/best.ckpt --data.domain_shift in
-python main.py test --model.model_head cp --model.rank 1 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --ckpt_path experiments/me8_gcvNone_pNone_mgpt2_hd768_tmlora_lr32_mhcp_h2_r1_pfsafe_exp_l0_001_ws100_mnt128_dsFalse_tk200_sl128_dFalse_dastemp_bs32_mnsNone_mtsNone_nw4_te0_shot_doin/best.ckpt --data.domain_shift mild
-python main.py test --model.model_head cp --model.rank 1 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --ckpt_path experiments/me8_gcvNone_pNone_mgpt2_hd768_tmlora_lr32_mhcp_h2_r1_pfsafe_exp_l0_001_ws100_mnt128_dsFalse_tk200_sl128_dFalse_dastemp_bs32_mnsNone_mtsNone_nw4_te0_shot_doin/best.ckpt --data.domain_shift hard
-
-
-# python main.py fit --trainer.max_epochs 8  --model.model_head cp --model.rank 1 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768
-# python main.py test --model.model_head cp --model.rank 1 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --ckpt_path experiments/me8_gcvNone_pNone_mgpt2_hd768_tmlora_lr32_mhcp_h2_r1_pfexp_l0_001_ws100_mnt128_dsFalse_tk200_sl128_dFalse_dastemp_bs32_mnsNone_mtsNone_nw4_te0_shot_doin/best.ckpt --data.domain_shift mild
+# python main.py fit --trainer.max_epochs 10  --model.model_head base --model.rank 1 --model.horizon 1 --model.positivity_func safe_exp --model.hidden_dim 768 --data.dataset shakespeare
+# python main.py fit --trainer.max_epochs 10  --model.model_head cp   --model.rank 2 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --data.dataset shakespeare
+# python main.py fit --trainer.max_epochs 10  --model.model_head cp   --model.rank 8 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --data.dataset shakespeare
+python main.py fit --trainer.max_epochs 10  --model.model_head cp_eff   --model.rank 32 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --data.dataset shakespeare --data.batch_size 1 --trainer.accumulate_grad_batches 32

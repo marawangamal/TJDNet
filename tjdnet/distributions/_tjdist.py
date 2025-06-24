@@ -112,8 +112,9 @@ class TJDist(AbstractDist):
 
         # Check param_func parameters
         print("--- Parameter Function State ---")
-        for name, param in self.param_func.named_parameters():
-            self._describe_tensor(param, f"param_func.{name}")
+        if self.param_func is not None:
+            for name, param in self.param_func.named_parameters():
+                self._describe_tensor(param, f"param_func.{name}")
 
         print("=== END DIAGNOSTIC REPORT ===\n")
 
