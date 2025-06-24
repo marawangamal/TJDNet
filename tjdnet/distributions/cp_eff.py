@@ -9,10 +9,7 @@ from tjdnet.distributions._tjdist import (
 )
 
 from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.tensorops.cp import (
-    select_margin_cp_tensor_batched,
-    select_margin_cp_tensor_batched_w_decoder,
-)
+from tjdnet.tensorops.cp import select_margin_cp_tensor_batched_w_decoder
 
 
 def safe_exp(x: torch.Tensor) -> torch.Tensor:
@@ -188,7 +185,7 @@ class CPEffDist(TJDist):
         )  # (B,), (B, H)
         norm_consts, norm_consts_scale_factors = (
             select_margin_cp_tensor_batched_w_decoder(
-                cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
+                cp_params=params,
                 ops=torch.full(
                     (B, horizon),
                     -2,

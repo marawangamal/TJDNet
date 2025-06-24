@@ -172,7 +172,7 @@ def select_margin_cp_tensor_batched_w_decoder(
     assert len(cp_params.shape) == 4, "CP params tensor must be $D (batched)"
     assert len(ops.shape) == 2, "Invalid ops tensor: must be 2D (batched)"
     assert (ops >= -2).all() and (
-        ops < cp_params.size(3)
+        ops < decoder.size(1)
     ).all(), "Invalid ops tensor: must be in range [-2, vocab_size)"
     assert ops.size(0) == cp_params.size(0), "Batch size mismatch"
 
@@ -249,7 +249,9 @@ def select_margin_cp_tensor_batched_w_decoder(
 
         # Free
         if mask_free.any():
-            res_free[mask_free] = cp_params[mask_free, :, t, :]
+            res_free[mask_free] = torch.einsum(
+                "brd,dv->brv", cp_params[mask_free, :, t, :], decoder
+            )
 
     # Final result
     # if not use_scale_factors:
