@@ -9,7 +9,27 @@ class DataIterator:
         self.split = split
         self.shift = shift
 
+    def _clip_temp(self, temp: int) -> int:
+        return max(-40, min(80, temp))
+
     def _sample_celsius(self):
+        # Base distribution with normal shape
+
+        if self.split == "train":
+            # Normal distribution centered at 20°C
+            return self._clip_temp(int(random.gauss(20, 2)))
+
+        # Eval/Test distribution depends on shift level
+        if self.shift == "in":
+            return self._clip_temp(int(random.gauss(20, 2)))
+        elif self.shift == "mild":
+            return self._clip_temp(int(random.gauss(25, 2)))
+        elif self.shift == "hard":
+            return self._clip_temp(int(random.gauss(30, 2)))  # 45-35
+        else:
+            raise ValueError(f"Invalid shift: {self.shift}")
+
+    def _sample_celsius_v1(self):
         # Train distribution is always the same
         if self.split == "train":
             return random.randint(-20, 40)

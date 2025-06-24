@@ -98,9 +98,9 @@ class LModel(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         out = self.model(**batch)
-        loss = out.loss
-        self.log("val_loss", loss, prog_bar=True)
-        return loss
+        self.log("val_loss", out.loss, prog_bar=True)
+        self.log("val_nll", out.nll, prog_bar=True)
+        return out.loss
 
     def test_step(self, batch, batch_idx):
         results = self._run_test(batch)
