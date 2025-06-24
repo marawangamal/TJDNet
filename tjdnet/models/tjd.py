@@ -108,7 +108,9 @@ class TJD(ABC, torch.nn.Module):
         pass
 
     @abstractmethod
-    def forward_backbone(self, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward_backbone(
+        self, mode: Literal["targ", "draft", "combined"] = "draft", **kwargs
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward pass of the backbone model.
 
         Returns:
@@ -136,6 +138,7 @@ class TJD(ABC, torch.nn.Module):
             torch.Tensor: Probabilities of shape (B, T, V).
         """
         h_targ, _ = self.forward_backbone(
+            mode="targ",
             input_ids=x,
             attention_mask=attn_mask,
             **kwargs,
@@ -259,11 +262,10 @@ class TJD(ABC, torch.nn.Module):
 
                 # Get hidden state
                 x = y_out[mask_active, : T + t]  # (B', T + t)
-                _, h_draft = self.forward_backbone(input_ids=x)
-                h_last_draft = h_draft[:, -1]
 
                 # Sample
                 if generation_config.gen_mode == "speculative":
+                    _, h_draft = self.forward_backbone(mode="draft", input_ids=x)
 
                     def model_p(y):
                         attn_mask = attention_mask
@@ -276,7 +278,7 @@ class TJD(ABC, torch.nn.Module):
 
                     def model_q():
                         return self.mhead.sample(
-                            h_last_draft,
+                            h_draft[:, -1],
                             horizon=H,
                             sample_fn=sample_fn,
                         )
@@ -292,14 +294,16 @@ class TJD(ABC, torch.nn.Module):
 
                 elif generation_config.gen_mode == "draft":
                     # y_hat ~ p(y | x, y1:t-1)
+                    _, h_draft = self.forward_backbone(mode="draft", input_ids=x)
                     y_hat, _ = self.mhead.sample(
-                        h_last_draft,
+                        h_draft[:, -1],
                         horizon=H,
                         sample_fn=sample_fn,
                     )  # (B', H_tgt)
 
                 elif generation_config.gen_mode == "base":
-                    logits_y = self.lm_head(h_last_draft)
+                    h_targ, _ = self.forward_backbone(mode="targ", input_ids=x)
+                    logits_y = self.lm_head(h_targ[:, -1])
                     y_hat = sample_fn(logits_y).unsqueeze(-1)  # (B', 1)
 
                 else:
@@ -371,7 +375,7 @@ class TJD(ABC, torch.nn.Module):
         H = self.horizon
 
         h_targ, h_draft = self.forward_backbone(
-            input_ids, attention_mask=attention_mask
+            mode="combined", input_ids=input_ids, attention_mask=attention_mask
         )  # (B, T, D), (B, T, D)
 
         # 1. Create targets

@@ -106,10 +106,32 @@ class TJDHuggingFace(TJD):
 
         return backbone, lm_head
 
-    def forward_backbone(self, *args, **kwargs):
-        transformer_outputs = self.backbone(*args, **kwargs)
-        h_targ = transformer_outputs.last_hidden_state
-        h_draft = h_targ
+    def forward_backbone(
+        self, mode: Literal["targ", "draft", "combined"] = "draft", **kwargs
+    ):
+        if mode == "draft":
+            # Enable lora
+            self.backbone.enable_adapters()  # type: ignore
+            transformer_outputs = self.backbone(**kwargs)
+            h_draft = transformer_outputs.last_hidden_state
+            h_targ = None
+        elif mode == "targ":
+            # Disable lora
+            self.backbone.disable_adapters()  # type: ignore
+            transformer_outputs = self.backbone(**kwargs)
+            h_targ = transformer_outputs.last_hidden_state
+            h_draft = None
+        elif mode == "combined":
+            # Enable lora
+            self.backbone.enable_adapters()  # type: ignore
+            transformer_outputs = self.backbone(**kwargs)
+            h_draft = transformer_outputs.last_hidden_state
+            # Disable lora
+            self.backbone.disable_adapters()  # type: ignore
+            transformer_outputs = self.backbone(**kwargs)
+            h_targ = transformer_outputs.last_hidden_state
+        else:
+            raise ValueError(f"Invalid mode: {mode}")
 
         if self.mhead_attn is not None:
             h_draft, _ = self.attn(
