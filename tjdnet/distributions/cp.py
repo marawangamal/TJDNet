@@ -143,7 +143,7 @@ class CPDist(TJDist):
         y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
         if refine:
             # Perform multiple refinement steps over the full sequence
-            for _ in range(refine_steps):
+            for _ in range(refine_steps - 1):
                 # Refine each position h in turn
                 for h in range(horizon):
                     # Build an ops tensor that fixes all tokens except position h (free leg)
@@ -166,7 +166,21 @@ class CPDist(TJDist):
                     # Sample a refined token and update y_hat at position h
                     refined_token = sample_fn(p_ops_tilde).unsqueeze(1)  # (B,1)
                     y_hat[:, h] = refined_token.squeeze(1)
-        py_tilde = torch.stack(y_hat, dim=1)  # (B, H, V)
+            
+            # Last step: compute the probabilities for each position
+            py_tilde_list.clear()
+            for h in range(horizon):
+                left = y_hat[:, :h]
+                free_leg = -1 * torch.ones(batch_size, 1, dtype=torch.long, device=dvc)
+                right = y_hat[:, h+1:]
+                ops_tensor = torch.cat((left, free_leg, right), dim=1)
+                p_ops_tilde, _ = select_margin_cp_tensor_batched(
+                    cp_params=model_head_params,
+                    ops=ops_tensor,
+                )
+                py_tilde_list.append(p_ops_tilde)
+            py_tilde = torch.stack(py_tilde_list, dim=1)
+
         if return_logits:  # don't normalize
             return y_hat, py_tilde
         return y_hat, py_tilde / py_tilde.sum(dim=-1, keepdim=True)  # (B, H)
