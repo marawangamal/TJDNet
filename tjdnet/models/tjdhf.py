@@ -2,7 +2,7 @@ from typing import Literal, Optional
 from transformers import AutoConfig
 import torch
 from transformers import AutoModelForCausalLM
-from transformers.utils import ModelOutput
+from transformers.utils.generic import ModelOutput
 
 from tjdnet.models.tjd import TJD, TJDConfig
 
@@ -132,7 +132,7 @@ class TJDHuggingFace(TJD):
             h_targ = transformer_outputs.last_hidden_state
 
         if self.mhead_attn is not None:
-            h_draft, _ = self.attn(
+            h_draft, _ = self.mhead_attn(
                 query=h_targ,
                 key=h_targ,
                 value=h_targ,

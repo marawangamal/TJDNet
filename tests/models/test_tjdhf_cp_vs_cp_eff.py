@@ -23,7 +23,6 @@ def tjdhf_cp_eff_method(B, T, H, R, D, device):
     )
     auto_model_kwargs = {
         "pretrained_model_name_or_path": "gpt2",
-        "torch_dtype": torch.float16,
         "device_map": None,
     }
     model = TJDHuggingFace(config, auto_model_kwargs, train_mode="lora").to(device)
@@ -47,7 +46,6 @@ def tjdhf_cp_method(B, T, H, R, D, device):
     )
     auto_model_kwargs = {
         "pretrained_model_name_or_path": "gpt2",
-        "torch_dtype": torch.float16,
         "device_map": None,
     }
     model = TJDHuggingFace(config, auto_model_kwargs, train_mode="lora").to(device)
@@ -76,11 +74,11 @@ class TestTJDHFCPEffVsCPDistMemory(unittest.TestCase):
 
     def test_memory_comparison(self):
         # hparams
-        B, T, H, R, D = 2, 8, 2, 1, 768  # small for quick test
+        B, T, H, R, D = 8, 128, 2, 64, 768  # small for quick test
         device = self.device
         methods = [
             (tjdhf_cp_method, "TJDHF+CPDist", (B, T, H, R, D, device)),
-            # (tjdhf_cp_eff_method, "TJDHF+CPEffDist", (B, T, H, R, D, device)),
+            (tjdhf_cp_eff_method, "TJDHF+CPEffDist", (B, T, H, R, D, device)),
         ]
         results = {"TJDHF+CPDist": -1, "TJDHF+CPEffDist": -1}
         param_percents = {"TJDHF+CPDist": -1.0, "TJDHF+CPEffDist": -1.0}

@@ -2,14 +2,15 @@ from typing import Literal, Union
 import lightning as L
 import torch
 from torch.utils.data import DataLoader
-from transformers import (
-    AutoTokenizer,
+from transformers import AutoTokenizer
+from transformers.data.data_collator import (
     DataCollatorForLanguageModeling,
     DataCollatorWithPadding,
-    get_linear_schedule_with_warmup,
 )
+from transformers.optimization import get_linear_schedule_with_warmup
 from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
 from transformers import AutoModelForCausalLM
+from lightning.pytorch.loggers import WandbLogger
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig
@@ -144,6 +145,10 @@ class LModel(L.LightningModule):
             return {"corr": corr.item(), "acceptance_rate": acceptance_rate}
 
         return {"corr": corr.item()}
+
+    def on_fit_start(self):
+        if self.logger is not None and isinstance(self.logger, WandbLogger):
+            self.logger.watch(self.model, log="all", log_freq=100)
 
     # def on_save_checkpoint(self, checkpoint):
     #     state = checkpoint["state_dict"]
