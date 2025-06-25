@@ -5,6 +5,7 @@ from tjdnet.distributions.stp import STPDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.cpb import CPBDist
 from tjdnet.distributions.cpe import CPEffDist
+from tjdnet.distributions.cpr import CPRDist
 
 
 TJD_DISTS: Dict[str, Type[AbstractDist]] = {
@@ -12,4 +13,5 @@ TJD_DISTS: Dict[str, Type[AbstractDist]] = {
     "cp": CPDist,
     "cpb": CPBDist,
     "cpe": CPEffDist,
+    "cpr": CPRDist,
 }
