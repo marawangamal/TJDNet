@@ -8,7 +8,7 @@ from tjdnet.distributions._tjdist import (
 )
 
 
-class BaseDist(TJDist):
+class STPDist(TJDist):
     def __init__(
         self,
         config: BaseDistConfig,
