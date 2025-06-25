@@ -2,7 +2,7 @@ from typing import Literal, Optional
 from transformers import AutoConfig
 import torch
 from transformers import AutoModelForCausalLM
-from transformers.utils import ModelOutput
+from transformers.utils.generic import ModelOutput
 
 from tjdnet.models.tjd import TJD, TJDConfig
 
@@ -48,7 +48,7 @@ class TJDHuggingFace(TJD):
         vocab_size, embedding_size = get_lm_head_size(
             auto_model_kwargs["pretrained_model_name_or_path"]
         )
-        config.model_head_config.param_net.in_dim = embedding_size
+        config.model_head_config.embedding_dim = embedding_size
         config.model_head_config.vocab_size = vocab_size
 
         # 3. Initialize the backbone, lm_head, mhead_attn
@@ -132,7 +132,7 @@ class TJDHuggingFace(TJD):
             h_targ = transformer_outputs.last_hidden_state
 
         if self.mhead_attn is not None:
-            h_draft, _ = self.attn(
+            h_draft, _ = self.mhead_attn(
                 query=h_targ,
                 key=h_targ,
                 value=h_targ,

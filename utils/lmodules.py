@@ -2,19 +2,15 @@ from typing import Literal, Union
 import lightning as L
 import torch
 from torch.utils.data import DataLoader
-from transformers import (
-    AutoTokenizer,
+from transformers import AutoTokenizer
+from transformers.data.data_collator import (
     DataCollatorForLanguageModeling,
     DataCollatorWithPadding,
-    get_linear_schedule_with_warmup,
 )
-from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
-from transformers import AutoModelForCausalLM
+from lightning.pytorch.loggers import WandbLogger
 
-from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig
-from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models.tjd import TJDConfig, TJDGenerationConfig
+from tjdnet.models.tjd import TJDConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
 from dataloaders import DATASETS
 
@@ -24,11 +20,10 @@ class LModel(L.LightningModule):
         self,
         # model
         model: str = "gpt2",
-        hidden_dim: int = 128,
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
         # tjdist parameters
-        model_head: Literal["cp", "base", "cp_eff"] = "cp",
+        model_head: Literal["cp", "cpe", "cpb", "stp"] = "cp",
         horizon: int = 1,
         rank: int = 1,
         positivity_func: Literal[
@@ -78,10 +73,7 @@ class LModel(L.LightningModule):
                     vocab_size=-1,  # Automatically set by the model
                     horizon=self.hparams["horizon"],
                     rank=self.hparams["rank"],
-                    param_net=TensorParamNetConfig(
-                        hidden_dim=self.hparams["hidden_dim"],
-                        positivity_func=self.hparams["positivity_func"],
-                    ),
+                    positivity_func=self.hparams["positivity_func"],
                 ),
             ),
         )
@@ -144,6 +136,13 @@ class LModel(L.LightningModule):
             return {"corr": corr.item(), "acceptance_rate": acceptance_rate}
 
         return {"corr": corr.item()}
+
+    def on_fit_start(self):
+        if isinstance(self.logger, WandbLogger):
+            print(">> Watching model with wandb")
+            self.logger.experiment.watch(self, log="all", log_freq=100)
+        else:
+            print(">> No logger found")
 
     # def on_save_checkpoint(self, checkpoint):
     #     state = checkpoint["state_dict"]

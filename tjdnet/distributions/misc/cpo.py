@@ -1,4 +1,4 @@
-from git import Optional
+from typing import Optional
 import torch
 
 from tjdnet.distributions._tjdist import BaseDistConfig

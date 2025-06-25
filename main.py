@@ -5,10 +5,14 @@ This script sets up the Lightning CLI for training and testing models, including
 experiment management, learning rate finding, and integration with Weights & Biases (wandb).
 
 Example usage:
-    python main_v2.py fit --model.model gpt2 --trainer.max_epochs 8 --trainer.gradient_clip_val 1.0
+    python main_v2.py fit --model.model distilbert/distilgpt2 --model.model_head cpb --model.rank 1 --model.horizon 2 --trainer.max_epochs 8 --trainer.gradient_clip_val 1.0
     python main_v2.py test --ckpt_path experiments/<run_name>/best.ckpt
 
 """
+
+# import os
+# os.environ["WANDB_MODE"] = "disabled"
+
 
 import os.path as osp
 from datetime import timedelta

@@ -1,19 +1,15 @@
 # tjdnet/distributions/__init__.py
 from typing import Dict, Type
-from tjdnet.distributions._tjdist import TJDist
-from tjdnet.distributions.base import BaseDist
+from tjdnet.distributions._base import AbstractDist
+from tjdnet.distributions.stp import STPDist
 from tjdnet.distributions.cp import CPDist
-from tjdnet.distributions.cpo import CPODist
-from tjdnet.distributions.cp_eff import CPEffDist
+from tjdnet.distributions.cpb import CPBDist
+from tjdnet.distributions.cpe import CPEffDist
 
 
-TJD_DISTS: Dict[str, Type[TJDist]] = {
-    "base": BaseDist,
+TJD_DISTS: Dict[str, Type[AbstractDist]] = {
+    "stp": STPDist,
     "cp": CPDist,
-    "cpo": CPODist,
-    "cp_eff": CPEffDist,
-    # "cpb": CPBDist,
-    # "ucp": UCPDist,
-    # "mps": MPSDist,
-    # "umps": UMPSDist,
+    "cpb": CPBDist,
+    "cpe": CPEffDist,
 }
