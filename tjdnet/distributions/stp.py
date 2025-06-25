@@ -22,7 +22,7 @@ class STPDist(AbstractDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__(config)
+        super().__init__()
         self.vocab_size = config.vocab_size
         self.rank = config.rank
         self.horizon = config.horizon
@@ -121,6 +121,13 @@ class STPDist(AbstractDist):
         Returns:
             torch.Tensor: Computed loss. Shape (B,).
         """
-        p_tilde = self.decoder(x)  # (B, V)
-        p_tilde_select = p_tilde.gather(dim=-1, index=y).squeeze(-1)  # (B,)
-        return -(p_tilde_select.log())
+        # preds = torch.nn.functional.softmax(self.decoder(x), dim=-1)  # (B, V)
+        # p_tilde_select = preds.gather(dim=-1, index=y).squeeze(-1)  # (B,)
+        # return -(p_tilde_select.log())
+
+        # CE loss (should be equivalent)
+        preds = self.decoder(x)  # (B, V)
+        loss = torch.nn.functional.cross_entropy(
+            preds, y.squeeze(-1), reduction="none"
+        )  # (B,)
+        return loss

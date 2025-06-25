@@ -56,7 +56,7 @@ huggingface-cli login
 To verify that your installation and setup are correct train a small model on a toy dataset and confirm it reaches nearly 100% accuracy:
 
 ```bash
-python main.py fit --model.model gpt2 --model.model_head cp --trainer.max_epochs 8
+python main.py fit --model.model gpt2 --model.model_head cp --model.rank 2 --model.horizon 2 --trainer.max_epochs 8
 ```
 
 After training for 4 epochs (~5 minutes on a single 40GB GPU), you should observe **100% accuracy** on the stemp dataset and an output like this

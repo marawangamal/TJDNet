@@ -20,11 +20,10 @@ class LModel(L.LightningModule):
         self,
         # model
         model: str = "gpt2",
-        hidden_dim: int = 128,
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
         # tjdist parameters
-        model_head: Literal["cp", "cpe", "cpb"] = "cp",
+        model_head: Literal["cp", "cpe", "cpb", "stp"] = "cp",
         horizon: int = 1,
         rank: int = 1,
         positivity_func: Literal[
@@ -74,7 +73,6 @@ class LModel(L.LightningModule):
                     vocab_size=-1,  # Automatically set by the model
                     horizon=self.hparams["horizon"],
                     rank=self.hparams["rank"],
-                    embedding_dim=self.hparams["hidden_dim"],
                     positivity_func=self.hparams["positivity_func"],
                 ),
             ),

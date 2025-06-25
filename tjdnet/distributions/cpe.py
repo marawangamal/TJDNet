@@ -23,7 +23,7 @@ class CPEffDist(AbstractDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__(config)
+        super().__init__()
         self.vocab_size = config.vocab_size
         self.horizon = config.horizon
         self.rank = config.rank
