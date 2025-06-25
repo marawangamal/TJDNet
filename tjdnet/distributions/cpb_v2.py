@@ -8,7 +8,6 @@ from tjdnet.distributions._tjdist import (
     BaseDistConfig,
     BaseDistFromLinearConfig,
 )
-from tjdnet.utils import sample_topk
 
 
 @dataclass
@@ -144,8 +143,7 @@ class CPBDist(AbstractDistV2):
                 # (B, R, H, V) => (B, R, H_y)
                 cp_left = theta[:, :, :H_y].gather(
                     -1, y.reshape(-1, 1, H_y, 1).expand(-1, R, -1, -1)
-                )
-                cp_left = cp_left * alpha.unsqueeze(-1)
+                ).squeeze(-1) * alpha.unsqueeze(-1)
 
             # (B, R, D) * (1, 1, D, V) => (B, R, D, V) => (B, R, V)
             cp_right = theta[:, :, -1] * alpha.unsqueeze(-1)  # (B, R, V)
@@ -159,11 +157,10 @@ class CPBDist(AbstractDistV2):
         #  (B, R, H, V) => (B, R, H)
         theta_select = theta.gather(
             -1, y.reshape(-1, 1, H, 1).expand(-1, R, -1, -1)
-        )  # select
-        theta = theta_select.sum(dim=-1)  # (B, R, H)
+        ).squeeze(-1)
 
         # (B, R, H) * (B, R, 1) => (B, R, H) => (B, R) => (B,)
-        p = (theta * alpha.unsqueeze(-1)).prod(-1).sum(-1)
+        p = (theta_select * alpha.unsqueeze(-1)).prod(-1).sum(-1)
         return p.log()
 
     def sample(
