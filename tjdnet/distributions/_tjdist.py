@@ -70,6 +70,36 @@ class AbstractDist(ABC, torch.nn.Module):
         pass
 
 
+class AbstractDistV2(ABC, torch.nn.Module):
+    @abstractmethod
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Computes loss for CPB distribution.
+
+        Args:
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+            y (torch.Tensor): Target labels. Shape (B, H).
+
+        Returns:
+            torch.Tensor: Computed loss. Shape (B,).
+        """
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_pretrained(
+        cls: Type[T], linear: torch.nn.Linear, config: BaseDistFromLinearConfig
+    ) -> T:
+        """Initialize the distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to initialize the distribution.
+
+        Returns:
+            T: An instance of the distribution class.
+        """
+        pass
+
+
 class TJDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__(config)

@@ -32,9 +32,6 @@ class CPEffDist(TJDist):
         config.param_net.use_bias_decoder = False
         super().__init__(config)
 
-        # Layer norm:
-        self.layer_norm = torch.nn.LayerNorm(config.param_net.hidden_dim)
-
     @property
     def cp_decoder(self):
         if self.param_func.decoder:
@@ -90,13 +87,11 @@ class CPEffDist(TJDist):
         # params = safe_exp(self.cp_w(x))  # (B, RHd)
         params = self.param_func.w(x)  # (B, RHd)
         params_reshaped = params.reshape(B, self.rank, self.horizon, -1)
-        # Layer norm:
-        params_reshaped = self.layer_norm(params_reshaped)
         print(
             f"params_reshaped min: {params_reshaped.min().item():.3f}, max: {params_reshaped.max().item():.3f}"
         )
-        return self.param_func.positivity_func(
-            params_reshaped
+        return torch.nn.functional.softmax(
+            params_reshaped, dim=1
         )  # (B, R, H, d)  // H* is model level horizon, d is hidden dim
 
     def sample(

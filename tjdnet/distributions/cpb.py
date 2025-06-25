@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 
 from tjdnet.distributions._tjdist import (
-    AbstractDist,
+    AbstractDistV2,
     BaseDistConfig,
     BaseDistFromLinearConfig,
 )
@@ -20,15 +20,12 @@ class CPBDistConfig:
     vocab_size: int
 
 
-class CPBDist(AbstractDist):
+class CPBDist(AbstractDistV2):
     def __init__(self, config: BaseDistConfig):
-        self.rank = config.rank
-        self.horizon = config.horizon
+        super().__init__()
         self.vocab_size = config.vocab_size
-        config.param_net.out_dim_encoder = config.rank * config.horizon
-        config.param_net.out_dim_decoder = config.vocab_size
-        config.param_net.positivity_func = "none"
-        super().__init__(config)
+        self.horizon = config.horizon
+        self.rank = config.rank
 
         # === learnable alpha (moe weights)
         self.alpha_unnorm_func = torch.nn.Linear(
@@ -125,7 +122,7 @@ class CPBDist(AbstractDist):
             return_logit (bool, optional): Whether to return dist over next token. Defaults to False.
 
         Returns:
-            torch.Tensor: Computed logP(y|x). Shape (B,) if return_logit is False, else (B, H, V).
+            torch.Tensor: Computed logP(y|x). Shape (B,) if return_dist_slice is False, else (B, V).
 
         """
 
@@ -174,7 +171,7 @@ class CPBDist(AbstractDist):
             )
             return torch.logsumexp(z, dim=1).squeeze(-1)
 
-    def evaluate(self, x: torch.Tensor, y: torch.Tensor):
+    def forward(self, x: torch.Tensor, y: torch.Tensor):
         """Computes loss for CPB distribution.
 
         Args:
@@ -186,20 +183,37 @@ class CPBDist(AbstractDist):
         """
         return -self.log_prob(x, y)
 
-    def sample_v1(
+    def sample(
         self,
-        hidden_state: torch.Tensor,
+        x: torch.Tensor,
+        sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int],
-        do_sample: bool,
-        top_k: int,
+        return_logits: bool = False,
         **kwargs,
     ):
+        """_summary_
+
+        Args:
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+            sample_fn (Callable): Sampling function.
+            horizon (Optional[int]): Horizon for sampling. Must be <= self.horizon.
+            return_logits (bool): Whether to return logits or probabilities.
+
+        Returns:
+            tuple:
+                - Evaluation of the distribution at the points of shape (B, H).
+                - Probabilities of shape (B, H, V) or logits of shape (B, H, V).
+        """
         y = None
-        x = hidden_state[:, -1]  # (B, D)
+        x = x[:, -1]  # (B, D)
         z = torch.zeros(x.size(0), 1, device=x.device)
         pys = []
-        for h in range(self.horizon):
-            log_py = self.log_prob(x, y, return_dist_slice=True)  # (B, V)
+        horizon = min(horizon, self.horizon) if horizon is not None else self.horizon
+        for _ in range(horizon):
+
+            # log p(y_h|x, y_1:h-1) [B, V]
+            log_py = self.log_prob(x, y, return_dist_slice=True)
+
             log_pyh_bar_y = log_py - z
             pyh_bar_y = torch.exp(log_pyh_bar_y)
             y_h = (
@@ -219,7 +233,7 @@ class CPBDist(AbstractDist):
 
         return y, torch.stack(pys, dim=1)  # (B, H), (B, H, V)
 
-    def sample(
+    def sample_v2(
         self,
         hidden_state: torch.Tensor,
         horizon: Optional[int],

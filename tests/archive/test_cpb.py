@@ -70,7 +70,7 @@ class TestCPBDist(unittest.TestCase):
 
         last_hidden_state = torch.randn(batch_size, seq_len, n_embd)  # (B, T, D)
         y, py = model_head.sample(
-            hidden_state=last_hidden_state,
+            x=last_hidden_state,
             horizon=horizon,
             do_sample=True,
             top_k=200,

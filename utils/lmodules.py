@@ -29,7 +29,7 @@ class LModel(L.LightningModule):
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
         # tjdist parameters
-        model_head: Literal["cp", "base", "cp_eff"] = "cp",
+        model_head: Literal["cp", "base", "cp_eff", "cpb"] = "cp",
         horizon: int = 1,
         rank: int = 1,
         positivity_func: Literal[
