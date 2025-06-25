@@ -57,9 +57,10 @@ def select_margin_cp_tensor_batched(
     res_right = torch.ones(
         batch_size, rank, device=cp_params.device, dtype=cp_params.dtype
     )
-    res_free = torch.ones(
-        batch_size, rank, vocab_size, device=cp_params.device, dtype=cp_params.dtype
-    )
+    if torch.any(bp_free != bp_margin):
+        res_free = torch.ones(
+            batch_size, rank, vocab_size, device=cp_params.device, dtype=cp_params.dtype
+        )
 
     core_margins = cp_params.sum(dim=-1)  # (B, R, T)
     scale_factors = []
@@ -188,19 +189,17 @@ def select_margin_cp_tensor_batched_w_decoder(
     res_right = torch.ones(
         batch_size, rank, device=cp_params.device, dtype=cp_params.dtype
     )
-    res_free = torch.ones(
-        batch_size, rank, vocab_size, device=cp_params.device, dtype=cp_params.dtype
-    )
-
-    # core_margins = torch.einsum(
-    #     "brtd,d -> brt", cp_params, decoder.sum(dim=-1)
-    # )  # (B, R, T)
-
+    # Only define res_free if there are free operations
+    if torch.any(bp_free != bp_margin):
+        res_free = torch.ones(
+            batch_size, rank, vocab_size, device=cp_params.device, dtype=cp_params.dtype
+        )
     scale_factors = []
     for t in range(horizon):
         mask_select = t < bp_free
         mask_margin = t >= bp_margin
         mask_free = ~mask_select & ~mask_margin
+        sf = None
 
         # Select
         if mask_select.any():
@@ -260,6 +259,10 @@ def select_margin_cp_tensor_batched_w_decoder(
             res_free[mask_free] = torch.einsum(
                 "brd,dv->brv", cp_params[mask_free, :, t, :], decoder
             )
+
+        if sf is not None:
+            # print sf min and max
+            print(f"sf min: {sf.min().item():.3f}, max: {sf.max().item():.3f}")
 
     # Final result
     # if not use_scale_factors:

@@ -147,8 +147,11 @@ class LModel(L.LightningModule):
         return {"corr": corr.item()}
 
     def on_fit_start(self):
-        if self.logger is not None and isinstance(self.logger, WandbLogger):
-            self.logger.watch(self.model, log="all", log_freq=100)
+        if isinstance(self.logger, WandbLogger):
+            print(">> Watching model with wandb")
+            self.logger.experiment.watch(self, log="all", log_freq=100)
+        else:
+            print(">> No logger found")
 
     # def on_save_checkpoint(self, checkpoint):
     #     state = checkpoint["state_dict"]

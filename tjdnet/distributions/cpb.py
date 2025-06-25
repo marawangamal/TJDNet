@@ -38,19 +38,6 @@ class CPBDist(AbstractDist):
         # === fixed alpha
         # self.alpha_unnorm_func = lambda x: torch.ones(1, self.rank, device=x.device)
 
-    def forward(self, last_hidden_state: torch.Tensor, **kwargs):
-        raise NotImplementedError("_get_params method must be implemented")
-
-    def evaluate_at_points_and_get_norm_consts(
-        self,
-        last_hidden_state: torch.Tensor,
-        points: torch.Tensor,
-        **kwargs,
-    ):
-        raise NotImplementedError(
-            "evaluate_at_points_and_get_norm_consts method must be implemented"
-        )
-
     @classmethod
     def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
         raise NotImplementedError(
@@ -187,7 +174,7 @@ class CPBDist(AbstractDist):
             )
             return torch.logsumexp(z, dim=1).squeeze(-1)
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor):
+    def evaluate(self, x: torch.Tensor, y: torch.Tensor):
         """Computes loss for CPB distribution.
 
         Args:

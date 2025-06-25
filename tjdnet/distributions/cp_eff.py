@@ -1,3 +1,4 @@
+import os, datetime
 from typing import Callable, Optional
 import torch
 
@@ -31,10 +32,13 @@ class CPEffDist(TJDist):
         config.param_net.use_bias_decoder = False
         super().__init__(config)
 
+        # Layer norm:
+        self.layer_norm = torch.nn.LayerNorm(config.param_net.hidden_dim)
+
     @property
     def cp_decoder(self):
         if self.param_func.decoder:
-            return self.param_func.decoder.weight.T
+            return torch.nn.functional.relu(self.param_func.decoder.weight.T)
         else:
             raise ValueError("Decoder not found")
 
@@ -86,7 +90,14 @@ class CPEffDist(TJDist):
         # params = safe_exp(self.cp_w(x))  # (B, RHd)
         params = self.param_func.w(x)  # (B, RHd)
         params_reshaped = params.reshape(B, self.rank, self.horizon, -1)
-        return params_reshaped  # (B, R, H, d)  // H* is model level horizon
+        # Layer norm:
+        params_reshaped = self.layer_norm(params_reshaped)
+        print(
+            f"params_reshaped min: {params_reshaped.min().item():.3f}, max: {params_reshaped.max().item():.3f}"
+        )
+        return self.param_func.positivity_func(
+            params_reshaped
+        )  # (B, R, H, d)  // H* is model level horizon, d is hidden dim
 
     def sample(
         self,
@@ -156,6 +167,14 @@ class CPEffDist(TJDist):
             return y_hat, py_tilde
         return y_hat, py_tilde / py_tilde.sum(dim=-1, keepdim=True)  # (B, H)
 
+    def _describe_tensor_cp_eff(self, tensor: torch.Tensor, name: str):
+        nan_count = torch.isnan(tensor).sum().item()
+        inf_count = torch.isinf(tensor).sum().item()
+        print(
+            f"CP_EFFDiag - {name}: {tensor.shape}, min={tensor.min().item():.3f}, max={tensor.max().item():.3f}, "
+            f"NaN={nan_count}/{tensor.numel()}, Inf={inf_count}/{tensor.numel()}"
+        )
+
     def evaluate(
         self,
         x: torch.Tensor,
@@ -163,7 +182,6 @@ class CPEffDist(TJDist):
         **kwargs,
     ):
         # Get indexed distribution
-        print("[CPEffDist.evaluate] running")
         H = self.horizon
         B = x.size(0)
         params = self.get_params(x)  # (B, R, H, d)
@@ -172,6 +190,46 @@ class CPEffDist(TJDist):
             ops=y.reshape(B, H),
             decoder=self.cp_decoder,
         )  # (B,), (B, H)
+
+        # Check for NaNs in p_tilde or its scale factors
+        if torch.isnan(p_tilde).any() or any(
+            torch.isnan(sf).any()
+            for sf in p_tilde_scale_factors
+            if isinstance(sf, torch.Tensor)
+        ):
+            print("=== CP_EFF DIAGNOSTICS ===")
+            os.makedirs("debug", exist_ok=True)
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_filepath = f"debug/cp_eff_nan_debug_{ts}.pt"
+            torch.save(
+                {
+                    "params": params.cpu(),
+                    "y": y.cpu(),
+                    "p_tilde": (
+                        p_tilde.cpu() if isinstance(p_tilde, torch.Tensor) else p_tilde
+                    ),
+                    "p_tilde_scale_factors": [
+                        sf.cpu() if isinstance(sf, torch.Tensor) else sf
+                        for sf in p_tilde_scale_factors
+                    ],
+                    "cp_decoder": (
+                        self.cp_decoder.cpu()
+                        if isinstance(self.cp_decoder, torch.Tensor)
+                        else self.cp_decoder
+                    ),
+                    "param_func.w.weight": self.param_func.w.weight.data.cpu(),
+                    "x": x.cpu(),
+                },
+                debug_filepath,
+            )
+            print("NaN detected in p_tilde or its scale factors!")
+            self._describe_tensor_cp_eff(params, "params")
+            self._describe_tensor_cp_eff(y.reshape(B, H), "ops")
+            self._describe_tensor_cp_eff(self.cp_decoder, "cp_decoder")
+            print(f"Saved debug tensors to {debug_filepath}")
+            print("=== END CP_EFF DIAGNOSTICS ===")
+
+        # Marginalize over all tokens
         norm_consts, norm_consts_scale_factors = (
             select_margin_cp_tensor_batched_w_decoder(
                 cp_params=params,
