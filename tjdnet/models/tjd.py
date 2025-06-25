@@ -5,7 +5,6 @@ from typing import Dict, Literal, Optional, Tuple, overload
 
 
 import torch
-from wandb import config
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig, BaseDistFromLinearConfig
