@@ -138,17 +138,21 @@ class CPBDist(AbstractDistV2):
 
         # === test mode
         if return_dists:
-            if H_y == 0:
-                pass
-            # The contraction sums over R and D dimensions
-            # (B, R, H, V) => (B, R, H_y)
-            cp_left = theta[:, :, :H_y].gather(
-                -1, y.reshape(-1, 1, H_y, 1).expand(-1, R, -1, -1)
-            )
-            cp_left = cp_left * alpha.unsqueeze(-1)
+            cp_left = None
+            if H_y != 0:
+                # The contraction sums over R and D dimensions
+                # (B, R, H, V) => (B, R, H_y)
+                cp_left = theta[:, :, :H_y].gather(
+                    -1, y.reshape(-1, 1, H_y, 1).expand(-1, R, -1, -1)
+                )
+                cp_left = cp_left * alpha.unsqueeze(-1)
+
             # (B, R, D) * (1, 1, D, V) => (B, R, D, V) => (B, R, V)
             cp_right = theta[:, :, -1] * alpha.unsqueeze(-1)  # (B, R, V)
-            p = (cp_left.prod(-1, keepdim=True) * cp_right).sum(1)  # (B, V)
+            p = cp_right  # (B, R, V)
+            if cp_left is not None:
+                p = cp_left.prod(-1, keepdim=True) * p  # (B, R, V)
+            p = p.sum(1)  # (B, V)
             return p / p.sum(-1, keepdim=True)  # (B, V)
 
         # === train mode
@@ -179,12 +183,12 @@ class CPBDist(AbstractDistV2):
         Returns:
             torch.Tensor: Computed loss. Shape (B,).
         """
-        y_out = torch.empty(x.size(0), self.horizon, device=x.device, dtype=torch.long)
+        y_out = torch.empty(x.size(0), 0, device=x.device, dtype=torch.long)
         for _ in range(self.horizon):
             prob_y_bar_xy = self.log_prob(x, y_out, return_dists=True)
             y_out_t = sample_fn(prob_y_bar_xy).unsqueeze(1)  # (B, 1)
             y_out = torch.cat([y_out, y_out_t], dim=-1)  # (B, H+1)
-        return y_out
+        return y_out, prob_y_bar_xy
 
     def forward(self, x: torch.Tensor, y: torch.Tensor):
         """Computes loss for CPB distribution.
