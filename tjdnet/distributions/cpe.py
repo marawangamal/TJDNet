@@ -2,13 +2,9 @@ import os, datetime
 from typing import Callable, Optional
 import torch
 
-from tjdnet.distributions._tjdist import (
-    BaseDistConfig,
-    BaseDistFromLinearConfig,
-    TJDist,
-)
+from tjdnet.distributions._base import AbstractDist
+from tjdnet.distributions._tjdist import BaseDistConfig
 
-from tjdnet.distributions.tpnet import TensorParamNetConfig
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched_w_decoder
 
 
@@ -17,7 +13,7 @@ def safe_exp(x: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.clamp(x, max=20.0))  # Clamp to
 
 
-class CPEffDist(TJDist):
+class CPEffDist(AbstractDist):
     def __init__(self, config: BaseDistConfig, **kwargs):
         """CP Distribution
 
@@ -27,65 +23,70 @@ class CPEffDist(TJDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        config.param_net.out_dim_encoder = config.rank * config.horizon
-        config.param_net.out_dim_decoder = config.vocab_size
-        config.param_net.use_bias_decoder = False
         super().__init__(config)
+        self.vocab_size = config.vocab_size
+        self.horizon = config.horizon
+        self.rank = config.rank
+        self.w_cp = torch.nn.Linear(
+            config.embedding_dim,
+            config.rank * config.horizon,
+            bias=False,
+        )
+        self.decoder = torch.nn.Parameter(
+            torch.randn(config.embedding_dim, config.vocab_size)
+        )
 
     @property
     def cp_decoder(self):
-        if self.param_func.decoder:
-            return torch.nn.functional.relu(self.param_func.decoder.weight.T)
-        else:
-            raise ValueError("Decoder not found")
+        return torch.nn.functional.relu(self.decoder)
 
-    @classmethod
-    def from_pretrained(
-        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
-    ):
-        """Create a CP distribution from a linear layer.
+    # @classmethod
+    # def from_pretrained(
+    #     cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
+    # ):
+    #     """Create a CP distribution from a linear layer.
 
-        Args:
-            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
-            config (BaseDistFromLinearConfig): Configuration for the distribution.
+    #     Args:
+    #         linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+    #         config (BaseDistFromLinearConfig): Configuration for the distribution.
 
-        Returns:
-            CPEffDist: CP distribution with the given configuration.
-        """
+    #     Returns:
+    #         CPEffDist: CP distribution with the given configuration.
+    #     """
 
-        vocab_size, hidden_dim = linear.weight.shape
-        use_bias_decoder = False
-        if linear.bias is not None:
-            use_bias_decoder = True
-            raise Warning("CPDist: Skiping bias initialization.")
+    #     vocab_size, hidden_dim = linear.weight.shape
+    #     use_bias_decoder = False
+    #     if linear.bias is not None:
+    #         use_bias_decoder = True
+    #         raise Warning("CPDist: Skiping bias initialization.")
 
-        param_net_conf = config.param_net.to_dict()
-        param_net_conf["hidden_dim"] = hidden_dim
-        param_net_conf["out_dim_decoder"] = vocab_size
-        param_net_conf["use_bias_decoder"] = use_bias_decoder
+    #     param_net_conf = config.param_net.to_dict()
+    #     param_net_conf["hidden_dim"] = hidden_dim
+    #     param_net_conf["out_dim_decoder"] = vocab_size
+    #     param_net_conf["use_bias_decoder"] = use_bias_decoder
 
-        obj = cls(
-            config=BaseDistConfig(
-                vocab_size=vocab_size,
-                horizon=config.horizon,
-                rank=config.rank,
-                param_net=TensorParamNetConfig(**param_net_conf),
-            ),
-            **kwargs,
-        )
+    #     obj = cls(
+    #         config=BaseDistConfig(
+    #             vocab_size=vocab_size,
+    #             horizon=config.horizon,
+    #             rank=config.rank,
+    #             param_net=TensorParamNetConfig(**param_net_conf),
+    #         ),
+    #         **kwargs,
+    #     )
 
-        # Initialize the parameters in obj.tensor_param_net
-        # with the parameters from the linear layer
-        obj.param_func.decoder.weight.data = linear.weight.data  # type: ignore
-        if use_bias_decoder:
-            obj.param_func.decoder.bias.data = linear.bias.data  # type: ignore
-        return obj
+    #     # Initialize the parameters in obj.tensor_param_net
+    #     # with the parameters from the linear layer
+    #     obj.param_func.decoder.weight.data = linear.weight.data  # type: ignore
+    #     if use_bias_decoder:
+    #         obj.param_func.decoder.bias.data = linear.bias.data  # type: ignore
+    #     return obj
 
     def get_params(self, x: torch.Tensor, **kwargs):
         B = x.size(0)
         #  W: (B, d) -> (B, R, H, d) [dxRHd]
         # params = safe_exp(self.cp_w(x))  # (B, RHd)
-        params = self.param_func.w(x)  # (B, RHd)
+        params = self.w_cp(x)  # (B, RHd)
         params_reshaped = params.reshape(B, self.rank, self.horizon, -1)
         print(
             f"params_reshaped min: {params_reshaped.min().item():.3f}, max: {params_reshaped.max().item():.3f}"
@@ -118,12 +119,12 @@ class CPEffDist(TJDist):
                 - Evaluation of the distribution at the points of shape (B, H).
                 - Probabilities of shape (B, H, V) or logits of shape (B, H, V).
         """
-        horizon = self.get_horizon(horizon)  # Possibly override model horizon
-        batch_size = x.size(0)
+        H = min(horizon, self.horizon) if horizon is not None else self.horizon
+        B = x.size(0)
         dvc = x.device
 
         # Output tokens will be placed in `y_hat`
-        y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
+        y_hat = torch.empty(B, 0, device=dvc, dtype=torch.long)
         model_head_params = self.get_params(x)  # (B, R, H, d)
         py_tilde_list = []
 
@@ -134,16 +135,13 @@ class CPEffDist(TJDist):
         #  y_hat = [[1, 2, 3]]  # (B, T)
         #  ops_tensor = [[1, 2, -2]]  # (B, T)
         #  p_ops_tilde = A^{(1))_1} * A^{(2)}_2 * (𝜮_r A^{(3)}_r)
-        for h in range(horizon):
+        for h in range(H):
             ops_tensor = torch.cat(
                 (
                     y_hat,  # selection
-                    -1  # free leg
-                    * torch.ones(batch_size, 1, dtype=torch.long, device=dvc),
+                    -1 * torch.ones(B, 1, dtype=torch.long, device=dvc),  # free leg
                     -2  # marginalization
-                    * torch.ones(
-                        batch_size, (horizon - h - 1), dtype=torch.long, device=dvc
-                    ),
+                    * torch.ones(B, (H - h - 1), dtype=torch.long, device=dvc),
                 ),
                 dim=1,
             )  # (B, T)
@@ -212,7 +210,7 @@ class CPEffDist(TJDist):
                         if isinstance(self.cp_decoder, torch.Tensor)
                         else self.cp_decoder
                     ),
-                    "param_func.w.weight": self.param_func.w.weight.data.cpu(),
+                    "param_func.w.weight": self.w_cp.weight.data.cpu(),
                     "x": x.cpu(),
                 },
                 debug_filepath,

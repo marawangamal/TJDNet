@@ -7,15 +7,10 @@ from transformers.data.data_collator import (
     DataCollatorForLanguageModeling,
     DataCollatorWithPadding,
 )
-from transformers.optimization import get_linear_schedule_with_warmup
-from peft import LoraConfig, TaskType, get_peft_model  # type: ignore
-from transformers import AutoModelForCausalLM
 from lightning.pytorch.loggers import WandbLogger
 
-from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._tjdist import BaseDistConfig
-from tjdnet.distributions.tpnet import TensorParamNetConfig
-from tjdnet.models.tjd import TJDConfig, TJDGenerationConfig
+from tjdnet.models.tjd import TJDConfig
 from tjdnet.models.tjdhf import TJDHuggingFace
 from dataloaders import DATASETS
 
@@ -29,7 +24,7 @@ class LModel(L.LightningModule):
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
         # tjdist parameters
-        model_head: Literal["cp", "base", "cp_eff", "cpb"] = "cp",
+        model_head: Literal["cp", "cpe", "cpb"] = "cp",
         horizon: int = 1,
         rank: int = 1,
         positivity_func: Literal[
@@ -79,10 +74,8 @@ class LModel(L.LightningModule):
                     vocab_size=-1,  # Automatically set by the model
                     horizon=self.hparams["horizon"],
                     rank=self.hparams["rank"],
-                    param_net=TensorParamNetConfig(
-                        hidden_dim=self.hparams["hidden_dim"],
-                        positivity_func=self.hparams["positivity_func"],
-                    ),
+                    embedding_dim=self.hparams["hidden_dim"],
+                    positivity_func=self.hparams["positivity_func"],
                 ),
             ),
         )

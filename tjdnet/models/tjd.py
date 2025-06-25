@@ -7,7 +7,7 @@ from typing import Dict, Literal, Optional, Tuple, overload
 import torch
 
 from tjdnet.distributions import TJD_DISTS
-from tjdnet.distributions._tjdist import BaseDistConfig, BaseDistFromLinearConfig
+from tjdnet.distributions._base import BaseDistConfig, BaseDistFromLinearConfig
 from tjdnet.spec_sample import spec_sample
 from tjdnet.tensorops.common import get_windowed_input_ids_v2
 from tjdnet.utils import sample_topk
@@ -70,7 +70,7 @@ class TJD(ABC, torch.nn.Module):
 
         # Set dims
         self.horizon = config.model_head_config.horizon
-        self.n_embd = config.model_head_config.param_net.in_dim
+        self.n_embd = config.model_head_config.embedding_dim
         self.vocab_size = config.model_head_config.vocab_size
 
         # Initialize model head
@@ -80,7 +80,7 @@ class TJD(ABC, torch.nn.Module):
                 config=BaseDistFromLinearConfig(
                     horizon=config.model_head_config.horizon,
                     rank=config.model_head_config.rank,
-                    param_net=config.model_head_config.param_net,
+                    embedding_dim=config.model_head_config.embedding_dim,
                 ),
             )
         else:

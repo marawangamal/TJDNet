@@ -3,11 +3,8 @@ from typing import Callable, Optional
 
 import torch
 
-from tjdnet.distributions._tjdist import (
-    AbstractDistV2,
-    BaseDistConfig,
-    BaseDistFromLinearConfig,
-)
+from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
+from tjdnet.distributions._tjdist import BaseDistConfig
 
 
 @dataclass
@@ -19,7 +16,7 @@ class CPBDistConfig:
     vocab_size: int
 
 
-class CPBDist(AbstractDistV2):
+class CPBDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__()
         """Parameterized CP tensor network distribution.
@@ -39,9 +36,8 @@ class CPBDist(AbstractDistV2):
         self.vocab_size = config.vocab_size
         self.horizon = config.horizon
         self.rank = config.rank
-        self.in_dim = config.param_net.in_dim
-        self.hidden_dim = config.param_net.hidden_dim
-        H, R, D, V = (self.horizon, self.rank, self.in_dim, self.vocab_size)
+        self.embedding_dim = config.embedding_dim
+        H, R, D, V = (self.horizon, self.rank, self.embedding_dim, self.vocab_size)
 
         # === params
         self.w_alpha = torch.nn.Linear(D, R)
@@ -75,7 +71,7 @@ class CPBDist(AbstractDistV2):
         """
 
         # === dims
-        H, R, D, V = (self.horizon, self.rank, self.in_dim, self.vocab_size)
+        H, R, D, V = (self.horizon, self.rank, self.embedding_dim, self.vocab_size)
         B = x.size(0)
         H_y = y.size(1)
 
