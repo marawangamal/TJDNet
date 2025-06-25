@@ -48,7 +48,7 @@ class TJDHuggingFace(TJD):
         vocab_size, embedding_size = get_lm_head_size(
             auto_model_kwargs["pretrained_model_name_or_path"]
         )
-        config.model_head_config.param_net.in_dim = embedding_size
+        config.model_head_config.embedding_dim = embedding_size
         config.model_head_config.vocab_size = vocab_size
 
         # 3. Initialize the backbone, lm_head, mhead_attn

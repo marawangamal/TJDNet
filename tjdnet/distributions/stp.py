@@ -1,7 +1,11 @@
 from typing import Callable, Optional
 import torch
 
-from tjdnet.distributions._base import AbstractDist, BaseDistConfig
+from tjdnet.distributions._base import (
+    AbstractDist,
+    BaseDistConfig,
+    BaseDistFromLinearConfig,
+)
 
 
 class STPDist(AbstractDist):
@@ -27,6 +31,12 @@ class STPDist(AbstractDist):
             config.vocab_size,
             bias=False,
         )
+
+    @classmethod
+    def from_pretrained(
+        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
+    ):
+        raise NotImplementedError("CPDist does not support from_pretrained")
 
     # @classmethod
     # def from_pretrained(

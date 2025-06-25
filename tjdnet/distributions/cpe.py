@@ -2,7 +2,7 @@ import os, datetime
 from typing import Callable, Optional
 import torch
 
-from tjdnet.distributions._base import AbstractDist
+from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
 from tjdnet.distributions._tjdist import BaseDistConfig
 
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched_w_decoder
@@ -81,6 +81,12 @@ class CPEffDist(AbstractDist):
     #     if use_bias_decoder:
     #         obj.param_func.decoder.bias.data = linear.bias.data  # type: ignore
     #     return obj
+
+    @classmethod
+    def from_pretrained(
+        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
+    ):
+        raise NotImplementedError("CPDist does not support from_pretrained")
 
     def get_params(self, x: torch.Tensor, **kwargs):
         B = x.size(0)

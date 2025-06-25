@@ -61,6 +61,12 @@ class CPDist(TJDist):
     #         obj.param_func.decoder.bias.data = linear.bias.data  # type: ignore
     #     return obj
 
+    @classmethod
+    def from_pretrained(
+        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
+    ):
+        raise NotImplementedError("CPDist does not support from_pretrained")
+
     def get_params(self, x: torch.Tensor, **kwargs):
         B = x.size(0)
         params = self.param_func(x)  # (B, R * H, V)

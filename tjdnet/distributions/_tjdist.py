@@ -9,7 +9,7 @@ from tjdnet.distributions._tpnet import TensorParamNet, TensorParamNetConfig
 
 class TJDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
-        super().__init__(config)
+        super().__init__()
         self.vocab_size = config.vocab_size
         self.horizon = config.horizon
         self.rank = config.rank
