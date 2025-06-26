@@ -4,7 +4,6 @@ import torch.optim as optim
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.cpb import CPBDist
-from tjdnet.distributions.cpe import CPEffDist
 from tjdnet.distributions.multihead import MultiHeadDist
 
 # Hyperparameters
@@ -67,19 +66,25 @@ train_y = generate_y_from_x(train_x)
 test_x = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, EMBEDDING_DIM)).float()
 test_y = generate_y_from_x(test_x)
 
-# Create backbone
-backbone = BackboneModel(EMBEDDING_DIM, HIDDEN_DIM, NUM_LAYERS, HIDDEN_DIM)
-
 # Create distribution configs
 config = BaseDistConfig(
     vocab_size=VOCAB_SIZE, horizon=HORIZON, rank=RANK, embedding_dim=HIDDEN_DIM
 )
 
-# Models
+# Models - each with its own separate backbone
 models = {
-    "MLP-Head": BackboneHeadModel(backbone, MultiHeadDist(config)),
-    "MLP-CP": BackboneHeadModel(backbone, CPDist(config)),
-    "MLP-CPB": BackboneHeadModel(backbone, CPBDist(config)),
+    "MLP-MHead": BackboneHeadModel(
+        BackboneModel(EMBEDDING_DIM, HIDDEN_DIM, NUM_LAYERS, HIDDEN_DIM),
+        MultiHeadDist(config),
+    ),
+    "MLP-CP": BackboneHeadModel(
+        BackboneModel(EMBEDDING_DIM, HIDDEN_DIM, NUM_LAYERS, HIDDEN_DIM),
+        CPDist(config),
+    ),
+    "MLP-CPB": BackboneHeadModel(
+        BackboneModel(EMBEDDING_DIM, HIDDEN_DIM, NUM_LAYERS, HIDDEN_DIM),
+        CPBDist(config),
+    ),
     # Fails
     # "MLP-CPE": BackboneHeadModel(backbone, CPEffDist(config)),
 }
