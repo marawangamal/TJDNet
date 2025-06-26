@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Literal, Optional, Tuple, Type, TypeVar
 
 import torch
+from tjdnet.types import PositivityFuncType
 
 
 T = TypeVar("T", bound="AbstractDist")
@@ -15,7 +16,7 @@ class BaseDistFromLinearConfig:
     horizon: int
     rank: int
     embedding_dim: int = 768
-    positivity_func: Literal["sq", "abs", "exp", "safe_exp", "sigmoid", "none"] = "exp"
+    positivity_func: PositivityFuncType = "exp"
 
 
 @dataclass
@@ -24,7 +25,7 @@ class BaseDistConfig:
     horizon: int
     rank: int
     embedding_dim: int = 768
-    positivity_func: Literal["sq", "abs", "exp", "safe_exp", "sigmoid", "none"] = "exp"
+    positivity_func: PositivityFuncType = "exp"
 
 
 class AbstractDist(ABC, torch.nn.Module):

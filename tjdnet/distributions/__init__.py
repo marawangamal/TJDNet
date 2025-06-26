@@ -4,12 +4,16 @@ from tjdnet.distributions._base import AbstractDist
 from tjdnet.distributions.stp import STPDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.cpb import CPBDist
-from tjdnet.distributions.cpe import CPEffDist
+from tjdnet.distributions.cpc import CPCDist
+from tjdnet.distributions.cpe import CPEDist
+from tjdnet.distributions.multihead import MultiHeadDist
 
 
 TJD_DISTS: Dict[str, Type[AbstractDist]] = {
     "stp": STPDist,
     "cp": CPDist,
     "cpb": CPBDist,
-    "cpe": CPEffDist,
+    "cpc": CPCDist,
+    "cpe": CPEDist,
+    "multihead": MultiHeadDist,
 }
