@@ -101,6 +101,11 @@ def main():
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing progress checkpoint.",
+    )
     args = parser.parse_args()
 
     # Progress file path
@@ -117,11 +122,14 @@ def main():
     print("Loading datasets...")
     datasets = get_samples(debug=True)
 
-    # Try to load progress
-    if os.path.exists(progress_path):
+    # Try to load progress, unless overwrite is set
+    if os.path.exists(progress_path) and not args.overwrite:
         print(f"Loading progress from {progress_path}...")
         spectra = torch.load(progress_path)
     else:
+        if os.path.exists(progress_path) and args.overwrite:
+            print(f"Overwrite flag set. Removing existing progress at {progress_path}.")
+            os.remove(progress_path)
         spectra = {"low_rank": [], "medium_rank": []}
 
     # Compute spectra
