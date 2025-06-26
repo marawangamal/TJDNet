@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.cp import CPDist
+from tjdnet.distributions.cpb import CPBDist
+from tjdnet.distributions.cpe import CPEffDist
 
 # Hyperparameters
 BATCH_SIZE = 1000
@@ -12,7 +14,7 @@ EMBEDDING_DIM = 6
 HIDDEN_DIM = 64
 NUM_LAYERS = 2
 LEARNING_RATE = 0.01
-NUM_EPOCHS = 200
+NUM_EPOCHS = 500
 RANK = 4
 
 torch.manual_seed(42)
@@ -57,7 +59,16 @@ class SimpleMultiHeadModel(nn.Module):
 
 
 class BackboneCPModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, horizon, vocab_size, rank):
+    def __init__(
+        self,
+        input_dim,
+        hidden_dim,
+        num_layers,
+        horizon,
+        vocab_size,
+        rank,
+        head_type="CP",
+    ):
         super().__init__()
         layers = []
         for i in range(num_layers):
@@ -69,16 +80,22 @@ class BackboneCPModel(nn.Module):
         config = BaseDistConfig(
             vocab_size=vocab_size, horizon=horizon, rank=rank, embedding_dim=hidden_dim
         )
-        self.cp_head = CPDist(config)
+        if head_type == "CPB":
+            self.head = CPBDist(config)
+        elif head_type == "CPE":
+            self.head = CPEffDist(config)
+        else:
+            self.head = CPDist(config)
+        self.head_type = head_type
 
     def forward(self, x, y):
         h = self.backbone(x)
-        return self.cp_head(h, y)
+        return self.head(h, y)
 
     def sample(self, x):
         h = self.backbone(x)
-        sampled, _ = self.cp_head.sample(
-            h, lambda p: torch.argmax(p, dim=-1), horizon=self.cp_head.horizon
+        sampled, _ = self.head.sample(
+            h, lambda p: torch.argmax(p, dim=-1), horizon=self.head.horizon
         )
         return sampled
 
@@ -91,12 +108,31 @@ test_y = generate_y_from_x(test_x)
 
 # Models
 models = {
-    "MultiHead": SimpleMultiHeadModel(
+    "MLP-Head": SimpleMultiHeadModel(
         EMBEDDING_DIM, HIDDEN_DIM, NUM_LAYERS, HORIZON, VOCAB_SIZE
     ),
-    "BackboneCP": BackboneCPModel(
-        EMBEDDING_DIM, HIDDEN_DIM, NUM_LAYERS, HORIZON, VOCAB_SIZE, RANK
+    "MLP-CP": BackboneCPModel(
+        EMBEDDING_DIM, HIDDEN_DIM, NUM_LAYERS, HORIZON, VOCAB_SIZE, RANK, head_type="CP"
     ),
+    "MLP-CPB": BackboneCPModel(
+        EMBEDDING_DIM,
+        HIDDEN_DIM,
+        NUM_LAYERS,
+        HORIZON,
+        VOCAB_SIZE,
+        RANK,
+        head_type="CPB",
+    ),
+    # Fails
+    # "MLP-CPE": BackboneCPModel(
+    #     EMBEDDING_DIM,
+    #     HIDDEN_DIM,
+    #     NUM_LAYERS,
+    #     HORIZON,
+    #     VOCAB_SIZE,
+    #     RANK,
+    #     head_type="CPE",
+    # ),
 }
 
 optimizers = {
