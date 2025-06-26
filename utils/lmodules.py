@@ -10,6 +10,7 @@ from transformers.data.data_collator import (
 from lightning.pytorch.loggers import WandbLogger
 
 from tjdnet.models.tjdsimple import TJDSimple, TJDSimpleConfig
+from tjdnet.types import PositivityFuncType
 from dataloaders import DATASETS
 
 
@@ -21,12 +22,10 @@ class LModel(L.LightningModule):
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
         # tjdist parameters
-        model_head: Literal["cp", "cpe", "cpb", "stp", "multihead"] = "cp",
+        model_head: str = "cp",
         horizon: int = 1,
         rank: int = 1,
-        positivity_func: Literal[
-            "sq", "abs", "exp", "safe_exp", "sigmoid", "none"
-        ] = "safe_exp",
+        positivity_func: PositivityFuncType = "safe_exp",
         # trainer
         lr: float = 1e-3,
         warmup_steps: int = 100,
@@ -56,6 +55,7 @@ class LModel(L.LightningModule):
                 rank=rank,
                 train_mode=train_mode,
                 lora_rank=lora_rank,
+                positivity_func=positivity_func,
             )
         )
 

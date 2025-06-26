@@ -22,7 +22,9 @@ class TensorParamNetConfig:
     hidden_dim: int = 512
     out_dim_encoder: int = 1
     out_dim_decoder: int = 1
-    positivity_func: Literal["sq", "abs", "exp", "safe_exp", "sigmoid", "none"] = "exp"
+    positivity_func: Literal[
+        "sq", "abs", "exp", "safe_exp", "sigmoid", "none", "relu", "leaky_relu"
+    ] = "exp"
     use_decoder: bool = True
     use_bias_encoder: bool = True
     use_bias_decoder: bool = True
@@ -47,6 +49,8 @@ class TensorParamNet(nn.Module):
             "exp": torch.exp,
             "safe_exp": safe_exp,
             "sigmoid": torch.sigmoid,
+            "relu": torch.relu,
+            "leaky_relu": torch.nn.functional.leaky_relu,
             "none": lambda x: x,
         }[config.positivity_func]
         self.tpnet_config = config

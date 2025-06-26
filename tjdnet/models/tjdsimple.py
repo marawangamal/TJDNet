@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from peft import LoraConfig, TaskType
 from transformers import AutoModelForCausalLM, AutoConfig
 from transformers.utils.generic import ModelOutput
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from typing import Optional, Literal
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.tensorops.common import get_windowed_input_ids_v2
+from tjdnet.types import PositivityFuncType
 
 
 @dataclass
@@ -20,6 +22,7 @@ class TJDSimpleConfig:
     rank: int = 4
     train_mode: Literal["full", "lora"] = "lora"
     lora_rank: int = 32
+    positivity_func: PositivityFuncType = "exp"
 
 
 @dataclass
@@ -30,6 +33,7 @@ class TJDGenerationConfig:
     do_sample: bool = False
     top_k: int = 1
     eos_token_id: Optional[int] = None
+    positivity_func: PositivityFuncType = "exp"
 
 
 class TJDSimple(nn.Module):
@@ -55,13 +59,12 @@ class TJDSimple(nn.Module):
             horizon=config.horizon,
             rank=config.rank,
             embedding_dim=self.embedding_dim,
+            positivity_func=config.positivity_func,
         )
         self.dist_head = TJD_DISTS[config.model_head](dist_config)
 
         # Apply LoRA if needed
         if config.train_mode == "lora":
-            from peft import LoraConfig, TaskType
-
             peft_config = LoraConfig(
                 task_type=TaskType.FEATURE_EXTRACTION,
                 inference_mode=False,
@@ -81,14 +84,6 @@ class TJDSimple(nn.Module):
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
     def _prepare_targets(self, labels: torch.Tensor) -> torch.Tensor:
-        """Prepare targets for distribution head using the same approach as tjd.py.
-
-        Args:
-            labels: Shape (B, T) - batch of sequences
-
-        Returns:
-            Shape (B*(T-H), H) - flattened targets for each position
-        """
         # Use the same approach as in tjd.py
         y_true = get_windowed_input_ids_v2(labels, horizon=self.config.horizon)
         y_true = y_true.reshape(-1, self.config.horizon)  # (B*(T-H), H)
@@ -128,53 +123,36 @@ class TJDSimple(nn.Module):
     def generate(
         self,
         input_ids: torch.Tensor,
-        generation_config: Optional[TJDGenerationConfig] = None,
+        max_new_tokens: int = 32,
+        do_sample: bool = False,
+        eos_token_id: Optional[int] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        horizon: Optional[int] = None,
         **kwargs
     ) -> torch.Tensor:
-        """Generate sequences."""
-        if generation_config is None:
-            generation_config = TJDGenerationConfig()
-
-        # Override with kwargs
-        for key, value in kwargs.items():
-            if hasattr(generation_config, key):
-                setattr(generation_config, key, value)
-
-        batch_size = input_ids.size(0)
+        generated = input_ids.clone()
+        B = input_ids.size(0)
+        H = horizon if horizon is not None else self.config.horizon
         device = input_ids.device
 
-        # Initialize output
-        generated = input_ids.clone()
-
-        for _ in range(generation_config.max_new_tokens):
-            # Get hidden states
+        for _ in range(max_new_tokens):
             outputs = self.backbone(input_ids=generated, attention_mask=attention_mask)
             hidden_states = outputs.last_hidden_state
 
-            # Sample next tokens
             sampled, _ = self.dist_head.sample(
-                hidden_states[:, -1:],  # Use last token's hidden state
+                hidden_states[:, -1:],
                 lambda p: (
-                    torch.argmax(p, dim=-1)
-                    if not generation_config.do_sample
-                    else torch.multinomial(p, 1).squeeze(-1)
+                    torch.multinomial(p, 1).squeeze(-1)
+                    if do_sample
+                    else torch.argmax(p, dim=-1)
                 ),
-                horizon=self.config.horizon,
+                horizon=H,
             )
-
-            # Append to generated sequence
             generated = torch.cat([generated, sampled], dim=1)
-
-            # Update attention mask
             if attention_mask is not None:
                 attention_mask = torch.cat(
-                    [attention_mask, torch.ones(batch_size, 1, device=device)], dim=1
+                    [attention_mask, torch.ones(B, 1, device=device)], dim=1
                 )
-
-            # Check for EOS
-            if generation_config.eos_token_id is not None:
-                if (sampled == generation_config.eos_token_id).any():
-                    break
-
+            if eos_token_id is not None and (sampled == eos_token_id).any():
+                break
         return generated
