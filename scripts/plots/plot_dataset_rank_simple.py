@@ -84,31 +84,33 @@ def get_samples(debug=False, num_samples=2):
     return samples
 
 
-def get_joint_prob(model, tokenizer, text, device, top_k=1000):
-    """Compute joint probability p(y1, y2 | x) for given text, using top_k tokens for efficiency."""
-    # x: input context tokens
+def get_joint_prob(model, tokenizer, text, device, top_k=None):
+    """Compute joint probability p(y1, y2 | x) for given text. If top_k is None, use all vocab."""
     x = tokenizer(text, return_tensors="pt", max_length=128, truncation=True)[
         "input_ids"
     ].to(device)
 
     with torch.no_grad():
-        # y1: next token after x
         out = model(x)
         logits_y1 = out.logits[0, -1, :]  # (vocab_size,)
         p_y1 = torch.softmax(logits_y1, dim=-1)
 
-        # Only consider top_k tokens for y1
-        topk_p_y1, topk_y1 = torch.topk(p_y1, top_k)
-        joint = torch.zeros((top_k, top_k), device=device)
+        if top_k is None:
+            topk_p_y1 = p_y1
+            topk_y1 = torch.arange(p_y1.size(0), device=device)
+        else:
+            topk_p_y1, topk_y1 = torch.topk(p_y1, top_k)
+        joint = torch.zeros((len(topk_y1), len(topk_y1)), device=device)
 
         for i, y1 in enumerate(topk_y1):
-            # x_y1: x concatenated with y1
             x_y1 = torch.cat([x[0], y1.unsqueeze(0)]).unsqueeze(0)  # (1, L+1)
             out2 = model(x_y1)
             logits_y2 = out2.logits[0, -1, :]
             p_y2_given_y1 = torch.softmax(logits_y2, dim=-1)
-            # Only consider top_k for y2 as well
-            topk_p_y2, topk_y2 = torch.topk(p_y2_given_y1, top_k)
+            if top_k is None:
+                topk_p_y2 = p_y2_given_y1
+            else:
+                topk_p_y2, _ = torch.topk(p_y2_given_y1, top_k)
             joint[i, :] = topk_p_y1[i] * topk_p_y2  # p(y1) * p(y2|y1)
 
     return joint.cpu()
@@ -170,7 +172,7 @@ def main():
     args = parser.parse_args()
 
     # Progress file path
-    progress_path = "results/spectrum_progress.pt"
+    progress_path = f"results/spectrum_progress_{args.model.replace('/', '_')}.pt"
     os.makedirs(os.path.dirname(progress_path), exist_ok=True)
 
     # Load model
@@ -215,16 +217,18 @@ def main():
 
     # Plot
     print("Plotting...")
-    plot_spectra(spectra, "results/spectrum_comparison.png")
+    plot_spectra(
+        spectra, f"results/spectrum_comparison_{args.model.replace('/', '_')}.png"
+    )
 
     summary_rows = []
     for category, spectrum_list in spectra.items():
         if spectrum_list:
             avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
-            rank_99 = (
-                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < 0.99
+            rank95 = (
+                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < 0.95
             ).sum().item() + 1
-            summary_rows.append([category, rank_99])
+            summary_rows.append([category, rank95])
 
     print("\nSUMMARY:")
     print(
