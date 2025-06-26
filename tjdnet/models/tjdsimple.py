@@ -36,6 +36,31 @@ class TJDGenerationConfig:
     positivity_func: PositivityFuncType = "exp"
 
 
+def get_backbone(model_name: str) -> torch.nn.Module:
+    """Get the backbone of a HuggingFace model."""
+    hf_model = AutoModelForCausalLM.from_pretrained(model_name)
+    if hasattr(hf_model, "transformer"):
+        return hf_model.transformer
+    elif hasattr(hf_model, "model"):  # e.g., Llama
+        return hf_model.model
+    else:
+        raise ValueError(f"Cannot find transformer/model backbone in {type(hf_model)}")
+
+
+def get_lm_head_dims(model_name: str) -> tuple[int, int]:
+    hf_config = AutoConfig.from_pretrained(model_name)
+    vocab_size = hf_config.vocab_size
+    if hasattr(hf_config, "n_embd"):  # e.g., GPT
+        embedding_size = hf_config.n_embd
+    elif hasattr(hf_config, "hidden_size"):  # e.g., Llama
+        embedding_size = hf_config.hidden_size
+    else:
+        raise ValueError(
+            f"Model {model_name} is not supported for determining lm_head size."
+        )
+    return vocab_size, embedding_size
+
+
 class TJDSimple(nn.Module):
     """Super minimal TJD model combining TJD and TJDHF functionality."""
 
@@ -45,20 +70,11 @@ class TJDSimple(nn.Module):
 
         # Load HuggingFace model
         self.hf_model = AutoModelForCausalLM.from_pretrained(config.model_name)
-        if hasattr(self.hf_model, "transformer"):
-            self.backbone = self.hf_model.transformer
-        elif hasattr(self.hf_model, "model"):  # e.g., Llama
-            self.backbone = self.hf_model.model
-        else:
-            raise ValueError(
-                f"Cannot find transformer/model backbone in {type(self.hf_model)}"
-            )
+        self.backbone = get_backbone(config.model_name)
         self.lm_head = self.hf_model.lm_head
 
         # Get model dimensions
-        hf_config = AutoConfig.from_pretrained(config.model_name)
-        self.embedding_dim = hf_config.n_embd
-        self.vocab_size = hf_config.vocab_size
+        self.vocab_size, self.embedding_dim = get_lm_head_dims(config.model_name)
 
         # Create distribution head
         dist_config = BaseDistConfig(

@@ -5,11 +5,13 @@ Usage:
     python scripts/plots/plot_dataset_rank_simple.py --model gpt2
 """
 
-import argparse
 import os
+import argparse
+from tqdm import tqdm
+from tabulate import tabulate
+
 import torch
 import numpy as np
-from tabulate import tabulate
 import matplotlib.pyplot as plt
 from sklearn.utils.extmath import randomized_svd
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -102,7 +104,9 @@ def get_joint_prob(model, tokenizer, text, device, top_k=None):
             topk_p_y1, topk_y1 = torch.topk(p_y1, top_k)
         joint = torch.zeros((len(topk_y1), len(topk_y1)), device=device)
 
-        for i, y1 in enumerate(topk_y1):
+        for i, y1 in enumerate(
+            tqdm(topk_y1, desc="Computing joint p(y1,y2|x)", leave=False)
+        ):
             x_y1 = torch.cat([x[0], y1.unsqueeze(0)]).unsqueeze(0)  # (1, L+1)
             out2 = model(x_y1)
             logits_y2 = out2.logits[0, -1, :]
@@ -205,8 +209,9 @@ def main():
             try:
                 # Compute spectrum
                 p_y1y2 = get_joint_prob(model, tokenizer, text, args.device)
+                print(f"p_y1y2.shape: {p_y1y2.shape}")
                 _, spectrum, _ = randomized_svd(
-                    p_y1y2.cpu().numpy(), n_components=50, random_state=42
+                    p_y1y2.cpu().numpy(), n_components=10000, random_state=42
                 )
                 spectra[category].append(torch.tensor(spectrum))
                 print(f"{category} [{i+1}/{len(samples)}]: {spectrum[:3]}...")
@@ -222,19 +227,20 @@ def main():
     )
 
     summary_rows = []
+    var_target = 0.99
     for category, spectrum_list in spectra.items():
         if spectrum_list:
             avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
-            rank95 = (
-                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < 0.95
+            rank_crit = (
+                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < var_target
             ).sum().item() + 1
-            summary_rows.append([category, rank95])
+            summary_rows.append([category, rank_crit])
 
     print("\nSUMMARY:")
     print(
         tabulate(
             summary_rows,
-            headers=["Category", "Rank for 99% Variance"],
+            headers=[f"Category", f"Rank for {var_target*100}% Variance"],
             tablefmt="github",
         )
     )
