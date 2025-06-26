@@ -388,9 +388,9 @@ def select_margin_cp_tensor_batched_w_decoder(
                 "brd,dv->brv", cp_params[mask_free, :, t, :], decoder
             )
 
-        if sf is not None:
-            # print sf min and max
-            print(f"sf min: {sf.min().item():.3f}, max: {sf.max().item():.3f}")
+        # if sf is not None:
+        #     # print sf min and max
+        #     print(f"sf min: {sf.min().item():.3f}, max: {sf.max().item():.3f}")
 
     # Final result
     # if not use_scale_factors:

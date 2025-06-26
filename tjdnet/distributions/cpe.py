@@ -2,7 +2,7 @@ import os, datetime
 from typing import Callable, Optional
 import torch
 
-from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
+from tjdnet.distributions._base import BaseDistFromLinearConfig
 from tjdnet.distributions._tjdist import BaseDistConfig, TJDist
 
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched_w_decoder
@@ -24,64 +24,34 @@ class CPEffDist(TJDist):
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
         super().__init__(config)
+
+        # === config
         self.param_func = None
-        self.vocab_size = config.vocab_size
-        self.horizon = config.horizon
-        self.rank = config.rank
-        self.w_cp = torch.nn.Linear(
-            config.embedding_dim,
-            config.rank * config.horizon,
-            bias=False,
+        self.config = config
+        H, R, D, V = (
+            self.config.horizon,
+            self.config.rank,
+            self.config.embedding_dim,
+            self.config.vocab_size,
         )
-        self.decoder = torch.nn.Parameter(
-            torch.randn(config.embedding_dim, config.vocab_size)
-        )
+        self.positivity_func = {
+            "sq": lambda x: x**2,
+            "abs": lambda x: torch.abs(x),
+            "exp": torch.exp,
+            "safe_exp": safe_exp,
+            "sigmoid": torch.sigmoid,
+            "relu": torch.relu,
+            "leaky_relu": torch.nn.functional.leaky_relu,
+            "none": lambda x: x,
+        }[config.positivity_func]
+
+        # === params
+        self.w_cp = torch.nn.Linear(D, R * H, bias=False)
+        self.decoder = torch.nn.Parameter(torch.randn(D, V))
 
     @property
     def cp_decoder(self):
-        return torch.nn.functional.relu(self.decoder)
-
-    # @classmethod
-    # def from_pretrained(
-    #     cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
-    # ):
-    #     """Create a CP distribution from a linear layer.
-
-    #     Args:
-    #         linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
-    #         config (BaseDistFromLinearConfig): Configuration for the distribution.
-
-    #     Returns:
-    #         CPEffDist: CP distribution with the given configuration.
-    #     """
-
-    #     vocab_size, hidden_dim = linear.weight.shape
-    #     use_bias_decoder = False
-    #     if linear.bias is not None:
-    #         use_bias_decoder = True
-    #         raise Warning("CPDist: Skiping bias initialization.")
-
-    #     param_net_conf = config.param_net.to_dict()
-    #     param_net_conf["hidden_dim"] = hidden_dim
-    #     param_net_conf["out_dim_decoder"] = vocab_size
-    #     param_net_conf["use_bias_decoder"] = use_bias_decoder
-
-    #     obj = cls(
-    #         config=BaseDistConfig(
-    #             vocab_size=vocab_size,
-    #             horizon=config.horizon,
-    #             rank=config.rank,
-    #             param_net=TensorParamNetConfig(**param_net_conf),
-    #         ),
-    #         **kwargs,
-    #     )
-
-    #     # Initialize the parameters in obj.tensor_param_net
-    #     # with the parameters from the linear layer
-    #     obj.param_func.decoder.weight.data = linear.weight.data  # type: ignore
-    #     if use_bias_decoder:
-    #         obj.param_func.decoder.bias.data = linear.bias.data  # type: ignore
-    #     return obj
+        return self.positivity_func(self.decoder)
 
     @classmethod
     def from_pretrained(
@@ -90,17 +60,9 @@ class CPEffDist(TJDist):
         raise NotImplementedError("CPDist does not support from_pretrained")
 
     def get_params(self, x: torch.Tensor, **kwargs):
-        B = x.size(0)
-        #  W: (B, d) -> (B, R, H, d) [dxRHd]
-        # params = safe_exp(self.cp_w(x))  # (B, RHd)
-        params = self.w_cp(x)  # (B, RHd)
-        params_reshaped = params.reshape(B, self.rank, self.horizon, -1)
-        print(
-            f"params_reshaped min: {params_reshaped.min().item():.3f}, max: {params_reshaped.max().item():.3f}"
-        )
-        return torch.nn.functional.softmax(
-            params_reshaped, dim=1
-        )  # (B, R, H, d)  // H* is model level horizon, d is hidden dim
+        B, R, H = (x.size(0), self.config.rank, self.config.horizon)
+        params = self.w_cp(x).reshape(B, R, H, -1)  # (B, R, H, d)
+        return self.positivity_func(params)  # (B, R, H, d)
 
     def sample(
         self,
@@ -126,7 +88,11 @@ class CPEffDist(TJDist):
                 - Evaluation of the distribution at the points of shape (B, H).
                 - Probabilities of shape (B, H, V) or logits of shape (B, H, V).
         """
-        H = min(horizon, self.horizon) if horizon is not None else self.horizon
+        H = (
+            min(horizon, self.config.horizon)
+            if horizon is not None
+            else self.config.horizon
+        )
         B = x.size(0)
         dvc = x.device
 
@@ -182,7 +148,7 @@ class CPEffDist(TJDist):
         **kwargs,
     ):
         # Get indexed distribution
-        H = self.horizon
+        H = self.config.horizon
         B = x.size(0)
         params = self.get_params(x)  # (B, R, H, d)
         p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched_w_decoder(

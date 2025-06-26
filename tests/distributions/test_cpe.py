@@ -2,21 +2,20 @@ import unittest
 import torch
 import gc
 
-from tjdnet.distributions.cp_eff import CPEffDist
+from tjdnet.distributions.cpe import CPEffDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions._tjdist import BaseDistConfig
-from tjdnet.distributions.tpnet import TensorParamNetConfig
+from tjdnet.types import PositivityFuncType
 
 
-def cp_eff_method(B, D, H, R, V, device):
+# Memory efficient implementation
+def cpe_method(B, D, H, R, V, device, positivity_func: PositivityFuncType = "safe_exp"):
     config = BaseDistConfig(
         vocab_size=V,
         horizon=H,
         rank=R,
-        param_net=TensorParamNetConfig(
-            in_dim=D,
-            hidden_dim=D,
-        ),
+        embedding_dim=D,
+        positivity_func=positivity_func,
     )
     model = CPEffDist(config).to(device)
     x = torch.randn(B, D, device=device)
@@ -25,15 +24,13 @@ def cp_eff_method(B, D, H, R, V, device):
     return model
 
 
-def cp_method(B, D, H, R, V, device):
+def cp_method(B, D, H, R, V, device, positivity_func: PositivityFuncType = "safe_exp"):
     config = BaseDistConfig(
         vocab_size=V,
         horizon=H,
         rank=R,
-        param_net=TensorParamNetConfig(
-            in_dim=D,
-            hidden_dim=D,
-        ),
+        embedding_dim=D,
+        positivity_func=positivity_func,
     )
     model = CPDist(config).to(device)
     x = torch.randn(B, D, device=device)
@@ -67,8 +64,14 @@ class TestCPEffVsCPDistMemory(unittest.TestCase):
         B, D, H, R, V = 64, 1024, 32, 64, 30000
         device = self.device
         methods = [
-            (cp_method, "CPDist", (B, D, H, R, V, device)),
-            (cp_eff_method, "CPEffDist", (B, D, H, R, V, device)),
+            (cp_method, "CPDist+safe_exp", (B, D, H, R, V, device, "safe_exp")),
+            (cpe_method, "CPEffDist+safe_exp", (B, D, H, R, V, device, "safe_exp")),
+            (cp_method, "CPDist+sigmoid", (B, D, H, R, V, device, "sigmoid")),
+            (cpe_method, "CPEffDist+sigmoid", (B, D, H, R, V, device, "sigmoid")),
+            (cp_method, "CPDist+relu", (B, D, H, R, V, device, "relu")),
+            (cpe_method, "CPEffDist+relu", (B, D, H, R, V, device, "relu")),
+            (cp_method, "CPDist+leaky_relu", (B, D, H, R, V, device, "leaky_relu")),
+            (cpe_method, "CPEffDist+leaky_relu", (B, D, H, R, V, device, "leaky_relu")),
         ]
         results = {"CPDist": -1, "CPEffDist": -1}
         param_percents = {"CPDist": -1.0, "CPEffDist": -1.0}
