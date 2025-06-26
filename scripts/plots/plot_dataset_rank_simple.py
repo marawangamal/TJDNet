@@ -9,42 +9,79 @@ import argparse
 import os
 import torch
 import numpy as np
+from tabulate import tabulate
 import matplotlib.pyplot as plt
 from sklearn.utils.extmath import randomized_svd
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 
 
+# Low rank datasets (structured, algorithmic, or formulaic answers):
+#   - gsm8k (grade school math, train: 7473)
+#   - aqua_rat (algebra word problems, train: 10160)
+#   - asdiv (arithmetic, train: 2305)
+#   - wikitext-2 (structured Wikipedia text, train: 36718)
+#   - math_qa (math QA, train: 29937)
+# Medium rank datasets (natural language, but with some structure):
+#   - sst2 (sentiment analysis, train: 67349)
+#   - imdb (movie reviews, train: 25000)
+#   - ag_news (news categorization, train: 120000)
+# High rank datasets (open-ended, diverse, conversational, or noisy):
+#   - reddit (open-domain discussion, millions of samples)
+#   - openwebtext (web crawl, millions of samples)
+#   - c4 (Colossal Clean Crawled Corpus, millions of samples)
+#   - stackexchange_qa (Q&A, diverse topics)
 def get_samples(debug=False, num_samples=2):
-    """Get samples from three datasets with varying complexity"""
-
-    # WikiText-2 (low rank) - structured text
-    wikitext = load_dataset(
-        "wikitext", "wikitext-2-raw-v1", split=f"train[:{num_samples*5}]"
-    )
-    wikitext_samples = [
-        sample["text"][:200] for sample in wikitext if sample["text"].strip()
-    ][:num_samples]
-
-    # SST-2 (medium rank) - sentiment analysis
-    sst2 = load_dataset("glue", "sst2", split="train[:100]")
-    sst2_samples = [
-        sample["sentence"] for sample in sst2 if sample["sentence"].strip()
-    ][:num_samples]
-
-    if debug:
-        print("=== Low Rank Samples (WikiText-2) ===")
-        for i, sample in enumerate(wikitext_samples):
-            print(f"{i+1}. {sample[:100]}...")
-        print("\n=== Medium Rank Samples (SST-2) ===")
-        for i, sample in enumerate(sst2_samples):
-            print(f"{i+1}. {sample[:100]}...")
-        print("=== Done ===")
-
-    return {
-        "low_rank": wikitext_samples,
-        "medium_rank": sst2_samples,
+    """Get samples from several datasets, using dataset names as keys."""
+    dataset_configs = {
+        # Low rank
+        "aqua_rat": {
+            "hf_name": ("aqua_rat",),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "field": "question",
+            "post": lambda s: s + " Answer:",
+        },
+        "wikitext2": {
+            "hf_name": ("wikitext", "wikitext-2-raw-v1"),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "field": "text",
+            "post": lambda s: s[:200],
+        },
+        # Medium rank
+        "sst2": {
+            "hf_name": ("glue", "sst2"),
+            "load_kwargs": {"split": "train[:100]"},
+            "field": "sentence",
+            "post": lambda s: s,
+        },
+        # High rank
+        "reddit": {
+            "hf_name": ("reddit",),
+            "load_kwargs": {
+                "split": f"train[:{num_samples*5}]",
+                "trust_remote_code": True,
+            },
+            "field": "body",
+            "post": lambda s: s,
+        },
     }
+
+    samples = {}
+    for name, cfg in dataset_configs.items():
+        ds = load_dataset(*cfg["hf_name"], **cfg["load_kwargs"])
+        s = [
+            cfg["post"](sample[cfg["field"]])
+            for sample in ds
+            if sample[cfg["field"]].strip()
+        ][:num_samples]
+        samples[name] = s
+        if debug:
+            print(f"=== {name} ===")
+            for i, sample in enumerate(s):
+                print(f"{i+1}. {sample[:100]}...")
+    if debug:
+        print("=== Done ===")
+    return samples
 
 
 def get_joint_prob(model, tokenizer, text, device, top_k=1000):
@@ -81,17 +118,29 @@ def plot_spectra(spectra, save_path=None):
     """Plot spectra comparison"""
     plt.figure(figsize=(10, 6))
 
-    colors = {"low_rank": "blue", "medium_rank": "orange"}
-    names = {"low_rank": "WikiText-2", "medium_rank": "SST-2"}
+    colors = {
+        "wikitext2": "blue",
+        "sst2": "orange",
+        "aqua_rat": "green",
+        "reddit": "red",
+    }
+    names = {
+        "wikitext2": "WikiText-2",
+        "sst2": "SST-2",
+        "aqua_rat": "AQuA (Math QA)",
+        "reddit": "Reddit",
+    }
 
-    for category, spectrum_list in spectra.items():
-        avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
+    for category in spectra.keys():
+        spectrum_list = spectra[category]
+        tensor_list = [torch.as_tensor(s) for s in spectrum_list]
+        avg_spectrum = torch.stack(tensor_list).mean(dim=0)
         normalized = avg_spectrum / avg_spectrum[0]
         plt.semilogy(
             normalized,
-            color=colors[category],
+            color=colors.get(category, None),
             linewidth=2,
-            label=f"{names[category]} ({len(spectrum_list)} samples)",
+            label=f"{names.get(category, category)} ({len(spectrum_list)} samples)",
         )
 
     plt.xlabel("Singular Value Index")
@@ -137,12 +186,12 @@ def main():
     # Try to load progress, unless overwrite is set
     if os.path.exists(progress_path) and not args.overwrite:
         print(f"Loading progress from {progress_path}...")
-        spectra = torch.load(progress_path)
+        spectra = torch.load(progress_path, weights_only=False)
     else:
         if os.path.exists(progress_path) and args.overwrite:
             print(f"Overwrite flag set. Removing existing progress at {progress_path}.")
             os.remove(progress_path)
-        spectra = {"low_rank": [], "medium_rank": []}
+        spectra = {k: [] for k in ["wikitext2", "sst2", "aqua_rat", "reddit"]}
 
     # Compute spectra
     print("Computing spectra...")
@@ -157,7 +206,7 @@ def main():
                 _, spectrum, _ = randomized_svd(
                     p_y1y2.cpu().numpy(), n_components=50, random_state=42
                 )
-                spectra[category].append(spectrum)
+                spectra[category].append(torch.tensor(spectrum))
                 print(f"{category} [{i+1}/{len(samples)}]: {spectrum[:3]}...")
                 # Save progress
                 torch.save(spectra, progress_path)
@@ -168,15 +217,23 @@ def main():
     print("Plotting...")
     plot_spectra(spectra, "results/spectrum_comparison.png")
 
-    # Print summary
-    print("\nSUMMARY:")
+    summary_rows = []
     for category, spectrum_list in spectra.items():
         if spectrum_list:
             avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
             rank_99 = (
                 torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < 0.99
             ).sum().item() + 1
-            print(f"{category}: rank for 99% variance = {rank_99}")
+            summary_rows.append([category, rank_99])
+
+    print("\nSUMMARY:")
+    print(
+        tabulate(
+            summary_rows,
+            headers=["Category", "Rank for 99% Variance"],
+            tablefmt="github",
+        )
+    )
 
 
 if __name__ == "__main__":

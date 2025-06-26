@@ -27,9 +27,16 @@ class HFTJDSimple(PreTrainedModel):
 
     def __init__(self, config):
         super().__init__(config)
-        self.backbone = AutoModelForCausalLM.from_pretrained(
-            config.model_name
-        ).transformer
+        # Support both GPT-style and Llama-style models
+        backbone_model = AutoModelForCausalLM.from_pretrained(config.model_name)
+        if hasattr(backbone_model, "transformer"):
+            self.backbone = backbone_model.transformer
+        elif hasattr(backbone_model, "model"):  # e.g., Llama
+            self.backbone = backbone_model.model
+        else:
+            raise ValueError(
+                f"Cannot find transformer/model backbone in {type(backbone_model)}"
+            )
         self.lm_head = AutoModelForCausalLM.from_pretrained(config.model_name).lm_head
         self.horizon = config.horizon
         self.rank = config.rank
@@ -48,7 +55,7 @@ class HFTJDSimple(PreTrainedModel):
         labels=None,
         attention_mask=None,
         memory_efficient=False,
-        **kwargs
+        **kwargs,
     ):
         outputs = self.backbone(
             input_ids=input_ids, attention_mask=attention_mask, **kwargs

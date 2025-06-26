@@ -45,7 +45,14 @@ class TJDSimple(nn.Module):
 
         # Load HuggingFace model
         self.hf_model = AutoModelForCausalLM.from_pretrained(config.model_name)
-        self.backbone = self.hf_model.transformer
+        if hasattr(self.hf_model, "transformer"):
+            self.backbone = self.hf_model.transformer
+        elif hasattr(self.hf_model, "model"):  # e.g., Llama
+            self.backbone = self.hf_model.model
+        else:
+            raise ValueError(
+                f"Cannot find transformer/model backbone in {type(self.hf_model)}"
+            )
         self.lm_head = self.hf_model.lm_head
 
         # Get model dimensions
@@ -94,7 +101,7 @@ class TJDSimple(nn.Module):
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        **kwargs
+        **kwargs,
     ) -> ModelOutput:
         """Forward pass for training."""
         # Get hidden states
@@ -125,7 +132,7 @@ class TJDSimple(nn.Module):
         input_ids: torch.Tensor,
         labels: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
-        **kwargs
+        **kwargs,
     ) -> ModelOutput:
         """Forward pass for training."""
 
@@ -165,7 +172,7 @@ class TJDSimple(nn.Module):
         eos_token_id: Optional[int] = None,
         attention_mask: Optional[torch.Tensor] = None,
         horizon: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         generated = input_ids.clone()
         B = input_ids.size(0)
