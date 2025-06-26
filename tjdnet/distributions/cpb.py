@@ -24,11 +24,13 @@ class CPBDist(AbstractDist):
         """
 
         # === dims
-        self.vocab_size = config.vocab_size
-        self.horizon = config.horizon
-        self.rank = config.rank
-        self.embedding_dim = config.embedding_dim
-        H, R, D, V = (self.horizon, self.rank, self.embedding_dim, self.vocab_size)
+        self.config = config
+        H, R, D, V = (
+            self.config.horizon,
+            self.config.rank,
+            self.config.embedding_dim,
+            self.config.vocab_size,
+        )
 
         # === params
         self.w_alpha = torch.nn.Linear(D, R)
@@ -61,7 +63,12 @@ class CPBDist(AbstractDist):
         """
 
         # === dims
-        H, R, D, V = (self.horizon, self.rank, self.embedding_dim, self.vocab_size)
+        H, R, D, V = (
+            self.config.horizon,
+            self.config.rank,
+            self.config.embedding_dim,
+            self.config.vocab_size,
+        )
         H_y = y.size(1)
 
         # === cp params
@@ -108,7 +115,7 @@ class CPBDist(AbstractDist):
         self,
         x: torch.Tensor,
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
-        horizon: Optional[int],
+        horizon: Optional[int] = None,
         return_logits: bool = False,
         **kwargs,
     ):
@@ -126,7 +133,7 @@ class CPBDist(AbstractDist):
                 - final_probabilities: Shape (B, V) - probabilities for the last token
         """
         y_out = torch.empty(x.size(0), 0, device=x.device, dtype=torch.long)
-        horizon_to_use = horizon if horizon is not None else self.horizon
+        horizon_to_use = horizon if horizon is not None else self.config.horizon
 
         for _ in range(horizon_to_use):
             prob_y_bar_xy = self.log_prob(x, y_out, return_dists=True)
