@@ -47,23 +47,34 @@ def get_samples(debug=False, num_samples=2):
     }
 
 
-def get_spectrum(model, tokenizer, text, device):
-    """Get spectrum of p(y1, y2|x) for given text"""
-    # Tokenize and get logits
-    inputs = tokenizer(text, return_tensors="pt", max_length=128, truncation=True)
+def get_joint_prob(model, tokenizer, text, device, top_k=1000):
+    """Compute joint probability p(y1, y2 | x) for given text, using top_k tokens for efficiency."""
+    # x: input context tokens
+    x = tokenizer(text, return_tensors="pt", max_length=128, truncation=True)[
+        "input_ids"
+    ].to(device)
+
     with torch.no_grad():
-        outputs = model(inputs["input_ids"].to(device))
-        logits = outputs.logits[0, -1, :]  # Last position
+        # y1: next token after x
+        out = model(x)
+        logits_y1 = out.logits[0, -1, :]  # (vocab_size,)
+        p_y1 = torch.softmax(logits_y1, dim=-1)
 
-    # Create joint probability matrix (simplified)
-    p = torch.softmax(logits, dim=-1)
-    joint_prob = torch.outer(p, p)  # p(y1, y2|x) ≈ p(y1|x) * p(y2|x)
+        # Only consider top_k tokens for y1
+        topk_p_y1, topk_y1 = torch.topk(p_y1, top_k)
+        joint = torch.zeros((top_k, top_k), device=device)
 
-    # Get spectrum
-    U, s, Vh = randomized_svd(
-        joint_prob.cpu().numpy(), n_components=50, random_state=42
-    )
-    return torch.tensor(s)
+        for i, y1 in enumerate(topk_y1):
+            # x_y1: x concatenated with y1
+            x_y1 = torch.cat([x[0], y1.unsqueeze(0)]).unsqueeze(0)  # (1, L+1)
+            out2 = model(x_y1)
+            logits_y2 = out2.logits[0, -1, :]
+            p_y2_given_y1 = torch.softmax(logits_y2, dim=-1)
+            # Only consider top_k for y2 as well
+            topk_p_y2, topk_y2 = torch.topk(p_y2_given_y1, top_k)
+            joint[i, :] = topk_p_y1[i] * topk_p_y2  # p(y1) * p(y2|y1)
+
+    return joint.cpu()
 
 
 def plot_spectra(spectra, save_path=None):
@@ -96,6 +107,7 @@ def plot_spectra(spectra, save_path=None):
 
 
 def main():
+    # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="distilbert/distilgpt2")
     parser.add_argument(
@@ -141,7 +153,10 @@ def main():
                 continue
             try:
                 # Compute spectrum
-                spectrum = get_spectrum(model, tokenizer, text, args.device)
+                p_y1y2 = get_joint_prob(model, tokenizer, text, args.device)
+                _, spectrum, _ = randomized_svd(
+                    p_y1y2.cpu().numpy(), n_components=50, random_state=42
+                )
                 spectra[category].append(spectrum)
                 print(f"{category} [{i+1}/{len(samples)}]: {spectrum[:3]}...")
                 # Save progress
