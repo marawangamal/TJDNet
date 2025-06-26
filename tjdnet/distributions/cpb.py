@@ -7,15 +7,6 @@ from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
 from tjdnet.distributions._tjdist import BaseDistConfig
 
 
-@dataclass
-class CPBDistConfig:
-    rank: int
-    horizon: int
-    hidden_dim: int
-    in_dim: int
-    vocab_size: int
-
-
 class CPBDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__()
@@ -50,60 +41,6 @@ class CPBDist(AbstractDist):
             "from_linear method must be implemented in the subclass"
         )
 
-    # This version uses a separate decoder
-    def log_prob_v2(
-        self,
-        x: torch.Tensor,  # (B, D)
-        y: torch.Tensor,  # (B, H)
-        return_dists: bool = False,
-        **kwargs,
-    ):
-        """Computes log probabilities for CPB distribution.
-
-        Args:
-            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
-            y (torch.Tensor): Target labels. Shape (B, H).
-            return_dists (bool, optional): Whether to return distribution p(y_H|x). Defaults to False.
-
-        Returns:
-            torch.Tensor: Computed log probabilities. Shape (B,).
-
-        """
-
-        # === dims
-        H, R, D, V = (self.horizon, self.rank, self.embedding_dim, self.vocab_size)
-        B = x.size(0)
-        H_y = y.size(1)
-
-        # === cp params
-        theta = self.w_cp(x).reshape(-1, R, H, D)  # cores
-        alpha = torch.softmax(self.w_alpha(x).reshape(-1, R), dim=-1)  # moe weights
-
-        # === test mode
-        if return_dists:
-            if H_y == 0:
-                pass
-            # The contraction sums over R and D dimensions
-            dec = self.decoder.reshape(1, 1, 1, D, V).expand(B, R, H_y, -1, -1)
-            dec = dec.gather(-1, y.reshape(-1, 1, H_y, 1, 1).expand(-1, R, -1, D))
-            cp_left = (dec * theta[:, :, :H_y]).sum(-1)  # (B, R, H_y)
-            cp_left = cp_left * alpha.unsqueeze(-1)
-            # (B, R, D) * (1, 1, D, V) => (B, R, D, V) => (B, R, V)
-            cp_right = (theta[:, :, -1] * self.decoder.reshape(1, 1, D, V)).sum(-2)
-            cp_right = cp_right * alpha.unsqueeze(-1)  # (B, R, V)
-            p = (cp_left.prod(-1, keepdim=True) * cp_right).sum(1)  # (B, V)
-            return p / p.sum(-1, keepdim=True)  # (B, V)
-
-        # === train mode
-        # (d, V) => (B, R, H, d, V) => (B, R, H, d)
-        dec = self.decoder.reshape(1, 1, 1, D, V).expand(B, R, H, -1, -1)  # expand
-        dec = dec.gather(-1, y.reshape(-1, 1, H, 1, 1).expand(-1, R, -1, D))  # select
-        theta = (dec * theta).sum(dim=-1)  # (B, R, H)
-
-        # (B, R, H) * (B, R, 1) => (B, R, H) => (B, R) => (B,)
-        p = (theta * alpha.unsqueeze(-1)).prod(-1).sum(-1)
-        return p.log()
-
     def log_prob(
         self,
         x: torch.Tensor,  # (B, D)
@@ -124,32 +61,40 @@ class CPBDist(AbstractDist):
         """
 
         # === dims
-        H, R, D, V = (self.horizon, self.rank, self.in_dim, self.vocab_size)
+        H, R, D, V = (self.horizon, self.rank, self.embedding_dim, self.vocab_size)
         H_y = y.size(1)
 
         # === cp params
         theta = torch.softmax(self.w_cp(x).reshape(-1, R, H, V), dim=-1)  # cores
         alpha = torch.softmax(self.w_alpha(x).reshape(-1, R), dim=-1)  # moe weights
 
-        # === test mode
+        # === test mode - compute conditional distribution p(y_next | x, y_prev)
         if return_dists:
-            cp_left = None
-            if H_y != 0:
-                # The contraction sums over R and D dimensions
-                # (B, R, H, V) => (B, R, H_y)
-                cp_left = theta[:, :, :H_y].gather(
-                    -1, y.reshape(-1, 1, H_y, 1).expand(-1, R, -1, -1)
-                ).squeeze(-1) * alpha.unsqueeze(-1)
+            if H_y == 0:
+                # No previous tokens, use first core
+                p = theta[:, :, 0] * alpha.unsqueeze(-1)  # (B, R, V)
+            else:
+                # Compute probability of next token given previous tokens
+                # Get the core for the next position (H_y)
+                next_core = theta[:, :, H_y]  # (B, R, V)
 
-            # (B, R, D) * (1, 1, D, V) => (B, R, D, V) => (B, R, V)
-            cp_right = theta[:, :, -1] * alpha.unsqueeze(-1)  # (B, R, V)
-            p = cp_right  # (B, R, V)
-            if cp_left is not None:
-                p = cp_left.prod(-1, keepdim=True) * p  # (B, R, V)
+                # Get probabilities of previous tokens
+                prev_probs = (
+                    theta[:, :, :H_y]
+                    .gather(-1, y.reshape(-1, 1, H_y, 1).expand(-1, R, -1, -1))
+                    .squeeze(-1)
+                )  # (B, R, H_y)
+
+                # Weight by alpha and multiply with next core
+                p = (
+                    prev_probs.prod(-1, keepdim=True) * alpha.unsqueeze(-1)
+                ) * next_core  # (B, R, V)
+
+            # Sum over rank dimension and normalize
             p = p.sum(1)  # (B, V)
             return p / p.sum(-1, keepdim=True)  # (B, V)
 
-        # === train mode
+        # === train mode - compute joint probability p(y | x)
         #  (B, R, H, V) => (B, R, H)
         theta_select = theta.gather(
             -1, y.reshape(-1, 1, H, 1).expand(-1, R, -1, -1)
@@ -167,20 +112,27 @@ class CPBDist(AbstractDist):
         return_logits: bool = False,
         **kwargs,
     ):
-        """Computes loss for CPB distribution.
+        """Sample from CPB distribution.
 
         Args:
             x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
-            y (torch.Tensor): Target labels. Shape (B, H).
+            sample_fn (Callable): Sampling function that takes probabilities and returns sampled indices.
+            horizon (Optional[int]): Horizon for sampling. If None, uses self.horizon.
+            return_logits (bool): Whether to return logits or probabilities.
 
         Returns:
-            torch.Tensor: Computed loss. Shape (B,).
+            tuple: (sampled_sequence, final_probabilities)
+                - sampled_sequence: Shape (B, H)
+                - final_probabilities: Shape (B, V) - probabilities for the last token
         """
         y_out = torch.empty(x.size(0), 0, device=x.device, dtype=torch.long)
-        for _ in range(self.horizon):
+        horizon_to_use = horizon if horizon is not None else self.horizon
+
+        for _ in range(horizon_to_use):
             prob_y_bar_xy = self.log_prob(x, y_out, return_dists=True)
             y_out_t = sample_fn(prob_y_bar_xy).unsqueeze(1)  # (B, 1)
             y_out = torch.cat([y_out, y_out_t], dim=-1)  # (B, H+1)
+
         return y_out, prob_y_bar_xy
 
     def forward(self, x: torch.Tensor, y: torch.Tensor):

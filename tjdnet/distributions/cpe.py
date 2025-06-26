@@ -3,7 +3,7 @@ from typing import Callable, Optional
 import torch
 
 from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
-from tjdnet.distributions._tjdist import BaseDistConfig
+from tjdnet.distributions._tjdist import BaseDistConfig, TJDist
 
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched_w_decoder
 
@@ -13,7 +13,7 @@ def safe_exp(x: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.clamp(x, max=20.0))  # Clamp to
 
 
-class CPEffDist(AbstractDist):
+class CPEffDist(TJDist):
     def __init__(self, config: BaseDistConfig, **kwargs):
         """CP Distribution
 
@@ -23,7 +23,8 @@ class CPEffDist(AbstractDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__()
+        super().__init__(config)
+        self.param_func = None
         self.vocab_size = config.vocab_size
         self.horizon = config.horizon
         self.rank = config.rank
