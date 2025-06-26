@@ -47,15 +47,14 @@ class TestTJDSimpleMemoryMinimal(unittest.TestCase):
         self.device = torch.device("cuda")
 
     def test_backward_memory_comparison(self):
-        B, H, V = 8, 2, 50257
+        B, H, V = 32 * 128, 8, 50257
         device = self.device
         config = TJDSimpleConfig(
             model_name="gpt2",
             model_head="multihead",
             horizon=H,
-            rank=2,
             train_mode="full",
-            lora_rank=1,
+            lora_rank=32,
             positivity_func="safe_exp",
         )
         methods = [
