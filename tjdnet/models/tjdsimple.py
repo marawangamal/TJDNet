@@ -120,6 +120,41 @@ class TJDSimple(nn.Module):
 
         return ModelOutput(**{"hidden_states": hidden_states})
 
+    def forward_backward(
+        self,
+        input_ids: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        **kwargs
+    ) -> ModelOutput:
+        """Forward pass for training."""
+        outputs = self.backbone(
+            input_ids=input_ids, attention_mask=attention_mask, **kwargs
+        )
+        hidden_states = outputs.last_hidden_state
+
+        if labels is not None:
+            y = self._prepare_targets(input_ids)
+            _, _, D = hidden_states.shape
+            H = self.config.horizon
+            x = hidden_states[:, :-H, :].reshape(-1, D)
+
+            # Memory-efficient backward for MultiHeadDist
+            if hasattr(self.dist_head, "forward_partial"):
+                total_loss = 0.0
+                for h in range(H):
+                    loss_i = self.dist_head.forward_partial(x, y, head_ids=[h]).mean()
+                    loss_i.backward(retain_graph=(h < H - 1))
+                    total_loss += loss_i.detach()
+                return ModelOutput(**{"loss": total_loss, "nll": -1})
+
+            # Fallback: normal backward
+            loss = self.dist_head(x, y).mean()
+            loss.backward()
+            return ModelOutput(**{"loss": loss, "nll": -1})
+
+        return ModelOutput(**{"hidden_states": hidden_states})
+
     def generate(
         self,
         input_ids: torch.Tensor,

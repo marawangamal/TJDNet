@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 import torch
 import torch.nn as nn
 
@@ -30,9 +30,26 @@ class MultiHeadDist(AbstractDist):
         )
 
     def forward(self, x: torch.Tensor, y: torch.Tensor):
-        """Compute cross-entropy loss for each position."""
+        """Compute cross-entropy loss for each position, or for one random head if partial=True."""
         total_loss = 0.0
         for h in range(self.horizon):
+            logits = self.heads[h](x)
+            loss = nn.CrossEntropyLoss(reduction="none")(logits, y[:, h])
+            total_loss += loss
+        return total_loss
+
+    def forward_partial(
+        self, x: torch.Tensor, y: torch.Tensor, head_ids: Optional[List[int]] = None
+    ):
+        """Compute cross-entropy loss for each position, or for one random head if partial=True."""
+        # heads = (
+        #     [int(torch.randint(0, self.horizon, (1,)).item())]
+        #     if partial
+        #     else range(self.horizon)
+        # )
+        total_loss = 0.0
+        head_indices = range(self.horizon) if head_ids is None else head_ids
+        for h in head_indices:
             logits = self.heads[h](x)
             loss = nn.CrossEntropyLoss(reduction="none")(logits, y[:, h])
             total_loss += loss
@@ -76,40 +93,3 @@ class MultiHeadDist(AbstractDist):
 #         logits = [head(h) for head in self.heads]
 #         logits = torch.stack(logits, dim=1)
 #         return torch.argmax(logits, dim=-1)
-
-# def forward(self, x: torch.Tensor, y: torch.Tensor):
-#     """Computes loss for multi-head distribution with memory-efficient implementation.
-
-#     This implementation follows the memory-efficient approach from the paper by
-#     computing forward and backward passes sequentially for each head, accumulating
-#     gradients at the trunk while freeing logits and their gradients after each head.
-
-#     Args:
-#         x (torch.Tensor): Input features. Shape (B, D).
-#         y (torch.Tensor): Target labels. Shape (B, H).
-
-#     Returns:
-#         torch.Tensor: Computed loss. Shape (B,).
-#     """
-#     batch_size = x.size(0)
-#     total_loss = 0.0
-
-#     # Enable gradient computation for memory-efficient backward pass
-#     x.requires_grad_(True)
-
-#     for h in range(self.horizon):
-#         # Forward pass through current head
-#         logits = self.heads[h](x)  # (B, V)
-#         loss = nn.CrossEntropyLoss(reduction="none")(logits, y[:, h])  # (B,)
-
-#         # Backward pass for current head
-#         loss.backward(retain_graph=(h < self.horizon - 1))
-
-#         # Accumulate loss
-#         total_loss += loss.detach()
-
-#     # Free logits and their gradients to reduce memory usage
-#     # This reduces peak GPU memory from O(nV + d) to O(V + d)
-#     del logits
-
-# return total_loss
