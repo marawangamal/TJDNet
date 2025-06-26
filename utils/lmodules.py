@@ -10,7 +10,7 @@ from transformers.data.data_collator import (
 from lightning.pytorch.loggers import WandbLogger
 
 from tjdnet.models.tjdsimple import TJDSimple, TJDSimpleConfig
-from tjdnet.types import PositivityFuncType
+from tjdnet.types import PositivityFuncType, ModelHeadType
 from dataloaders import DATASETS
 
 
@@ -22,7 +22,7 @@ class LModel(L.LightningModule):
         train_mode: Literal["full", "lora"] = "lora",
         lora_rank: int = 32,
         # tjdist parameters
-        model_head: str = "cp",
+        model_head: ModelHeadType = "cp",
         horizon: int = 1,
         rank: int = 1,
         positivity_func: PositivityFuncType = "safe_exp",

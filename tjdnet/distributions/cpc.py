@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch
@@ -8,19 +7,9 @@ from tjdnet.distributions._base import (
     BaseDistConfig,
     BaseDistFromLinearConfig,
 )
-from tjdnet.utils import sample_topk
 
 
-@dataclass
-class CPBDistConfig:
-    rank: int
-    horizon: int
-    hidden_dim: int
-    in_dim: int
-    vocab_size: int
-
-
-class CPBDist(AbstractDist):
+class CPCDist(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__()
         self.config = config
@@ -32,7 +21,7 @@ class CPBDist(AbstractDist):
         )
 
         # === learnable alpha (moe weights)
-        self.alpha_unnorm_func = torch.nn.Linear(
+        self.w_alpha = torch.nn.Linear(
             in_features=D,
             out_features=R,
         )
@@ -140,8 +129,8 @@ class CPBDist(AbstractDist):
         assert y.size(1) <= H if y is not None else True, f"y > horizon"
 
         # Get cp params
-        lsm_alpha = torch.log_softmax(self.alpha_unnorm_func(x), dim=-1)  # (B, R)
-        p_dists_tilde = self.param_func(x)  # Unnorm cond probs. Shape: (B, HR, V)
+        lsm_alpha = torch.log_softmax(self.w_alpha(x), dim=-1)  # (B, R)
+        p_dists_tilde = self.w_cp(x)  # Unnorm cond probs. Shape: (B, HR, V)
 
         # Referred to as `a_tilde` in notes
         log_p_dists = torch.log_softmax(p_dists_tilde, dim=-1).reshape(-1, H, R, V)
@@ -196,7 +185,7 @@ class CPBDist(AbstractDist):
         self,
         x: torch.Tensor,
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
-        horizon: Optional[int],
+        horizon: Optional[int] = None,
         return_logits: bool = False,
         **kwargs,
     ):
@@ -213,11 +202,17 @@ class CPBDist(AbstractDist):
                 - Evaluation of the distribution at the points of shape (B, H).
                 - Probabilities of shape (B, H, V) or logits of shape (B, H, V).
         """
+        H, R, D, V = (
+            self.config.horizon,
+            self.config.rank,
+            self.config.embedding_dim,
+            self.config.vocab_size,
+        )
         y = None
         x = x[:, -1]  # (B, D)
         z = torch.zeros(x.size(0), 1, device=x.device)
         pys = []
-        horizon = min(horizon, self.horizon) if horizon is not None else self.horizon
+        horizon = min(horizon, H) if horizon is not None else H
         for _ in range(horizon):
 
             # log p(y_h|x, y_1:h-1) [B, V]
@@ -225,11 +220,7 @@ class CPBDist(AbstractDist):
 
             log_pyh_bar_y = log_py - z
             pyh_bar_y = torch.exp(log_pyh_bar_y)
-            y_h = (
-                sample_topk(pyh_bar_y, top_k=top_k)
-                if do_sample
-                else sample_topk(pyh_bar_y, top_k=1)
-            )  # (B, 1)
+            y_h = sample_fn(pyh_bar_y).unsqueeze(1)  # (B, 1)
             y = y_h if y is None else torch.cat([y, y_h], dim=-1)
             # (B, V) -> (B, 1)
             z = z + log_pyh_bar_y.gather(-1, y_h)
@@ -242,34 +233,38 @@ class CPBDist(AbstractDist):
 
         return y, torch.stack(pys, dim=1)  # (B, H), (B, H, V)
 
-    def sample_v2(
-        self,
-        hidden_state: torch.Tensor,
-        horizon: Optional[int],
-        do_sample: bool,
-        top_k: int,
-        **kwargs,
-    ):
-        y = None
-        x = hidden_state[:, -1]  # (B, D)
-        pys = []
-        for h in range(self.horizon):
-            log_pyh_bar_y_tilde = self.log_prob_unstable(
-                x, y, return_dist_slice=True
-            )  # (B, V)
-            pyh_bar_y_tilde = torch.exp(log_pyh_bar_y_tilde)
-            pyh_bar_y = pyh_bar_y_tilde / pyh_bar_y_tilde.sum(-1, keepdim=True)
-            y_h = (
-                sample_topk(pyh_bar_y, top_k=top_k)
-                if do_sample
-                else sample_topk(pyh_bar_y, top_k=1)
-            )  # (B, 1)
-            y = y_h if y is None else torch.cat([y, y_h], dim=-1)
+    # def sample_v2(
+    #     self,
+    #     hidden_state: torch.Tensor,
+    #     horizon: Optional[int],
+    #     do_sample: bool,
+    #     top_k: int,
+    #     **kwargs,
+    # ):
+    #     H, R, D, V = (
+    #         self.config.horizon,
+    #         self.config.rank,
+    #         self.config.embedding_dim,
+    #         self.config.vocab_size,
+    #     )
+    #     y = None
+    #     x = hidden_state[:, -1]  # (B, D)
+    #     pys = []
+    #     for h in range(H):
+    #         log_pyh_bar_y_tilde = self.log_prob(x, y, return_dist_slice=True)  # (B, V)
+    #         pyh_bar_y_tilde = torch.exp(log_pyh_bar_y_tilde)
+    #         pyh_bar_y = pyh_bar_y_tilde / pyh_bar_y_tilde.sum(-1, keepdim=True)
+    #         y_h = (
+    #             sample_topk(pyh_bar_y, top_k=top_k)
+    #             if do_sample
+    #             else sample_topk(pyh_bar_y, top_k=1)
+    #         )  # (B, 1)
+    #         y = y_h if y is None else torch.cat([y, y_h], dim=-1)
 
-            # Save dist
-            pys.append(pyh_bar_y)
+    #         # Save dist
+    #         pys.append(pyh_bar_y)
 
-        if y is None:
-            raise ValueError("Failed to sample from CPB distribution.")
+    #     if y is None:
+    #         raise ValueError("Failed to sample from CPB distribution.")
 
-        return y, torch.stack(pys, dim=1)  # (B, H), (B, H, V)
+    #     return y, torch.stack(pys, dim=1)  # (B, H), (B, H, V)

@@ -9,7 +9,7 @@ from typing import Optional, Literal
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.tensorops.common import get_windowed_input_ids_v2
-from tjdnet.types import PositivityFuncType
+from tjdnet.types import PositivityFuncType, ModelHeadType
 
 
 @dataclass
@@ -17,7 +17,7 @@ class TJDSimpleConfig:
     """Minimal config for TJDSimple model."""
 
     model_name: str = "gpt2"
-    model_head: str = "MultiHeadDist"
+    model_head: ModelHeadType = "multihead"
     horizon: int = 3
     rank: int = 4
     train_mode: Literal["full", "lora"] = "lora"
