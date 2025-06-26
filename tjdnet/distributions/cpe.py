@@ -13,7 +13,7 @@ def safe_exp(x: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.clamp(x, max=20.0))  # Clamp to
 
 
-class CPEffDist(TJDist):
+class CPEDist(TJDist):
     def __init__(self, config: BaseDistConfig, **kwargs):
         """CP Distribution
 

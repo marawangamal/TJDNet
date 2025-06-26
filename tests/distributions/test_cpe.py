@@ -2,7 +2,7 @@ import unittest
 import torch
 import gc
 
-from tjdnet.distributions.cpe import CPEffDist
+from tjdnet.distributions.cpe import CPEDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.types import PositivityFuncType
@@ -17,7 +17,7 @@ def cpe_method(B, D, H, R, V, device, positivity_func: PositivityFuncType = "saf
         embedding_dim=D,
         positivity_func=positivity_func,
     )
-    model = CPEffDist(config).to(device)
+    model = CPEDist(config).to(device)
     x = torch.randn(B, D, device=device)
     y = torch.randint(0, V, (B, H), device=device)
     model(x, y)
@@ -58,20 +58,38 @@ class TestCPEffVsCPDistMemory(unittest.TestCase):
         gc.collect()
         return peak_memory, param_mem
 
+    def measure_backward_memory(self, func, *args):
+        torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.reset_peak_memory_stats()
+        model = func(*args)
+        # Forward pass
+        x = torch.randn(args[0], args[1], device=args[5])
+        y = torch.randint(0, args[4], (args[0], args[2]), device=args[5])
+        out = model(x, y)
+        if isinstance(out, tuple):
+            loss = out[0] if isinstance(out[0], torch.Tensor) else out[0][0]
+        else:
+            loss = out if isinstance(out, torch.Tensor) else out[0]
+        loss = loss.mean() if hasattr(loss, "mean") else loss
+        loss.backward()
+        peak_memory = torch.cuda.max_memory_allocated()
+        param_mem = sum(p.numel() * p.element_size() for p in model.parameters())
+        del model, x, y, out, loss
+        torch.cuda.empty_cache()
+        gc.collect()
+        return peak_memory, param_mem
+
     def test_memory_comparison(self):
         # hparams
         # B, D, H, R, V = 32, 4096, 32, 32, 30000
-        B, D, H, R, V = 64, 1024, 32, 64, 30000
+        B, D, H, R, V = 32 * 128, 768, 2, 2, 30000
         device = self.device
         methods = [
             (cp_method, "CPDist+safe_exp", (B, D, H, R, V, device, "safe_exp")),
             (cpe_method, "CPEffDist+safe_exp", (B, D, H, R, V, device, "safe_exp")),
             (cp_method, "CPDist+sigmoid", (B, D, H, R, V, device, "sigmoid")),
             (cpe_method, "CPEffDist+sigmoid", (B, D, H, R, V, device, "sigmoid")),
-            (cp_method, "CPDist+relu", (B, D, H, R, V, device, "relu")),
-            (cpe_method, "CPEffDist+relu", (B, D, H, R, V, device, "relu")),
-            (cp_method, "CPDist+leaky_relu", (B, D, H, R, V, device, "leaky_relu")),
-            (cpe_method, "CPEffDist+leaky_relu", (B, D, H, R, V, device, "leaky_relu")),
         ]
         results = {"CPDist": -1, "CPEffDist": -1}
         param_percents = {"CPDist": -1.0, "CPEffDist": -1.0}
@@ -88,6 +106,36 @@ class TestCPEffVsCPDistMemory(unittest.TestCase):
             results["CPEffDist"],
             results["CPDist"],
             "CPEffDist should use less or equal memory than CPDist",
+        )
+
+    def test_backward_memory_comparison(self):
+        B, D, H, R, V = 32 * 128, 768, 2, 2, 30000
+        device = self.device
+        methods = [
+            (cp_method, "CPDist+safe_exp", (B, D, H, R, V, device, "safe_exp")),
+            (cpe_method, "CPEffDist+safe_exp", (B, D, H, R, V, device, "safe_exp")),
+            (cp_method, "CPDist+sigmoid", (B, D, H, R, V, device, "sigmoid")),
+            (cpe_method, "CPEffDist+sigmoid", (B, D, H, R, V, device, "sigmoid")),
+        ]
+        results = {"CPDist": -1, "CPEffDist": -1}
+        param_percents = {"CPDist": -1.0, "CPEffDist": -1.0}
+        for method, name, args in methods:
+            peak_memory, param_mem = self.measure_backward_memory(method, *args)
+            percent = 100 * param_mem / peak_memory if peak_memory > 0 else 0
+            print(
+                f"[BACKWARD] {name}: {peak_memory/1024**2:.2f} MB (params: {param_mem/1024**2:.2f} MB, {percent:.2f}% of peak)"
+            )
+            results[name] = peak_memory
+            param_percents[name] = percent
+        self.assertLessEqual(
+            results["CPEffDist+safe_exp"],
+            results["CPDist+safe_exp"],
+            "CPEffDist should use less or equal memory than CPDist in backward pass",
+        )
+        self.assertLessEqual(
+            results["CPEffDist+sigmoid"],
+            results["CPDist+sigmoid"],
+            "CPEffDist should use less or equal memory than CPDist in backward pass (sigmoid)",
         )
 
     def tearDown(self):
