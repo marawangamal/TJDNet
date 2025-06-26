@@ -1,4 +1,4 @@
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 import lightning as L
 import torch
 from torch.utils.data import DataLoader
@@ -29,6 +29,7 @@ class LModel(L.LightningModule):
         # trainer
         lr: float = 1e-3,
         warmup_steps: int = 100,
+        grad_clip_val: Optional[float] = None,
         # sampling parameters
         max_new_tokens: int = 128,
         do_sample: bool = False,
@@ -59,35 +60,30 @@ class LModel(L.LightningModule):
             )
         )
 
-        self.automatic_optimization = False
+        # self.automatic_optimization = False
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams["lr"])
         return optimizer
 
     def training_step(self, batch, batch_idx):
-        # out = self.model(**batch)
-        # loss = out.loss
-        # self.log("train_loss", loss, prog_bar=True)
-        # return loss
-        opt = self.optimizers()
-        opt.zero_grad()
-
-        if hasattr(self.model, "forward_backward"):
-            # Memory efficient implementation
-            out = self.model.forward_backward(**batch)
-            loss = out.loss
-        else:
-            out = self.model(**batch)
-            loss = out.loss
-            loss.backward()
-        if self.grad_clip_val is not None:
-            self.clip_gradients(
-                opt, gradient_clip_val=0.5, gradient_clip_algorithm="norm"
-            )
-        opt.step()
+        out = self.model(**batch)
+        loss = out.loss
         self.log("train_loss", loss, prog_bar=True)
         return loss
+        # opt = self.optimizers()
+        # opt.zero_grad()
+        # out = self.model.forward_backward(**batch)
+        # loss = out.loss
+        # if self.hparams["grad_clip_val"] is not None:
+        #     self.clip_gradients(
+        #         opt,
+        #         gradient_clip_val=self.hparams["grad_clip_val"],
+        #         gradient_clip_algorithm="norm",
+        #     )
+        # opt.step()
+        # self.log("train_loss", loss, prog_bar=True)
+        # return loss
 
     def validation_step(self, batch, batch_idx):
         out = self.model(**batch)
