@@ -125,6 +125,11 @@ class MultiTokenLlama(PreTrainedModel, GenerationMixin):
 
         # Compute loss if labels provided
         if labels is not None:
+            seq_len = input_ids.shape[1]
+            if seq_len <= self.horizon:
+                raise ValueError(
+                    f"Input sequence length ({seq_len}) must be greater than horizon ({self.horizon}) for loss computation."
+                )
             # Remove last H positions since we can't predict them
             x = hidden_states[:, : -self.horizon, :]  # (B, T-H, D)
             x = x.reshape(-1, self.embedding_dim)  # (B*(T-H), D)

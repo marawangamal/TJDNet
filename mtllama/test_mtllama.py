@@ -19,11 +19,16 @@ def test_model():
     tokenizer.pad_token = tokenizer.eos_token
 
     # Test data
-    inputs = tokenizer("Hello", return_tensors="pt")
+    inputs = tokenizer("Hello world this is a test sentence", return_tensors="pt")
+    print(f"Input shape: {inputs['input_ids'].shape}")
+    print(f"Input tokens: {inputs['input_ids']}")
+    print(f"Decoded input: {tokenizer.decode(inputs['input_ids'][0])}")
 
-    # Test forward pass
-    outputs = model(input_ids=inputs["input_ids"], labels=inputs["input_ids"])
-    print(f"Loss: {outputs['loss'].item():.4f}")
+    # Test forward pass with debugging
+    with torch.no_grad():
+        outputs = model(input_ids=inputs["input_ids"], labels=inputs["input_ids"])
+        print(f"Loss: {outputs['loss'].item():.4f}")
+        print(f"Logits shape: {outputs['logits'].shape}")
 
     # Test generation
     generated = model.generate(inputs["input_ids"], max_length=10)
