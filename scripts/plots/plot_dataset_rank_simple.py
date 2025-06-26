@@ -6,6 +6,7 @@ Usage:
 """
 
 import argparse
+import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,7 +15,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 
 
-def get_samples(debug=False, num_samples=10):
+def get_samples(debug=False, num_samples=2):
     """Get samples from three datasets with varying complexity"""
 
     # WikiText-2 (low rank) - structured text
@@ -31,12 +32,6 @@ def get_samples(debug=False, num_samples=10):
         sample["sentence"] for sample in sst2 if sample["sentence"].strip()
     ][:num_samples]
 
-    # HellaSwag (high rank) - commonsense reasoning
-    hellaswag = load_dataset("hellaswag", split="train[:100]", trust_remote_code=True)
-    hellaswag_samples = [
-        sample["ctx"] for sample in hellaswag if sample["ctx"].strip()
-    ][:num_samples]
-
     if debug:
         print("=== Low Rank Samples (WikiText-2) ===")
         for i, sample in enumerate(wikitext_samples):
@@ -44,15 +39,11 @@ def get_samples(debug=False, num_samples=10):
         print("\n=== Medium Rank Samples (SST-2) ===")
         for i, sample in enumerate(sst2_samples):
             print(f"{i+1}. {sample[:100]}...")
-        print("\n=== High Rank Samples (HellaSwag) ===")
-        for i, sample in enumerate(hellaswag_samples):
-            print(f"{i+1}. {sample[:100]}...")
         print("=== Done ===")
 
     return {
         "low_rank": wikitext_samples,
         "medium_rank": sst2_samples,
-        "high_rank": hellaswag_samples,
     }
 
 
@@ -79,8 +70,8 @@ def plot_spectra(spectra, save_path=None):
     """Plot spectra comparison"""
     plt.figure(figsize=(10, 6))
 
-    colors = {"low_rank": "blue", "medium_rank": "orange", "high_rank": "red"}
-    names = {"low_rank": "WikiText-2", "medium_rank": "SST-2", "high_rank": "HellaSwag"}
+    colors = {"low_rank": "blue", "medium_rank": "orange"}
+    names = {"low_rank": "WikiText-2", "medium_rank": "SST-2"}
 
     for category, spectrum_list in spectra.items():
         avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
@@ -99,6 +90,7 @@ def plot_spectra(spectra, save_path=None):
     plt.grid(True, alpha=0.3)
 
     if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.show()
 
@@ -111,6 +103,10 @@ def main():
     )
     args = parser.parse_args()
 
+    # Progress file path
+    progress_path = "results/spectrum_progress.pt"
+    os.makedirs(os.path.dirname(progress_path), exist_ok=True)
+
     # Load model
     print(f"Loading {args.model}...")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -121,25 +117,27 @@ def main():
     print("Loading datasets...")
     datasets = get_samples(debug=True)
 
+    # Try to load progress
+    if os.path.exists(progress_path):
+        print(f"Loading progress from {progress_path}...")
+        spectra = torch.load(progress_path)
+    else:
+        spectra = {"low_rank": [], "medium_rank": []}
+
     # Compute spectra
     print("Computing spectra...")
-    spectra = {"low_rank": [], "medium_rank": [], "high_rank": []}
-
     for category, samples in datasets.items():
-        for text in samples:
+        for i, text in enumerate(samples):
+            # Skip if already computed
+            if len(spectra[category]) > i:
+                continue
             try:
                 # Compute spectrum
                 spectrum = get_spectrum(model, tokenizer, text, args.device)
                 spectra[category].append(spectrum)
-                print(f"{category}: {spectrum[:3]}...")
-
-                # Debug: generate random spectrum decaying
-                # spectrum = (
-                #     torch.exp(-torch.arange(100, dtype=torch.float32) * 0.1)
-                #     + torch.randn(100) * 0.01
-                # )
-                # spectra[category].append(spectrum)
-                # print(f"{category}: {spectrum[:3]}...")
+                print(f"{category} [{i+1}/{len(samples)}]: {spectrum[:3]}...")
+                # Save progress
+                torch.save(spectra, progress_path)
             except Exception as e:
                 print(f"Error with {category}: {e}")
 
@@ -152,10 +150,10 @@ def main():
     for category, spectrum_list in spectra.items():
         if spectrum_list:
             avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
-            rank_90 = (
-                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < 0.9
+            rank_99 = (
+                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < 0.99
             ).sum().item() + 1
-            print(f"{category}: rank for 90% variance = {rank_90}")
+            print(f"{category}: rank for 99% variance = {rank_99}")
 
 
 if __name__ == "__main__":
