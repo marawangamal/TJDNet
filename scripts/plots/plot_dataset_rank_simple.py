@@ -33,7 +33,7 @@ from datasets import load_dataset
 #   - openwebtext (web crawl, millions of samples)
 #   - c4 (Colossal Clean Crawled Corpus, millions of samples)
 #   - stackexchange_qa (Q&A, diverse topics)
-def get_samples(debug=False, num_samples=2):
+def get_samples(debug=False, num_samples=5):
     """Get samples from several datasets, using dataset names as keys."""
     dataset_configs = {
         # Low rank
