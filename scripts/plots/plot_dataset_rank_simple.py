@@ -5,7 +5,11 @@ Usage:
     python scripts/plots/plot_dataset_rank_simple.py --model gpt2
 """
 
+import os
 import argparse
+from tqdm import tqdm
+from tabulate import tabulate
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,82 +18,135 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 
 
-def get_samples(debug=False, num_samples=10):
-    """Get samples from three datasets with varying complexity"""
-
-    # WikiText-2 (low rank) - structured text
-    wikitext = load_dataset(
-        "wikitext", "wikitext-2-raw-v1", split=f"train[:{num_samples*5}]"
-    )
-    wikitext_samples = [
-        sample["text"][:200] for sample in wikitext if sample["text"].strip()
-    ][:num_samples]
-
-    # SST-2 (medium rank) - sentiment analysis
-    sst2 = load_dataset("glue", "sst2", split="train[:100]")
-    sst2_samples = [
-        sample["sentence"] for sample in sst2 if sample["sentence"].strip()
-    ][:num_samples]
-
-    # HellaSwag (high rank) - commonsense reasoning
-    hellaswag = load_dataset("hellaswag", split="train[:100]", trust_remote_code=True)
-    hellaswag_samples = [
-        sample["ctx"] for sample in hellaswag if sample["ctx"].strip()
-    ][:num_samples]
-
-    if debug:
-        print("=== Low Rank Samples (WikiText-2) ===")
-        for i, sample in enumerate(wikitext_samples):
-            print(f"{i+1}. {sample[:100]}...")
-        print("\n=== Medium Rank Samples (SST-2) ===")
-        for i, sample in enumerate(sst2_samples):
-            print(f"{i+1}. {sample[:100]}...")
-        print("\n=== High Rank Samples (HellaSwag) ===")
-        for i, sample in enumerate(hellaswag_samples):
-            print(f"{i+1}. {sample[:100]}...")
-        print("=== Done ===")
-
-    return {
-        "low_rank": wikitext_samples,
-        "medium_rank": sst2_samples,
-        "high_rank": hellaswag_samples,
+# Low rank datasets (structured, algorithmic, or formulaic answers):
+#   - gsm8k (grade school math, train: 7473)
+#   - aqua_rat (algebra word problems, train: 10160)
+#   - asdiv (arithmetic, train: 2305)
+#   - wikitext-2 (structured Wikipedia text, train: 36718)
+#   - math_qa (math QA, train: 29937)
+# Medium rank datasets (natural language, but with some structure):
+#   - sst2 (sentiment analysis, train: 67349)
+#   - imdb (movie reviews, train: 25000)
+#   - ag_news (news categorization, train: 120000)
+# High rank datasets (open-ended, diverse, conversational, or noisy):
+#   - reddit (open-domain discussion, millions of samples)
+#   - openwebtext (web crawl, millions of samples)
+#   - c4 (Colossal Clean Crawled Corpus, millions of samples)
+#   - stackexchange_qa (Q&A, diverse topics)
+def get_samples(debug=False, num_samples=2):
+    """Get samples from several datasets, using dataset names as keys."""
+    dataset_configs = {
+        # Low rank
+        "aqua_rat": {
+            "hf_name": ("aqua_rat",),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "field": "question",
+            "post": lambda s: s + " Answer:",
+        },
+        "wikitext2": {
+            "hf_name": ("wikitext", "wikitext-2-raw-v1"),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "field": "text",
+            "post": lambda s: s[:200],
+        },
+        # Medium rank
+        "sst2": {
+            "hf_name": ("glue", "sst2"),
+            "load_kwargs": {"split": "train[:100]"},
+            "field": "sentence",
+            "post": lambda s: s,
+        },
+        # High rank
+        "reddit": {
+            "hf_name": ("reddit",),
+            "load_kwargs": {
+                "split": f"train[:{num_samples*5}]",
+                "trust_remote_code": True,
+            },
+            "field": "body",
+            "post": lambda s: s,
+        },
     }
 
+    samples = {}
+    for name, cfg in dataset_configs.items():
+        ds = load_dataset(*cfg["hf_name"], **cfg["load_kwargs"])
+        s = [
+            cfg["post"](sample[cfg["field"]])
+            for sample in ds
+            if sample[cfg["field"]].strip()
+        ][:num_samples]
+        samples[name] = s
+        if debug:
+            print(f"=== {name} ===")
+            for i, sample in enumerate(s):
+                print(f"{i+1}. {sample[:100]}...")
+    if debug:
+        print("=== Done ===")
+    return samples
 
-def get_spectrum(model, tokenizer, text, device):
-    """Get spectrum of p(y1, y2|x) for given text"""
-    # Tokenize and get logits
-    inputs = tokenizer(text, return_tensors="pt", max_length=128, truncation=True)
+
+def get_joint_prob(model, tokenizer, text, device, top_k=None):
+    """Compute joint probability p(y1, y2 | x) for given text. If top_k is None, use all vocab."""
+    x = tokenizer(text, return_tensors="pt", max_length=128, truncation=True)[
+        "input_ids"
+    ].to(device)
+
     with torch.no_grad():
-        outputs = model(inputs["input_ids"].to(device))
-        logits = outputs.logits[0, -1, :]  # Last position
+        out = model(x)
+        logits_y1 = out.logits[0, -1, :]  # (vocab_size,)
+        p_y1 = torch.softmax(logits_y1, dim=-1)
 
-    # Create joint probability matrix (simplified)
-    p = torch.softmax(logits, dim=-1)
-    joint_prob = torch.outer(p, p)  # p(y1, y2|x) ≈ p(y1|x) * p(y2|x)
+        if top_k is None:
+            topk_p_y1 = p_y1
+            topk_y1 = torch.arange(p_y1.size(0), device=device)
+        else:
+            topk_p_y1, topk_y1 = torch.topk(p_y1, top_k)
+        joint = torch.zeros((len(topk_y1), len(topk_y1)), device=device)
 
-    # Get spectrum
-    U, s, Vh = randomized_svd(
-        joint_prob.cpu().numpy(), n_components=50, random_state=42
-    )
-    return torch.tensor(s)
+        for i, y1 in enumerate(
+            tqdm(topk_y1, desc="Computing joint p(y1,y2|x)", leave=False)
+        ):
+            x_y1 = torch.cat([x[0], y1.unsqueeze(0)]).unsqueeze(0)  # (1, L+1)
+            out2 = model(x_y1)
+            logits_y2 = out2.logits[0, -1, :]
+            p_y2_given_y1 = torch.softmax(logits_y2, dim=-1)
+            if top_k is None:
+                topk_p_y2 = p_y2_given_y1
+            else:
+                topk_p_y2, _ = torch.topk(p_y2_given_y1, top_k)
+            joint[i, :] = topk_p_y1[i] * topk_p_y2  # p(y1) * p(y2|y1)
+
+    return joint.cpu()
 
 
 def plot_spectra(spectra, save_path=None):
     """Plot spectra comparison"""
     plt.figure(figsize=(10, 6))
 
-    colors = {"low_rank": "blue", "medium_rank": "orange", "high_rank": "red"}
-    names = {"low_rank": "WikiText-2", "medium_rank": "SST-2", "high_rank": "HellaSwag"}
+    colors = {
+        "wikitext2": "blue",
+        "sst2": "orange",
+        "aqua_rat": "green",
+        "reddit": "red",
+    }
+    names = {
+        "wikitext2": "WikiText-2",
+        "sst2": "SST-2",
+        "aqua_rat": "AQuA (Math QA)",
+        "reddit": "Reddit",
+    }
 
-    for category, spectrum_list in spectra.items():
-        avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
+    for category in spectra.keys():
+        spectrum_list = spectra[category]
+        tensor_list = [torch.as_tensor(s) for s in spectrum_list]
+        avg_spectrum = torch.stack(tensor_list).mean(dim=0)
         normalized = avg_spectrum / avg_spectrum[0]
         plt.semilogy(
             normalized,
-            color=colors[category],
+            color=colors.get(category, None),
             linewidth=2,
-            label=f"{names[category]} ({len(spectrum_list)} samples)",
+            label=f"{names.get(category, category)} ({len(spectrum_list)} samples)",
         )
 
     plt.xlabel("Singular Value Index")
@@ -99,17 +156,28 @@ def plot_spectra(spectra, save_path=None):
     plt.grid(True, alpha=0.3)
 
     if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.show()
 
 
 def main():
+    # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="distilbert/distilgpt2")
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing progress checkpoint.",
+    )
     args = parser.parse_args()
+
+    # Progress file path
+    progress_path = f"results/spectrum_progress_{args.model.replace('/', '_')}.pt"
+    os.makedirs(os.path.dirname(progress_path), exist_ok=True)
 
     # Load model
     print(f"Loading {args.model}...")
@@ -121,41 +189,61 @@ def main():
     print("Loading datasets...")
     datasets = get_samples(debug=True)
 
+    # Try to load progress, unless overwrite is set
+    if os.path.exists(progress_path) and not args.overwrite:
+        print(f"Loading progress from {progress_path}...")
+        spectra = torch.load(progress_path, weights_only=False)
+    else:
+        if os.path.exists(progress_path) and args.overwrite:
+            print(f"Overwrite flag set. Removing existing progress at {progress_path}.")
+            os.remove(progress_path)
+        spectra = {k: [] for k in ["wikitext2", "sst2", "aqua_rat", "reddit"]}
+
     # Compute spectra
     print("Computing spectra...")
-    spectra = {"low_rank": [], "medium_rank": [], "high_rank": []}
-
     for category, samples in datasets.items():
-        for text in samples:
+        for i, text in enumerate(samples):
+            # Skip if already computed
+            if len(spectra[category]) > i:
+                continue
             try:
                 # Compute spectrum
-                spectrum = get_spectrum(model, tokenizer, text, args.device)
-                spectra[category].append(spectrum)
-                print(f"{category}: {spectrum[:3]}...")
-
-                # Debug: generate random spectrum decaying
-                # spectrum = (
-                #     torch.exp(-torch.arange(100, dtype=torch.float32) * 0.1)
-                #     + torch.randn(100) * 0.01
-                # )
-                # spectra[category].append(spectrum)
-                # print(f"{category}: {spectrum[:3]}...")
+                p_y1y2 = get_joint_prob(model, tokenizer, text, args.device)
+                print(f"p_y1y2.shape: {p_y1y2.shape}")
+                _, spectrum, _ = randomized_svd(
+                    p_y1y2.cpu().numpy(), n_components=10000, random_state=42
+                )
+                spectra[category].append(torch.tensor(spectrum))
+                print(f"{category} [{i+1}/{len(samples)}]: {spectrum[:3]}...")
+                # Save progress
+                torch.save(spectra, progress_path)
             except Exception as e:
                 print(f"Error with {category}: {e}")
 
     # Plot
     print("Plotting...")
-    plot_spectra(spectra, "results/spectrum_comparison.png")
+    plot_spectra(
+        spectra, f"results/spectrum_comparison_{args.model.replace('/', '_')}.png"
+    )
 
-    # Print summary
-    print("\nSUMMARY:")
+    summary_rows = []
+    var_target = 0.99
     for category, spectrum_list in spectra.items():
         if spectrum_list:
             avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
-            rank_90 = (
-                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < 0.9
+            rank_crit = (
+                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < var_target
             ).sum().item() + 1
-            print(f"{category}: rank for 90% variance = {rank_90}")
+            summary_rows.append([category, rank_crit])
+
+    print("\nSUMMARY:")
+    print(
+        tabulate(
+            summary_rows,
+            headers=[f"Category", f"Rank for {var_target*100}% Variance"],
+            tablefmt="github",
+        )
+    )
 
 
 if __name__ == "__main__":
