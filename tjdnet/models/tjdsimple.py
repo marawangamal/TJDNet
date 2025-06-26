@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoConfig
+from transformers.utils.generic import ModelOutput
 from dataclasses import dataclass
-from typing import Optional, Dict, Literal
+from typing import Optional, Literal
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig
@@ -99,7 +100,7 @@ class TJDSimple(nn.Module):
         labels: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         **kwargs
-    ) -> Dict[str, torch.Tensor]:
+    ) -> ModelOutput:
         """Forward pass for training."""
         # Get hidden states
         outputs = self.backbone(
@@ -109,12 +110,20 @@ class TJDSimple(nn.Module):
 
         # Compute loss if labels provided
         if labels is not None:
-            x = hidden_states.reshape(-1, self.embedding_dim)
-            y = self._prepare_targets(labels)
-            loss = self.dist_head(x, y).mean()
-            return {"loss": loss}
+            # Prepare targets first to get the correct batch size
+            y = self._prepare_targets(input_ids)  # (B*(T-H), H)
 
-        return {"hidden_states": hidden_states}
+            # Reshape hidden states to match target batch size
+            _, _, D = hidden_states.shape
+            H = self.config.horizon
+            # Remove last H positions since we can't predict them
+            x = hidden_states[:, :-H, :]  # (B, T-H, D)
+            x = x.reshape(-1, D)  # (B*(T-H), D)
+
+            loss = self.dist_head(x, y).mean()
+            return ModelOutput(**{"loss": loss, "nll": -1})
+
+        return ModelOutput(**{"hidden_states": hidden_states})
 
     def generate(
         self,

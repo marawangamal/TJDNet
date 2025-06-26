@@ -3,7 +3,7 @@ from lightning import LightningModule, Trainer
 from lightning.pytorch.callbacks import Callback
 from pytorch_lightning.utilities import rank_zero_only
 
-from tjdnet.models.tjd import TJD, TJDGenerationConfig
+from tjdnet.models.tjd import TJD
 
 
 class GenerateCallback(Callback):
@@ -13,11 +13,12 @@ class GenerateCallback(Callback):
 
     @rank_zero_only
     def _generate(self, pl_module: LightningModule) -> None:
+        device = next(pl_module.parameters()).device
         # Generate sample text
         model: TJD = pl_module.model
         output = model.generate(
             input_ids=pl_module.tokenizer.encode(self.prompt, return_tensors="pt").to(
-                model.device
+                device
             ),
             max_new_tokens=128,
             do_sample=True,
