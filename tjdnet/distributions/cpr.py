@@ -38,7 +38,8 @@ class CPRDist(TJDist):
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
         horizon: Optional[int] = None,
         return_logits: bool = False,
-        refine: bool = False,
+        refine: bool = True,
+        refine_steps: int = 2,
         **kwargs,
     ):
         """Computes P(yh|x, y1:h-1) for h in [1, H].
@@ -92,8 +93,42 @@ class CPRDist(TJDist):
             py_tilde_list.append(p_ops_tilde)
             next_token = sample_fn(p_ops_tilde).unsqueeze(1)  # (B,1)
 
-            y_hat = torch.cat([y_hat, next_token], dim=1)
+            y_hat = torch.cat([y_hat, next_token], dim=1)            
         py_tilde = torch.stack(py_tilde_list, dim=1)  # (B, H, V)
+
+        if refine:
+            y_hat_ = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
+            py_tilde_list = []
+            # Perform multiple refinement steps over the full sequence
+            for _ in range(refine_steps - 1):
+                # Refine each position h in turn
+                for h in range(horizon):
+                    # Build an ops tensor that fixes all tokens except position h (free leg)
+                    # to the current y_hat values.
+                    # Left context: y_hat[:, :h]
+                    # left = y_hat[:, :h]
+                    # Free leg placeholder at position h
+                    free_leg = -1 * torch.ones(batch_size, 1, dtype=torch.long, device=dvc)
+                    # Right context: y_hat[:, h+1:]
+                    right = y_hat[:, h+1:]
+                    # Concatenate to shape (B, horizon)
+                    ops_tensor = torch.cat((y_hat_, free_leg, right), dim=1)
+                    
+                    # Query CP tensor for logits at position h
+                    p_ops_tilde, _ = select_margin_cp_tensor_batched(
+                        cp_params=model_head_params,
+                        ops=ops_tensor,
+                    )  # shape (B, V)
+
+                    py_tilde_list.append(p_ops_tilde)
+
+                    # Sample a refined token and update y_hat at position h
+                    next_token = sample_fn(p_ops_tilde).unsqueeze(1)  # (B,1)
+                    y_hat_ = torch.cat([y_hat_, next_token], dim=1) 
+                py_tilde = torch.stack(py_tilde_list, dim=1)  # (B, H, V)
+                # Update y_hat with the refined sequence                       
+                y_hat = y_hat_  # Update y_hat with the refined sequence
+
         if return_logits:  # don't normalize
             return y_hat, py_tilde
         return y_hat, py_tilde / py_tilde.sum(dim=-1, keepdim=True)  # (B, H)

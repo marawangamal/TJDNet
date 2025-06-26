@@ -16,3 +16,5 @@ datasets
 experiments_v2
 lightning_logs
 debug/
+
+run.sh
