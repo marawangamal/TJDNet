@@ -108,7 +108,7 @@ class CPBDist(AbstractDist):
         self,
         x: torch.Tensor,
         sample_fn: Callable[[torch.Tensor], torch.Tensor],
-        horizon: Optional[int],
+        horizon: Optional[int] = None,
         return_logits: bool = False,
         **kwargs,
     ):
