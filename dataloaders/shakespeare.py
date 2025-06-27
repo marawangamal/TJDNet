@@ -29,7 +29,7 @@ class Shakespeare(AbstractDataset):
             "Shakespeare dataset does not have a specific answer format."
         )
 
-    def load_data(self):
+    def load_raw_data(self):
         local_path = os.path.join("data", "tinyshakespeare.txt")
         ds = load_dataset("text", data_files={"train": local_path}, split="train")
         ds_dict = ds.train_test_split(test_size=0.1, shuffle=False)

@@ -29,39 +29,22 @@ class WikiText2(AbstractDataset):
             "WikiText-2 dataset does not have a specific answer format."
         )
 
-    def load_data(self):
-        # Load WikiText-2 dataset
+    def load_raw_data(self):
         train_ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
         validation_ds = load_dataset(
             "wikitext", "wikitext-2-raw-v1", split="validation"
         )
         test_ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
-
-        # Process datasets
         train_ds = self._process_train_dataset(train_ds, self.tokenizer)
         validation_ds = self._process_train_dataset(validation_ds, self.tokenizer)
         test_ds = self._process_train_dataset(test_ds, self.tokenizer)
-
-        ds_dict = {
-            "train": train_ds,
-            "eval": validation_ds,
-            "test": test_ds,
-        }
-
-        # Apply token limits first, then sample limits
-        if self.max_tokens is not None:
-            for split in ds_dict:
-                ds_dict[split] = self._limit_by_tokens(ds_dict[split], split)
-        elif self.max_num_samples is not None:
-            for split in ds_dict:
-                if len(ds_dict[split]) > self.max_num_samples:
-                    ds_dict[split] = (
-                        ds_dict[split]
-                        .shuffle(seed=42)
-                        .select(range(self.max_num_samples))
-                    )
-
-        return DatasetDict(ds_dict)
+        return DatasetDict(
+            {
+                "train": train_ds,
+                "eval": validation_ds,
+                "test": test_ds,
+            }
+        )
 
 
 if __name__ == "__main__":

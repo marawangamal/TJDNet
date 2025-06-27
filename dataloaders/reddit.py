@@ -29,48 +29,29 @@ class Reddit(AbstractDataset):
             "Reddit dataset does not have a specific answer format."
         )
 
-    def load_data(self):
-        # Load Reddit dataset
-        # Note: Reddit dataset is quite large, so we'll load a subset
+    def load_raw_data(self):
         train_ds = load_dataset("reddit", split="train", trust_remote_code=True)
         validation_ds = load_dataset(
             "reddit", split="validation", trust_remote_code=True
         )
         test_ds = load_dataset("reddit", split="test", trust_remote_code=True)
 
-        # Filter out empty or very short posts
         def filter_posts(example):
             return len(example["body"].strip()) > 50
 
         train_ds = train_ds.filter(filter_posts)
         validation_ds = validation_ds.filter(filter_posts)
         test_ds = test_ds.filter(filter_posts)
-
-        # Process datasets
         train_ds = self._process_train_dataset(train_ds, self.tokenizer)
         validation_ds = self._process_train_dataset(validation_ds, self.tokenizer)
         test_ds = self._process_train_dataset(test_ds, self.tokenizer)
-
-        ds_dict = {
-            "train": train_ds,
-            "eval": validation_ds,
-            "test": test_ds,
-        }
-
-        # Apply token limits first, then sample limits
-        if self.max_tokens is not None:
-            for split in ds_dict:
-                ds_dict[split] = self._limit_by_tokens(ds_dict[split], split)
-        elif self.max_num_samples is not None:
-            for split in ds_dict:
-                if len(ds_dict[split]) > self.max_num_samples:
-                    ds_dict[split] = (
-                        ds_dict[split]
-                        .shuffle(seed=42)
-                        .select(range(self.max_num_samples))
-                    )
-
-        return DatasetDict(ds_dict)
+        return DatasetDict(
+            {
+                "train": train_ds,
+                "eval": validation_ds,
+                "test": test_ds,
+            }
+        )
 
 
 if __name__ == "__main__":

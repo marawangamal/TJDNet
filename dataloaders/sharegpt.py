@@ -43,19 +43,16 @@ class ShareGPT(AbstractDataset):
     def format_test_label(self, example):
         raise NotImplementedError("ShareGPT dataset does not have a separate test set.")
 
-    def load_data(self):
+    def load_raw_data(self):
         ds = load_dataset(
             "Aeala/ShareGPT_Vicuna_unfiltered",
-            split=(
-                f"train[:{self.max_num_samples}]" if self.max_num_samples else "train"
-            ),
+            split="train",
             cache_dir=self.cache_dir,
         )
         ds = self._process_train_dataset(ds, self.tokenizer)
         ds_dict = ds.train_test_split(test_size=0.01, seed=42, shuffle=True)  # type: ignore
         ds_dict["eval"] = ds_dict["test"]  # Use eval split as test split
-        ds_dict = DatasetDict(ds_dict)
-        return ds_dict
+        return DatasetDict(ds_dict)
 
 
 if __name__ == "__main__":

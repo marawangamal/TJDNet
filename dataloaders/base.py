@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Literal, Optional, Union
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers.tokenization_utils import PreTrainedTokenizer
+from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 from datasets import DatasetDict
 
 
@@ -39,9 +40,24 @@ class AbstractDataset(ABC):
         pass
 
     @abstractmethod
-    def load_data(self) -> DatasetDict:
-        """Load the dataset"""
+    def load_raw_data(self) -> DatasetDict:
+        """Load and process the dataset, but do NOT apply any limiting."""
         pass
+
+    def load_data(self) -> DatasetDict:
+        ds = self.load_raw_data()
+        return self.apply_limits(ds)
+
+    def apply_limits(self, ds: DatasetDict) -> DatasetDict:
+        for split in ds:
+            if self.max_tokens is not None:
+                ds[split] = self._limit_by_tokens(ds[split], split)
+            elif self.max_num_samples is not None:
+                if len(ds[split]) > self.max_num_samples:
+                    ds[split] = (
+                        ds[split].shuffle(seed=42).select(range(self.max_num_samples))
+                    )
+        return ds
 
     @abstractmethod
     def format_train_example(self, example) -> str:
@@ -135,7 +151,6 @@ class AbstractDataset(ABC):
     #         remove_columns=["text"],  # remove original text and labels
     #     )
     #     return dataset
-
     def _limit_by_tokens(self, dataset, split_name):
         """Limit dataset by total token count - memory efficient version"""
         if self.max_tokens is None:

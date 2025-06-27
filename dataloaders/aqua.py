@@ -105,8 +105,7 @@ class AQUA(AbstractDataset):
     def format_test_label(self, example):
         return self.letter2num[example["correct"]]
 
-    def load_data(self):
-
+    def load_raw_data(self):
         base_datasets = {
             "train": load_dataset("deepmind/aqua_rat", "raw", split="train"),
             "eval": load_dataset("deepmind/aqua_rat", "raw", split="validation"),
@@ -114,7 +113,6 @@ class AQUA(AbstractDataset):
         test_datasets = {
             "test": load_dataset("deepmind/aqua_rat", "raw", split="test"),
         }
-
         for split in base_datasets:
             base_datasets[split] = self._process_train_dataset(
                 base_datasets[split], self.tokenizer
@@ -123,21 +121,7 @@ class AQUA(AbstractDataset):
             test_datasets[split] = self._process_test_dataset(
                 test_datasets[split], self.tokenizer
             )
-
-        ds = DatasetDict({**base_datasets, **test_datasets})
-
-        # Apply token limits first, then sample limits
-        if self.max_tokens is not None:
-            for split in ds:
-                ds[split] = self._limit_by_tokens(ds[split], split)
-        elif self.max_num_samples is not None:
-            for split in ds:
-                if len(ds[split]) > self.max_num_samples:
-                    ds[split] = (
-                        ds[split].shuffle(seed=42).select(range(self.max_num_samples))
-                    )
-
-        return ds
+        return DatasetDict({**base_datasets, **test_datasets})
 
 
 if __name__ == "__main__":
