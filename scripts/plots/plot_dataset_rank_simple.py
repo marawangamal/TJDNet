@@ -102,7 +102,9 @@ def get_joint_prob(model, tokenizer, text, device, top_k=None):
             topk_y1 = torch.arange(p_y1.size(0), device=device)
         else:
             topk_p_y1, topk_y1 = torch.topk(p_y1, top_k)
-        joint = torch.zeros((len(topk_y1), len(topk_y1)), device=device)
+        joint = torch.zeros(
+            (len(topk_y1), len(topk_y1)), device=device, dtype=torch.float64
+        )
 
         for i, y1 in enumerate(
             tqdm(topk_y1, desc="Computing joint p(y1,y2|x)", leave=False)
@@ -137,21 +139,40 @@ def plot_spectra(spectra, save_path=None):
         "reddit": "Reddit",
     }
 
+    line_styles = {
+        "wikitext2": "-",
+        "sst2": "--",
+        "aqua_rat": "-.",
+        "reddit": ":",
+    }
+
     for category in spectra.keys():
         spectrum_list = spectra[category]
-        tensor_list = [torch.as_tensor(s) for s in spectrum_list]
-        avg_spectrum = torch.stack(tensor_list).mean(dim=0)
-        normalized = avg_spectrum / avg_spectrum[0]
-        plt.semilogy(
-            normalized,
-            color=colors.get(category, None),
-            linewidth=2,
-            label=f"{names.get(category, category)} ({len(spectrum_list)} samples)",
-        )
+        color = colors.get(category, None)
+        name = names.get(category, category)
+        style = line_styles.get(category, "-")
+
+        # Plot each individual spectrum
+        for i, spectrum in enumerate(spectrum_list):
+            tensor = torch.as_tensor(spectrum)
+            normalized = tensor / tensor[0]
+            alpha = (
+                0.3 if len(spectrum_list) > 1 else 1.0
+            )  # More transparent if multiple samples
+            plt.semilogy(
+                normalized,
+                color=color,
+                linestyle=style,
+                linewidth=1.5,
+                alpha=alpha,
+                label=(
+                    f"{name} (sample {i+1})" if i == 0 else None
+                ),  # Only label first line per category
+            )
 
     plt.xlabel("Singular Value Index")
     plt.ylabel("Normalized Singular Value")
-    plt.title("Eigen Spectrum: p(y1, y2|x) Across Datasets")
+    plt.title("Eigen Spectrum: p(y1, y2|x) Across Datasets (All Samples)")
     plt.legend()
     plt.grid(True, alpha=0.3)
 
@@ -230,17 +251,20 @@ def main():
     var_target = 0.99
     for category, spectrum_list in spectra.items():
         if spectrum_list:
-            avg_spectrum = torch.stack(spectrum_list).mean(dim=0)
-            rank_crit = (
-                torch.cumsum(avg_spectrum**2, 0) / (avg_spectrum**2).sum() < var_target
-            ).sum().item() + 1
-            summary_rows.append([category, rank_crit])
-
-    print("\nSUMMARY:")
+            ranks = []
+            for spectrum in spectrum_list:
+                spectrum = spectrum.cpu()
+                cumsum = torch.cumsum(spectrum**2, 0)
+                total = (spectrum**2).sum()
+                rank = (cumsum / total < var_target).sum().item() + 1
+                ranks.append(rank)
+            mean_rank = np.mean(ranks)
+            std_rank = np.std(ranks)
+            summary_rows.append([category, f"{mean_rank:.1f} ± {std_rank:.1f}"])
     print(
         tabulate(
             summary_rows,
-            headers=[f"Category", f"Rank for {var_target*100}% Variance"],
+            headers=[f"Category", f"Rank for {var_target*100}% Variance (mean ± std)"],
             tablefmt="github",
         )
     )
