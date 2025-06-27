@@ -147,6 +147,7 @@ class LDataModule(L.LightningDataModule):
         dataset: str = "stemp",
         max_num_samples: Union[int, None] = None,
         max_test_samples: Union[int, None] = None,
+        max_tokens: Union[int, None] = None,
         num_workers: int = 4,
         template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
         domain_shift: Literal["in", "mild", "hard"] = "in",
@@ -159,6 +160,7 @@ class LDataModule(L.LightningDataModule):
         self.seq_len = seq_len
         self.dataset_name = dataset
         self.max_num_samples = max_num_samples
+        self.max_tokens = max_tokens
         self.num_workers = num_workers
         self.template_mode = template_mode
         self.max_test_samples = max_test_samples
@@ -170,6 +172,7 @@ class LDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer,
             seq_len=self.seq_len,
             max_num_samples=self.max_num_samples,
+            max_tokens=self.max_tokens,
             template_mode=self.template_mode,  # type: ignore
             max_test_samples=self.max_test_samples,
             domain_shift=self.domain_shift,  # type: ignore

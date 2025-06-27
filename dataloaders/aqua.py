@@ -126,8 +126,11 @@ class AQUA(AbstractDataset):
 
         ds = DatasetDict({**base_datasets, **test_datasets})
 
-        # Limit the number of samples to 1000 for train and 100 for eval/test
-        if self.max_num_samples is not None:
+        # Apply token limits first, then sample limits
+        if self.max_tokens is not None:
+            for split in ds:
+                ds[split] = self._limit_by_tokens(ds[split], split)
+        elif self.max_num_samples is not None:
             for split in ds:
                 if len(ds[split]) > self.max_num_samples:
                     ds[split] = (
