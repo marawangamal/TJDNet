@@ -30,26 +30,27 @@ class Reddit(AbstractDataset):
         )
 
     def load_raw_data(self):
-        train_ds = load_dataset("reddit", split="train", trust_remote_code=True)
-        validation_ds = load_dataset(
-            "reddit", split="validation", trust_remote_code=True
+        max_samples = 100000
+        train_ds = load_dataset(
+            "reddit", split=f"train[:{max_samples}]", trust_remote_code=True
         )
-        test_ds = load_dataset("reddit", split="test", trust_remote_code=True)
 
         def filter_posts(example):
             return len(example["body"].strip()) > 50
 
         train_ds = train_ds.filter(filter_posts)
-        validation_ds = validation_ds.filter(filter_posts)
-        test_ds = test_ds.filter(filter_posts)
         train_ds = self._process_train_dataset(train_ds, self.tokenizer)
-        validation_ds = self._process_train_dataset(validation_ds, self.tokenizer)
-        test_ds = self._process_train_dataset(test_ds, self.tokenizer)
+
+        # Split train into train/eval/test since only train split exists
+        total_len = len(train_ds)
+        train_len = int(total_len * 0.8)
+        eval_len = int(total_len * 0.1)
+
         return DatasetDict(
             {
-                "train": train_ds,
-                "eval": validation_ds,
-                "test": test_ds,
+                "train": train_ds.select(range(train_len)),
+                "eval": train_ds.select(range(train_len, train_len + eval_len)),
+                "test": train_ds.select(range(train_len + eval_len, total_len)),
             }
         )
 

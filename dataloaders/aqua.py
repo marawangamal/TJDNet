@@ -83,6 +83,7 @@ class AQUA(AbstractDataset):
     def get_sample_prompt(self) -> str:
         return self.templates[self.template_mode].format(
             question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
+            choices="A) $10, B) $12, C) $15, D) $18, E) $20",
             answer="",
         )
 
