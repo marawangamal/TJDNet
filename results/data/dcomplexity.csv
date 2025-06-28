@@ -1,0 +1,5 @@
+Dataset,Emprical Rank,PPL (STP),PPL (MTP)
+sst2,1,12.1,6
+reddit,2,8.63,3.42
+wikitext2,3,7.84,2.86
+aqua_rat,4,4.75,1.9
