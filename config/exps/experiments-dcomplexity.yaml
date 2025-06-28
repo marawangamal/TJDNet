@@ -49,7 +49,7 @@ group:
               preamble: glong
               sweep: 
                 lr: [1e-3]
-                max_tokens: [10000]
+                max_tokens: [1000000]
                 positivity_func: [sigmoid]
                 horizon: [2]
                 rank: [8]
@@ -76,7 +76,7 @@ group:
               sweep: 
                 lr: [1e-3]
                 max_tokens: [1000000] # 1M tokens
-                dataset: [aqua_rat, wikitext2, reddit, sst2]
+                dataset: [aqua, wikitext2, reddit, sst2]
                 horizon: [2]
               sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 5 --trainer.gradient_clip_val 1.0 --model.model meta-llama/Llama-2-7b-chat-hf --model.horizon {horizon} --model.model_head multihead --data.batch_size 8 --data.dataset {dataset} --data.max_tokens {max_tokens} --auto_lr_find"
 
@@ -100,6 +100,6 @@ group:
               sweep: 
                 lr: [1e-3]
                 max_tokens: [1000000] # 1M tokens
-                dataset: [aqua_rat, wikitext2, reddit, sst2]
+                dataset: [aqua, wikitext2, reddit, sst2]
               sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 5 --trainer.gradient_clip_val 1.0 --model.model meta-llama/Llama-2-7b-chat-hf --model.model_head stp --data.batch_size 8 --data.dataset {dataset} --data.max_tokens {max_tokens} --auto_lr_find"
 

@@ -206,7 +206,7 @@ class TJDSimple(nn.Module):
             hidden_states = outputs.last_hidden_state
 
             sampled, _ = self.dist_head.sample(
-                hidden_states[:, -1:],
+                hidden_states[:, -1],
                 lambda p: (
                     torch.multinomial(p, 1).squeeze(-1)
                     if do_sample
