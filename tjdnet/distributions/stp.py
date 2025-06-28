@@ -104,9 +104,10 @@ class STPDist(AbstractDist):
     ):
         if horizon and horizon > 1:
             raise ValueError("Horizon must be 1 for base distribution")
-        model_head_params = self.decoder(x)  # (B, V)
-        y_hat = sample_fn(model_head_params).unsqueeze(1)  # (B, 1)
-        py = model_head_params.unsqueeze(1)  # (B, 1, V)
+        logits_p = self.decoder(x)  # (B, V)
+        py = torch.nn.functional.softmax(logits_p, dim=-1)  # (B, V)
+        y_hat = sample_fn(py).unsqueeze(1)  # (B, 1)
+        py = py.unsqueeze(1)  # (B, 1, V)
         if return_logits:
             return y_hat, py
         return y_hat, py / py.sum(dim=-1, keepdim=True)

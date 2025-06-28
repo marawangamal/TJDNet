@@ -1,0 +1,37 @@
+# test.yaml
+preambles:
+  gpu:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=main"
+    - "#SBATCH --gres=gpu:a100l:1"
+    - "#SBATCH --mem=32G"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
+
+# Root group executed in sequence
+group:
+  # aaa
+  name: "deff"
+  type: parallel
+  jobs:
+    - group:
+        # aaa-bbb
+        name: "dcomplexity"
+        type: sequential
+        jobs:
+          # aaa-bbb-aaa-XXXX
+          - group:
+              type: parallel
+              name: "sweep"
+              jobs:
+                - group:
+                    type: sweep
+                    preamble: gpu
+                    sweep: 
+                      dataset: ["gsm8k"]
+                      template_mode: ["few_shot", "few_shot:standard"]
+                    sweep_template:  "python scripts/eval_hfmodel.py --model meta-llama/Llama-3.2-3B-Instruct --dataset {dataset} --template_mode {template_mode}"
+

@@ -63,8 +63,7 @@ class CSQA(AbstractDataset):
     def format_test_label(self, example):
         return example["answerKey"]
 
-    def load_data(self):
-
+    def load_raw_data(self):
         base_datasets = {
             "train": load_dataset("tau/commonsense_qa", split="train"),
             "eval": load_dataset("tau/commonsense_qa", split="validation"),
@@ -88,17 +87,7 @@ class CSQA(AbstractDataset):
                 test_datasets[split], self.tokenizer
             )
 
-        ds = DatasetDict({**base_datasets, **test_datasets})
-
-        if self.max_num_samples is not None:
-            for split in ds:
-                n_samples = len(ds[split])
-                if n_samples > self.max_num_samples:
-                    ds[split] = (
-                        ds[split].shuffle(seed=42).select(range(self.max_num_samples))
-                    )
-
-        return ds
+        return DatasetDict({**base_datasets, **test_datasets})
 
 
 if __name__ == "__main__":

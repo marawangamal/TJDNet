@@ -117,6 +117,7 @@ class TJDSimple(nn.Module):
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        # use_memory_efficient_loss: bool = True,
         **kwargs,
     ) -> ModelOutput:
         """Forward pass for training."""
@@ -137,6 +138,11 @@ class TJDSimple(nn.Module):
             # Remove last H positions since we can't predict them
             x = hidden_states[:, :-H, :]  # (B, T-H, D)
             x = x.reshape(-1, D)  # (B*(T-H), D)
+
+            # if use_memory_efficient_loss:
+            #     shift = torch.randint(0, H, (1,)).item()
+            #     x = x[:, shift::H]
+            #     y = y[:, shift::H]
 
             loss = self.dist_head(x, y).mean()
             return ModelOutput(**{"loss": loss, "nll": -1})
@@ -200,7 +206,7 @@ class TJDSimple(nn.Module):
             hidden_states = outputs.last_hidden_state
 
             sampled, _ = self.dist_head.sample(
-                hidden_states[:, -1:],
+                hidden_states[:, -1],
                 lambda p: (
                     torch.multinomial(p, 1).squeeze(-1)
                     if do_sample

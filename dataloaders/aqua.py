@@ -83,6 +83,7 @@ class AQUA(AbstractDataset):
     def get_sample_prompt(self) -> str:
         return self.templates[self.template_mode].format(
             question="Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
+            choices="A) $10, B) $12, C) $15, D) $18, E) $20",
             answer="",
         )
 
@@ -105,8 +106,7 @@ class AQUA(AbstractDataset):
     def format_test_label(self, example):
         return self.letter2num[example["correct"]]
 
-    def load_data(self):
-
+    def load_raw_data(self):
         base_datasets = {
             "train": load_dataset("deepmind/aqua_rat", "raw", split="train"),
             "eval": load_dataset("deepmind/aqua_rat", "raw", split="validation"),
@@ -114,7 +114,6 @@ class AQUA(AbstractDataset):
         test_datasets = {
             "test": load_dataset("deepmind/aqua_rat", "raw", split="test"),
         }
-
         for split in base_datasets:
             base_datasets[split] = self._process_train_dataset(
                 base_datasets[split], self.tokenizer
@@ -123,18 +122,7 @@ class AQUA(AbstractDataset):
             test_datasets[split] = self._process_test_dataset(
                 test_datasets[split], self.tokenizer
             )
-
-        ds = DatasetDict({**base_datasets, **test_datasets})
-
-        # Limit the number of samples to 1000 for train and 100 for eval/test
-        if self.max_num_samples is not None:
-            for split in ds:
-                if len(ds[split]) > self.max_num_samples:
-                    ds[split] = (
-                        ds[split].shuffle(seed=42).select(range(self.max_num_samples))
-                    )
-
-        return ds
+        return DatasetDict({**base_datasets, **test_datasets})
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from transformers.data.data_collator import (
 from lightning.pytorch.loggers import WandbLogger
 
 from tjdnet.models.tjdsimple import TJDSimple, TJDSimpleConfig
+from mtllama.modeling_mtllama import MultiTokenLlamaConfig, MultiTokenLlama
 from tjdnet.types import PositivityFuncType, ModelHeadType
 from dataloaders import DATASETS
 
@@ -38,6 +39,7 @@ class LModel(L.LightningModule):
         dataset: str = "stemp",
         debug: bool = False,
         gen_mode: Literal["draft", "base", "speculative"] = "draft",
+        framework: Literal["tjd", "mtllama"] = "tjd",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -47,18 +49,25 @@ class LModel(L.LightningModule):
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.dataset = DATASETS[dataset](tokenizer=self.tokenizer)
 
-        # Initialize TJDSimple model
-        self.model = TJDSimple(
-            config=TJDSimpleConfig(
+        # Initialize MultiTokenLlama model (replacing TJDSimple)
+        if framework == "mtllama":
+            config = MultiTokenLlamaConfig(
                 model_name=model,
-                model_head=model_head,
                 horizon=horizon,
-                rank=rank,
-                train_mode=train_mode,
-                lora_rank=lora_rank,
-                positivity_func=positivity_func,
             )
-        )
+            self.model = MultiTokenLlama(config)
+        else:
+            self.model = TJDSimple(
+                config=TJDSimpleConfig(
+                    model_name=model,
+                    model_head=model_head,
+                    horizon=horizon,
+                    rank=rank,
+                    train_mode=train_mode,
+                    lora_rank=lora_rank,
+                    positivity_func=positivity_func,
+                )
+            )
 
         # self.automatic_optimization = False
 
@@ -88,7 +97,8 @@ class LModel(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         out = self.model(**batch)
         self.log("val_loss", out.loss, prog_bar=True)
-        self.log("val_nll", out.nll, prog_bar=True)
+        # Note: MultiTokenLlama returns CausalLMOutput which doesn't have nll attribute
+        # self.log("val_nll", out.nll, prog_bar=True)
         return out.loss
 
     def test_step(self, batch, batch_idx):
@@ -111,7 +121,7 @@ class LModel(L.LightningModule):
         y_pred_str = [y.split(self.tokenizer.eos_token)[0] for y in y_pred_str]  # type: ignore
         y_pred = torch.tensor(
             [self.dataset.parse_answer(y) for y in y_pred_str],  # type: ignore
-            device=outputs.device,
+            device=batch["input_ids"].device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
 
@@ -147,6 +157,7 @@ class LDataModule(L.LightningDataModule):
         dataset: str = "stemp",
         max_num_samples: Union[int, None] = None,
         max_test_samples: Union[int, None] = None,
+        max_tokens: Union[int, None] = None,
         num_workers: int = 4,
         template_mode: Literal["0_shot", "few_shot", "few_shot:standard"] = "0_shot",
         domain_shift: Literal["in", "mild", "hard"] = "in",
@@ -159,6 +170,7 @@ class LDataModule(L.LightningDataModule):
         self.seq_len = seq_len
         self.dataset_name = dataset
         self.max_num_samples = max_num_samples
+        self.max_tokens = max_tokens
         self.num_workers = num_workers
         self.template_mode = template_mode
         self.max_test_samples = max_test_samples
@@ -170,6 +182,7 @@ class LDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer,
             seq_len=self.seq_len,
             max_num_samples=self.max_num_samples,
+            max_tokens=self.max_tokens,
             template_mode=self.template_mode,  # type: ignore
             max_test_samples=self.max_test_samples,
             domain_shift=self.domain_shift,  # type: ignore

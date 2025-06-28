@@ -101,8 +101,8 @@ class STemp(AbstractDataset):
     def format_test_label(self, example):
         return self.parse_answer(example["answer"])
 
-    def load_data(self):
-        num_train_samples = self.max_num_samples if self.max_num_samples else 10000
+    def load_raw_data(self):
+        num_train_samples = 10000
         num_test_samples = 100
         base_datasets = {
             "train": Dataset.from_generator(
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    stemp = STemp(tokenizer).load_data()
+    stemp = STemp(tokenizer, max_num_samples=100).load_data()
 
     # Print a sample from the dataset
     print("Train example:")

@@ -82,36 +82,13 @@ class GSM8k(AbstractDataset):
     def format_test_label(self, example):
         return self.parse_answer(example["answer"])
 
-    def load_data(self):
-
+    def load_raw_data(self):
         base_datasets = {
-            "train": load_dataset(
-                "openai/gsm8k",
-                "main",
-                split=(
-                    f"train[:{self.max_num_samples}]"
-                    if self.max_num_samples
-                    else "train"
-                ),
-            ),
-            "eval": load_dataset(
-                "openai/gsm8k",
-                "main",
-                split=(
-                    f"test[:{self.max_num_samples}]" if self.max_num_samples else "test"
-                ),
-            ),
+            "train": load_dataset("openai/gsm8k", "main", split="train"),
+            "eval": load_dataset("openai/gsm8k", "main", split="test"),
         }
         test_datasets = {
-            "test": load_dataset(
-                "openai/gsm8k",
-                "main",
-                split=(
-                    f"test[:{self.max_test_samples}]"
-                    if self.max_test_samples
-                    else "test"
-                ),
-            ),
+            "test": load_dataset("openai/gsm8k", "main", split="test"),
         }
 
         for split in base_datasets:
@@ -123,8 +100,7 @@ class GSM8k(AbstractDataset):
                 test_datasets[split], self.tokenizer
             )
 
-        ds = DatasetDict({**base_datasets, **test_datasets})
-        return ds
+        return DatasetDict({**base_datasets, **test_datasets})
 
 
 if __name__ == "__main__":
