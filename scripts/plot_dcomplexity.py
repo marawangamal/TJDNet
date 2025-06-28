@@ -21,30 +21,28 @@ plot_df = df.sort_values("Emprical Rank")
 # Create the plot using seaborn
 plt.figure(figsize=(8, 6))
 
-# Use seaborn's scatterplot
-sns.scatterplot(
-    data=plot_df,
-    x="Emprical Rank",
-    y="Delta_PPL_percent",
-    s=100,
-    alpha=0.7,
-    color="steelblue",
-)
+# Define markers and colors for each dataset
+markers = ["o", "s", "^", "D"]
+colors = ["steelblue", "coral", "green", "purple"]
 
-# Add dataset labels to points
-for _, row in plot_df.iterrows():
-    plt.annotate(
-        str(row["Dataset"]),
-        (float(row["Emprical Rank"]), float(row["Delta_PPL_percent"])),
-        xytext=(5, 5),
-        textcoords="offset points",
-        fontsize=10,
-        ha="left",
+# Plot each dataset separately with different markers
+for i, (_, row) in enumerate(plot_df.iterrows()):
+    plt.scatter(
+        row["Emprical Rank"],
+        row["Delta_PPL_percent"],
+        s=100,
+        alpha=0.8,
+        color=colors[i],
+        marker=markers[i],
+        label=row["Dataset"],
+        edgecolor="black",
+        linewidth=1,
     )
 
 plt.xlabel("Empirical Rank")
 plt.ylabel("Δ PPL (%)")
 plt.title("Δ PPL (%) vs Empirical Rank")
+plt.legend()
 
 plt.tight_layout()
 plt.savefig(OUTPUT_PATH, dpi=300, bbox_inches="tight")
