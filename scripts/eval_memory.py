@@ -59,7 +59,7 @@ def forward_backward(
             horizon=horizon,
         )
     )
-    mtllama_model.to(device)
+    mtllama_model.to(device)  # type: ignore
 
     input_ids = torch.randint(
         0, mtllama_model.vocab_size, (batch_size, seq_len), device=device
