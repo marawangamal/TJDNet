@@ -120,10 +120,10 @@ class MultiTokenLlama(PreTrainedModel, GenerationMixin):
         # No adjustment by default
         return logits
 
-    def forward(self, input_ids, labels=None, **kwargs):
+    def forward(self, input_ids, labels=None, use_memory_efficient_loss=True, **kwargs):
         # Get hidden states from model
         outputs = self.backbone(input_ids=input_ids, **kwargs)
-        hidden_states = outputs.last_hidden_state
+        hidden_states = outputs.last_hidden_state  # (B, T-H, D)
 
         # Compute loss if labels provided
         if labels is not None:
@@ -134,12 +134,17 @@ class MultiTokenLlama(PreTrainedModel, GenerationMixin):
                 )
             # Remove last H positions since we can't predict them
             x = hidden_states[:, : -self.horizon, :]  # (B, T-H, D)
-            x = x.reshape(-1, self.embedding_dim)  # (B*(T-H), D)
 
             # Create targets: (B*(T-H), H)
-            y = get_windowed_input_ids(input_ids, self.horizon).reshape(
-                -1, self.horizon
-            )
+            y = get_windowed_input_ids(input_ids, self.horizon)
+            if use_memory_efficient_loss:
+                shift = torch.randint(0, self.horizon, (1,)).item()
+                x = x[:, shift :: self.horizon]
+                y = y[:, shift :: self.horizon]
+
+            # Merge batch and sequence dims
+            x = x.reshape(-1, self.embedding_dim)  # (B*(T-H), D)
+            y = y.reshape(-1)  # (B*(T-H),)
 
             # # Compute loss from each head
             # NOTE: this is incorrect but simpler for testing memory usage
