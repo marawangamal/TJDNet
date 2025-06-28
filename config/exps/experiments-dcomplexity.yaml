@@ -32,30 +32,6 @@ group:
   jobs:
 
   ################################################
-  #                 BASE                         #  
-  ################################################
-
-
-    # # w/o speculation
-    # - group:
-    #     # aaa-bbb
-    #     name: "sharegpt:base"
-    #     type: sequential
-    #     jobs:
-    #       #  Train on ShareGPT dataset
-    #       #  1. Sweep over lr, rank, horizon
-    #       - group:
-    #           # aaa-bbb-XXXX
-    #           name: "sweep"
-    #           type: sweep
-    #           preamble: glong
-    #           sweep: 
-    #             lr: [1e-3]
-    #             max_num_samples: [5000, 10000, 68000]
-    #           sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 1 --model.model lmsys/vicuna-7b-v1.5 --model.hidden_dim 4096 --model.horizon 1 --model.rank 1 --model.positivity_func safe_exp --data.batch_size 8 --data.dataset sharegpt --data.max_num_samples {max_num_samples} --auto_lr_find"
-
-
-  ################################################
   #                 CP                           #  
   ################################################
 
@@ -78,12 +54,16 @@ group:
                 horizon: [2]
                 rank: [8]
                 dataset: [aqua_rat, wikitext2, reddit, sst2]
-              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 10 --trainer.gradient_clip_val 1.0 --model.model meta-llama/Llama-2-7b-chat-hf --model.horizon {horizon} --model.rank {rank} --model.model_head cp --model.positivity_func {positivity_func} --data.batch_size 8 --data.dataset {dataset} --data.max_num_samples {max_num_samples} --auto_lr_find"
+              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 10 --trainer.gradient_clip_val 1.0 --model.model meta-llama/Llama-2-7b-chat-hf --model.horizon {horizon} --model.rank {rank} --model.model_head cp --model.positivity_func {positivity_func} --data.batch_size 8 --data.dataset {dataset} --data.max_tokens {max_tokens --auto_lr_find"
 
+
+  ################################################
+  #                 MHEAD                        #  
+  ################################################
 
     - group:
         # aaa-bbb
-        name: "dcomplexity::cp"
+        name: "dcomplexity::mhead"
         type: sequential
         jobs:
           #  Train on ShareGPT dataset
@@ -95,14 +75,14 @@ group:
               preamble: glong
               sweep: 
                 lr: [1e-3]
-                max_num_samples: [10000]
-                positivity_func: [sigmoid]
-                horizon: [2]
-                rank: [8]
+                max_tokens: [1000000] # 1M tokens
                 dataset: [aqua_rat, wikitext2, reddit, sst2]
-              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 10 --trainer.gradient_clip_val 1.0 --model.model meta-llama/Llama-2-7b-chat-hf --model.horizon {horizon} --model.rank {rank} --model.model_head multihead --model.positivity_func {positivity_func} --data.batch_size 8 --data.dataset {dataset} --data.max_num_samples {max_num_samples} --auto_lr_find"
+              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 10 --trainer.gradient_clip_val 1.0 --model.model meta-llama/Llama-2-7b-chat-hf --model.horizon {horizon} --data.batch_size 8 --data.dataset {dataset} --data.max_tokens {max_tokens} --auto_lr_find"
 
 
+  ################################################
+  #                 STP                          #  
+  ################################################
 
     - group:
         # aaa-bbb
@@ -118,10 +98,7 @@ group:
               preamble: glong
               sweep: 
                 lr: [1e-3]
-                max_num_samples: [10000]
-                positivity_func: [sigmoid]
-                horizon: [2]
-                rank: [8]
+                max_tokens: [1000000] # 1M tokens
                 dataset: [aqua_rat, wikitext2, reddit, sst2]
-              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 10 --trainer.gradient_clip_val 1.0 --model.model meta-llama/Llama-2-7b-chat-hf --model.horizon {horizon} --model.rank {rank} --model.model_head stp --model.positivity_func {positivity_func} --data.batch_size 8 --data.dataset {dataset} --data.max_num_samples {max_num_samples} --auto_lr_find"
+              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 10 --trainer.gradient_clip_val 1.0 --model.model meta-llama/Llama-2-7b-chat-hf --model.model_head stp --data.batch_size 8 --data.dataset {dataset} --data.max_tokens {max_tokens} --auto_lr_find"
 
