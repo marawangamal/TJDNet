@@ -8,6 +8,7 @@ setup(
             "tjdnet*",  # your main library
             "utils*",  # etc.
             "dataloaders*",
+            "mtllama*",
         ]
     ),
     install_requires=[

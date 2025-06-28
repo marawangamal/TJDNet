@@ -6,6 +6,8 @@ from transformers import AutoModelForCausalLM, AutoConfig
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import CausalLMOutput
 
+from mtllama.utils import get_windowed_input_ids
+
 
 def get_backbone(
     model_name: str, pretrained: bool = False
@@ -134,19 +136,25 @@ class MultiTokenLlama(PreTrainedModel, GenerationMixin):
             x = hidden_states[:, : -self.horizon, :]  # (B, T-H, D)
             x = x.reshape(-1, self.embedding_dim)  # (B*(T-H), D)
 
-            # Create targets: shift labels by 1 to get future tokens
-            y = labels[:, 1 : 1 + x.shape[0] // hidden_states.shape[0]]  # (B, T-H)
-            y = y.reshape(-1)  # (B*(T-H),)
+            # Create targets: (B*(T-H), H)
+            y = get_windowed_input_ids(input_ids, self.horizon).reshape(
+                -1, self.horizon
+            )
+
+            # # Compute loss from each head
+            # NOTE: this is incorrect but simpler for testing memory usage
+            # total_loss = 0.0
+            # for head in self.heads:
+            #     logits = head(x)  # (B*(T-H), vocab_size)
+            #     loss = nn.functional.cross_entropy(logits, y)
+            #     total_loss += loss
 
             # Compute loss from each head
-            total_loss = 0.0
-            for head in self.heads:
-                logits = head(x)  # (B*(T-H), vocab_size)
-                loss = nn.functional.cross_entropy(logits, y)
-                total_loss += loss
-
-            loss = total_loss / self.horizon  # Average over horizon positions
-
+            logits = torch.stack([head(x) for head in self.heads], dim=1)  # (B', H, V)
+            losses = nn.functional.cross_entropy(
+                logits.reshape(-1, self.vocab_size), y.reshape(-1), reduction="none"
+            )  # (B',)
+            loss = losses.mean()
             return CausalLMOutput(loss=loss, logits=logits)
 
         # For inference: return logits from last position
