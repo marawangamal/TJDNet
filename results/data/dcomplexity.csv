@@ -1,5 +1,5 @@
-Dataset,Emprical Rank,PPL (MTP), PPL (STP)
-sst2,1,,6.00
-reddit,2,8.98,3.42
-wikitext2,3,8.1,2.86
-aqua_rat,4,4.93,1.9
+Dataset,Emprical Rank,PPL (MTP),PPL (STP)
+sst2,4.2,,6.00
+reddit,5.0,8.98,3.42
+wikitext2,2.2,8.1,2.86
+aqua_rat,3.6,4.93,1.9

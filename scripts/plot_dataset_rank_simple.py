@@ -196,8 +196,10 @@ def main():
     )
     args = parser.parse_args()
 
+    model_name = args.model.replace("/", "_")
+
     # Progress file path
-    progress_path = f"results/spectrum_progress_{args.model.replace('/', '_')}.pt"
+    progress_path = f"results/spectrum_progress_{model_name}.pt"
     os.makedirs(os.path.dirname(progress_path), exist_ok=True)
 
     # Load model
@@ -230,6 +232,8 @@ def main():
             try:
                 # Compute spectrum
                 p_y1y2 = get_joint_prob(model, tokenizer, text, args.device)
+                # Save p(y1, y2 | x)
+                # torch.save(p_y1y2, f"results/p_y1y2_{model_name}_{category}_{i}.pt")
                 print(f"p_y1y2.shape: {p_y1y2.shape}")
                 # Use minimum dimension to get all singular values
                 n_components = min(p_y1y2.shape)
@@ -245,9 +249,7 @@ def main():
 
     # Plot
     print("Plotting...")
-    plot_spectra(
-        spectra, f"results/spectrum_comparison_{args.model.replace('/', '_')}.png"
-    )
+    plot_spectra(spectra, f"results/spectrum_comparison_{model_name}.png")
 
     summary_rows = []
     var_target = 0.99
@@ -266,7 +268,10 @@ def main():
     print(
         tabulate(
             summary_rows,
-            headers=[f"Category", f"Rank for {var_target*100}% Variance (mean ± std)"],
+            headers=[
+                f"Category",
+                f"Emprical Rank for {var_target*100}% Variance (mean ± std)",
+            ],
             tablefmt="github",
         )
     )
@@ -274,3 +279,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Model: meta-llama/Llama-2-7b-chat-hf
+# | Category   | Rank for 99.0% Variance (mean ± std)   |
+# |------------|----------------------------------------|
+# | wikitext2  | 2.2 ± 0.7                              |
+# | sst2       | 4.2 ± 1.9                              |
+# | aqua_rat   | 3.6 ± 2.1                              |
+# | reddit     | 5.0 ± 4.7                              |

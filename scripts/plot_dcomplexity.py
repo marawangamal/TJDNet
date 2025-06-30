@@ -39,7 +39,7 @@ for i, (_, row) in enumerate(plot_df.iterrows()):
         linewidth=1,
     )
 
-plt.xlabel("Empirical Rank")
+plt.xlabel(f"Empirical Rank (99% Explained Variance)")
 plt.ylabel("Δ PPL (%)")
 plt.title("Δ PPL (%) vs Empirical Rank")
 plt.legend()
