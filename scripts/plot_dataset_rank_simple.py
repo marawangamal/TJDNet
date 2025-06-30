@@ -231,8 +231,10 @@ def main():
                 # Compute spectrum
                 p_y1y2 = get_joint_prob(model, tokenizer, text, args.device)
                 print(f"p_y1y2.shape: {p_y1y2.shape}")
+                # Use minimum dimension to get all singular values
+                n_components = min(p_y1y2.shape)
                 _, spectrum, _ = randomized_svd(
-                    p_y1y2.cpu().numpy(), n_components=10000, random_state=42
+                    p_y1y2.cpu().numpy(), n_components=n_components, random_state=42
                 )
                 spectra[category].append(torch.tensor(spectrum))
                 print(f"{category} [{i+1}/{len(samples)}]: {spectrum[:3]}...")
@@ -256,7 +258,7 @@ def main():
                 spectrum = spectrum.cpu()
                 cumsum = torch.cumsum(spectrum**2, 0)
                 total = (spectrum**2).sum()
-                rank = (cumsum / total < var_target).sum().item() + 1
+                rank = ((cumsum / total) < var_target).sum().item() + 1
                 ranks.append(rank)
             mean_rank = np.mean(ranks)
             std_rank = np.std(ranks)
