@@ -2,8 +2,11 @@ import os, datetime
 from typing import Callable, Optional
 import torch
 
-from tjdnet.distributions._base import BaseDistFromLinearConfig
-from tjdnet.distributions._tjdist import BaseDistConfig, TJDist
+from tjdnet.distributions._base import (
+    AbstractDist,
+    BaseDistConfig,
+    BaseDistFromLinearConfig,
+)
 
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched_w_decoder
 
@@ -13,7 +16,7 @@ def safe_exp(x: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.clamp(x, max=20.0))  # Clamp to
 
 
-class CPSDDist(TJDist):
+class CPMEDist(AbstractDist):
     """CP parameterization of a joint distributions (memory-efficient version).
 
     Models the joint distribution p(y1:H | x) as a CP tensor.
@@ -161,7 +164,7 @@ class CPSDDist(TJDist):
             f"NaN={nan_count}/{tensor.numel()}, Inf={inf_count}/{tensor.numel()}"
         )
 
-    def evaluate(
+    def forward(
         self,
         x: torch.Tensor,
         y: torch.Tensor,
@@ -171,7 +174,7 @@ class CPSDDist(TJDist):
         H = self.config.horizon
         B = x.size(0)
         params = self.get_params(x)  # (B, R, H, d)
-        p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched_w_decoder(
+        p_tilde, gammas_p = select_margin_cp_tensor_batched_w_decoder(
             cp_params=params,
             ops=y.reshape(B, H),
             decoder=self.cp_decoder,
@@ -179,9 +182,7 @@ class CPSDDist(TJDist):
 
         # Check for NaNs in p_tilde or its scale factors
         if torch.isnan(p_tilde).any() or any(
-            torch.isnan(sf).any()
-            for sf in p_tilde_scale_factors
-            if isinstance(sf, torch.Tensor)
+            torch.isnan(sf).any() for sf in gammas_p if isinstance(sf, torch.Tensor)
         ):
             print("=== CP_EFF DIAGNOSTICS ===")
             os.makedirs("debug", exist_ok=True)
@@ -194,9 +195,9 @@ class CPSDDist(TJDist):
                     "p_tilde": (
                         p_tilde.cpu() if isinstance(p_tilde, torch.Tensor) else p_tilde
                     ),
-                    "p_tilde_scale_factors": [
+                    "gammas_p": [
                         sf.cpu() if isinstance(sf, torch.Tensor) else sf
-                        for sf in p_tilde_scale_factors
+                        for sf in gammas_p
                     ],
                     "cp_decoder": (
                         self.cp_decoder.cpu()
@@ -216,16 +217,22 @@ class CPSDDist(TJDist):
             print("=== END CP_EFF DIAGNOSTICS ===")
 
         # Marginalize over all tokens
-        norm_consts, norm_consts_scale_factors = (
-            select_margin_cp_tensor_batched_w_decoder(
-                cp_params=params,
-                ops=torch.full(
-                    (B, H),
-                    -2,
-                    dtype=torch.long,
-                    device=x.device,
-                ),
-                decoder=self.cp_decoder,
-            )
+        z_tilde, gammas_z = select_margin_cp_tensor_batched_w_decoder(
+            cp_params=params,
+            ops=torch.full(
+                (B, H),
+                -2,
+                dtype=torch.long,
+                device=x.device,
+            ),
+            decoder=self.cp_decoder,
         )
-        return (p_tilde, p_tilde_scale_factors, norm_consts, norm_consts_scale_factors)
+        # return (p_tilde, gammas_p, z_tilde, gammas_z)
+        loss = (
+            -torch.log(p_tilde)  # (B, T')
+            + torch.log(z_tilde)  # (B, T')
+            # Contraction Stability Scale Factors
+            - sum([torch.log(z) for z in gammas_p])  # (B, T')
+            + sum([torch.log(z) for z in gammas_z])
+        )  # (B, T-H)
+        return loss

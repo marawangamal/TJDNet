@@ -9,7 +9,7 @@ from tjdnet.distributions._base import (
 )
 
 
-class CPSDCondlDist(AbstractDist):
+class CPCondlDist(AbstractDist):
     """CP parameterization of conditional distributions (log-space version).
 
     Models the conditional distributions p(y_h | x, y_1:h-1) as a CP tensor.

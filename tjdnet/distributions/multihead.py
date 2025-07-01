@@ -2,8 +2,11 @@ from typing import Callable, List, Optional
 import torch
 import torch.nn as nn
 
-from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
-from tjdnet.distributions._tjdist import BaseDistConfig
+from tjdnet.distributions._base import (
+    AbstractDist,
+    BaseDistFromLinearConfig,
+    BaseDistConfig,
+)
 
 
 class MultiHeadDist(AbstractDist):

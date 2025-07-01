@@ -3,11 +3,14 @@ from typing import Callable, Optional
 
 import torch
 
-from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
-from tjdnet.distributions._tjdist import BaseDistConfig
+from tjdnet.distributions._base import (
+    AbstractDist,
+    BaseDistFromLinearConfig,
+    BaseDistConfig,
+)
 
 
-class CPSDCondDist(AbstractDist):
+class CPCondDist(AbstractDist):
     """CP parameterization of conditional distributions.
 
     Models the conditional distributions p(y_h | x, y_1:h-1) as a CP tensor.
