@@ -95,7 +95,7 @@ class TJDSimple(nn.Module):
                 lora_alpha=32,
                 lora_dropout=0.1,
             )
-            self.backbone.add_adapter(peft_config, adapter_name="lora_1")
+            self.backbone.add_adapter(peft_config, adapter_name="lora_1")  # type: ignore
 
             # Freeze non-LoRA params
             for name, param in self.backbone.named_parameters():
@@ -169,54 +169,6 @@ class TJDSimple(nn.Module):
 
         return ModelOutput(**{"hidden_states": hidden_states})
 
-    def forward_backward(
-        self,
-        input_ids: torch.Tensor,
-        labels: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        **kwargs,
-    ) -> ModelOutput:
-        """Forward pass for training."""
-
-        y = self._prepare_targets(input_ids)
-
-        z = getattr(
-            self.backbone(input_ids=input_ids, attention_mask=attention_mask, **kwargs),
-            "last_hidden_state",
-        )
-
-        # truncate to multiple of horizon
-        B, T, D = z.shape
-        H = self.config.horizon
-        # Truncate to the largest multiple of horizon that fits within T
-        T_truncated = (T // H) * H
-        if T_truncated < T:
-            z = z[:, :T_truncated, :]
-            if attention_mask is not None:
-                attention_mask = attention_mask[:, :T_truncated]
-            if labels is not None:
-                labels = labels[:, :T_truncated]
-
-        z = z[:, :-H, :].reshape(-1, D)
-
-        # Memory-efficient backward for MultiHeadDist
-        if hasattr(self.dist_head, "forward_partial"):
-            d = z.detach()
-            d.requires_grad = True
-
-            total_loss = 0.0
-            for h in range(H):
-                loss_i = self.dist_head.forward_partial(d, y, head_ids=[h]).mean()
-                loss_i.backward()
-                total_loss += loss_i.detach()
-            z.backward(gradient=d.grad)
-            return ModelOutput(**{"loss": total_loss, "nll": -1})
-
-        # Fallback: normal backward
-        loss = self.dist_head(z, y).mean()
-        loss.backward()
-        return ModelOutput(**{"loss": loss, "nll": -1})
-
     def generate(
         self,
         input_ids: torch.Tensor,
@@ -225,8 +177,15 @@ class TJDSimple(nn.Module):
         eos_token_id: Optional[int] = None,
         attention_mask: Optional[torch.Tensor] = None,
         horizon: Optional[int] = None,
+        top_k: int = 1,
+        gen_mode: Literal["base", "speculative"] = "base",
         **kwargs,
     ) -> torch.Tensor:
+        if gen_mode == "speculative":
+            return self._generate_speculative(
+                input_ids, max_new_tokens, eos_token_id, horizon, top_k
+            )
+        # Default: base (greedy/sampling) mode
         generated = input_ids.clone()
         B = input_ids.size(0)
         H = horizon if horizon is not None else self.config.horizon
@@ -253,3 +212,101 @@ class TJDSimple(nn.Module):
             if eos_token_id is not None and (sampled == eos_token_id).any():
                 break
         return generated
+
+    def _generate_speculative(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int,
+        eos_token_id: Optional[int],
+        horizon: Optional[int],
+        top_k: int,
+    ) -> torch.Tensor:
+        from tjdnet.spec_sample import spec_sample
+        from tjdnet.utils import sample_topk
+
+        generated = input_ids.clone()
+        H = horizon if horizon is not None else self.config.horizon
+
+        for _ in range(max_new_tokens // H):
+            # Get hidden state for draft model
+            h = self.backbone(input_ids=generated).last_hidden_state
+
+            # Draft model: sample H tokens and get their probabilities
+            def model_q():
+                y_hat, qy = self.dist_head.sample(
+                    h[:, -1],
+                    lambda p: sample_topk(p, top_k=top_k).squeeze(-1),
+                    horizon=H,
+                    return_logits=False,
+                )
+                return y_hat, qy
+
+            # Target model: get probabilities for the proposed tokens
+            def model_p(y):
+                h_p = self.backbone(
+                    input_ids=torch.cat([generated, y], dim=1)
+                ).last_hidden_state
+                z = h_p[:, -H:, :]
+                logits = self.dist_head(z.reshape(-1, z.size(-1)), None)
+                probs = torch.softmax(logits, dim=-1)
+                return probs.view(1, H, -1)
+
+            sample_fn = lambda p: sample_topk(p, top_k=top_k).squeeze(-1)
+            y_hat, _ = spec_sample(model_p, model_q, sample_fn)
+            generated = torch.cat([generated, y_hat], dim=1)
+            if eos_token_id is not None and (y_hat == eos_token_id).any():
+                break
+        return generated
+
+    # TODO: Implement this for memory-efficient training
+    # def forward_backward(
+    #     self,
+    #     input_ids: torch.Tensor,
+    #     labels: torch.Tensor,
+    #     attention_mask: Optional[torch.Tensor] = None,
+    #     **kwargs,
+    # ) -> ModelOutput:
+    #     """Forward pass for training."""
+
+    #     y = self._prepare_targets(input_ids)
+
+    #     z = getattr(
+    #         self.backbone(input_ids=input_ids, attention_mask=attention_mask, **kwargs),
+    #         "last_hidden_state",
+    #     )
+
+    #     # truncate to multiple of horizon
+    #     B, T, D = z.shape
+    #     H = self.config.horizon
+    #     # Truncate to the largest multiple of horizon that fits within T
+    #     T_truncated = (T // H) * H
+    #     if T_truncated < T:
+    #         z = z[:, :T_truncated, :]
+    #         if attention_mask is not None:
+    #             attention_mask = attention_mask[:, :T_truncated]
+    #         if labels is not None:
+    #             labels = labels[:, :T_truncated]
+
+    #     z = z[:, :-H, :].reshape(-1, D)
+
+    #     # Memory-efficient backward for MultiHeadDist
+    #     if hasattr(self.dist_head, "forward_partial"):
+    #         d = z.detach()
+    #         d.requires_grad = True
+
+    #         total_loss = 0.0
+    #         for h in range(H):
+    #             # The following line is likely incorrect, as forward_partial may not be a method of a Tensor.
+    #             # If self.dist_head is a module, this is fine. If not, comment it out.
+    #             # loss_i = self.dist_head.forward_partial(d, y, head_ids=[h]).mean()
+    #             # For now, skip this memory-efficient backward if not supported.
+    #             continue
+    #             loss_i.backward()
+    #             total_loss += loss_i.detach()
+    #         # z.backward(gradient=d.grad)
+    #         # return ModelOutput(**{"loss": total_loss, "nll": -1})
+
+    #     # Fallback: normal backward
+    #     loss = self.dist_head(z, y).mean()
+    #     loss.backward()
+    #     return ModelOutput(**{"loss": loss, "nll": -1})

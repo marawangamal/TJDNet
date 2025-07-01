@@ -7,12 +7,17 @@ from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
 from tjdnet.distributions._tjdist import BaseDistConfig
 
 
-class CPBDist(AbstractDist):
-    def __init__(self, config: BaseDistConfig):
-        super().__init__()
-        """Parameterized CP tensor network distribution.
+class CPSDCondDist(AbstractDist):
+    """CP parameterization of conditional distributions.
 
-        TN:
+    Models the conditional distributions p(y_h | x, y_1:h-1) as a CP tensor.
+
+    Args:
+        config (BaseDistConfig): Configuration for the distribution, including vocab_size, horizon, rank, etc.
+        bypass_config (bool, optional): If True, bypasses config validation. Defaults to False.
+        **kwargs: Additional keyword arguments.
+
+    TN:
               α
             / |   \
            /  |    \
@@ -21,7 +26,10 @@ class CPBDist(AbstractDist):
           D   D     D
           |   |     |
           y₁  y₂ .. yₕ
-        """
+    """
+
+    def __init__(self, config: BaseDistConfig):
+        super().__init__()
 
         # === dims
         self.config = config
@@ -43,7 +51,7 @@ class CPBDist(AbstractDist):
             "from_linear method must be implemented in the subclass"
         )
 
-    def log_prob(
+    def prob_y_bar_x(
         self,
         x: torch.Tensor,  # (B, D)
         y: torch.Tensor,  # (B, H)
@@ -136,7 +144,7 @@ class CPBDist(AbstractDist):
         horizon_to_use = horizon if horizon is not None else self.config.horizon
 
         for _ in range(horizon_to_use):
-            prob_y_bar_xy = self.log_prob(x, y_out, return_dists=True)
+            prob_y_bar_xy = self.prob_y_bar_x(x, y_out, return_dists=True)
             y_out_t = sample_fn(prob_y_bar_xy).unsqueeze(1)  # (B, 1)
             y_out = torch.cat([y_out, y_out_t], dim=-1)  # (B, H+1)
 
@@ -152,4 +160,4 @@ class CPBDist(AbstractDist):
         Returns:
             torch.Tensor: Computed loss. Shape (B,).
         """
-        return -self.log_prob(x, y)
+        return -self.prob_y_bar_x(x, y)

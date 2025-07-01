@@ -2,7 +2,7 @@ import unittest
 import torch
 import gc
 
-from tjdnet.distributions.cpe import CPEDist
+from tjdnet.distributions.cpe import CPSDDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.types import PositivityFuncType
@@ -17,7 +17,7 @@ def cpe_method(B, D, H, R, V, device, positivity_func: PositivityFuncType = "saf
         embedding_dim=D,
         positivity_func=positivity_func,
     )
-    model = CPEDist(config).to(device)
+    model = CPSDDist(config).to(device)
     x = torch.randn(B, D, device=device)
     y = torch.randint(0, V, (B, H), device=device)
     model(x, y)

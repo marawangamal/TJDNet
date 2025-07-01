@@ -9,7 +9,27 @@ from tjdnet.distributions._base import (
 )
 
 
-class CPCDist(AbstractDist):
+class CPSDCondlDist(AbstractDist):
+    """CP parameterization of conditional distributions (log-space version).
+
+    Models the conditional distributions p(y_h | x, y_1:h-1) as a CP tensor.
+
+    Args:
+        config (BaseDistConfig): Configuration for the distribution, including vocab_size, horizon, rank, etc.
+        bypass_config (bool, optional): If True, bypasses config validation. Defaults to False.
+        **kwargs: Additional keyword arguments.
+
+    TN:
+              α
+            / |   \
+           /  |    \
+          θ₁  θ₂ .. θₕ
+          |   |     |
+          D   D     D
+          |   |     |
+          y₁  y₂ .. yₕ
+    """
+
     def __init__(self, config: BaseDistConfig):
         super().__init__()
         self.config = config

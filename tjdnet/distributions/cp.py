@@ -8,15 +8,17 @@ from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
 
 
 class CPDist(TJDist):
-    def __init__(self, config: BaseDistConfig, bypass_config=False, **kwargs):
-        """CP Distribution
+    """CP parameterization of a joint distribution.
 
-        Args:
-            n_embd (int): Embedding dimension
-            vocab_size (int): Vocabulary size
-            rank (int): Rank of the CP decomposition
-            horizon (int): Horizon of the model (Number of tokens to predict)
-        """
+    Models the joint distribution p(y1:H | x) as a CP tensor.
+
+    Args:
+        config (BaseDistConfig): Configuration for the distribution, including vocab_size, horizon, rank, etc.
+        bypass_config (bool, optional): If True, bypasses config validation. Defaults to False.
+        **kwargs: Additional keyword arguments.
+    """
+
+    def __init__(self, config: BaseDistConfig, bypass_config=False, **kwargs):
         super().__init__(config)
 
     # @classmethod

@@ -13,7 +13,27 @@ def safe_exp(x: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.clamp(x, max=20.0))  # Clamp to
 
 
-class CPEDist(TJDist):
+class CPSDDist(TJDist):
+    """CP parameterization of a joint distributions (memory-efficient version).
+
+    Models the joint distribution p(y1:H | x) as a CP tensor.
+
+    Args:
+        config (BaseDistConfig): Configuration for the distribution, including vocab_size, horizon, rank, etc.
+        bypass_config (bool, optional): If True, bypasses config validation. Defaults to False.
+        **kwargs: Additional keyword arguments.
+
+    TN:
+              α
+            / |   \
+           /  |    \
+          θ₁  θ₂ .. θₕ
+          |   |     |
+          D   D     D
+          |   |     |
+          y₁  y₂ .. yₕ
+    """
+
     def __init__(self, config: BaseDistConfig, **kwargs):
         """CP Distribution
 
