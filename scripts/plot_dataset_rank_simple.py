@@ -263,7 +263,8 @@ def main():
                 print(f"Error with {category}: {e}")
 
     # Plot
-    print("Plotting...")
+    print(f"Plotting model: {args.model} | top_k: {args.top_k}")
+    print(f"Plot saved to: {plot_path}")
     plot_spectra(spectra, plot_path)
 
     summary_rows = []

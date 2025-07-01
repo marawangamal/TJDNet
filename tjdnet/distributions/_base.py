@@ -2,7 +2,7 @@ from __future__ import annotations  # only needed on 3.10 and below
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import Callable, Literal, Optional, Tuple, Type, TypeVar
+from typing import Any, Callable, Dict, Literal, Optional, Tuple, Type, TypeVar
 
 import torch
 from tjdnet.types import PositivityFuncType
@@ -80,3 +80,30 @@ class AbstractDist(ABC, torch.nn.Module):
             T: An instance of the distribution class.
         """
         pass
+
+    def _print_tensor_stats(self, tensor_dict):
+        for name, tensor in tensor_dict.items():
+            if torch.is_tensor(tensor):
+                if tensor.is_floating_point():
+                    stats = (
+                        f"{name}: shape={tensor.shape}, dtype={tensor.dtype}, "
+                        f"min={tensor.min().item()}, max={tensor.max().item()}, "
+                        f"mean={tensor.mean().item()}, std={tensor.std().item()}"
+                    )
+                else:
+                    stats = (
+                        f"{name}: shape={tensor.shape}, dtype={tensor.dtype}, "
+                        f"min={tensor.min().item()}, max={tensor.max().item()}"
+                    )
+                print(stats)
+
+    def _ensure_finite(self, tensors: Dict[str, Any], add_debug_info: bool = False):
+        for name, tensor in tensors.items():
+            if not torch.isfinite(tensor).all():
+                if add_debug_info:
+                    self._print_tensor_stats(tensors)
+                raise ValueError(f"{name} is not finite")
+            elif torch.isnan(tensor).any():
+                if add_debug_info:
+                    self._print_tensor_stats(tensors)
+                raise ValueError(f"{name} is nan")

@@ -46,7 +46,7 @@ class CPMEDist(AbstractDist):
             rank (int): Rank of the CP decomposition
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
-        super().__init__(config)
+        super().__init__()
 
         # === config
         self.param_func = None

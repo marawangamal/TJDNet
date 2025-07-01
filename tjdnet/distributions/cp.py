@@ -23,7 +23,7 @@ class CPDist(AbstractDist):
     """
 
     def __init__(self, config: BaseDistConfig, bypass_config=False, **kwargs):
-        super().__init__(config)
+        super().__init__()
 
         # === config
         self.param_func = None
@@ -63,6 +63,7 @@ class CPDist(AbstractDist):
             self.config.embedding_dim,
             self.config.vocab_size,
         )
+        # (B, R, H, D) => (B, R, H, D) => (B, R, H, V)
         theta = self.positivity_func(
             self.w_cp(x).reshape(B, R, H, D) @ self.decoder
         )  # (B, R, H, V)
@@ -164,6 +165,33 @@ class CPDist(AbstractDist):
                 device=x.device,
             ),
         )
+
+        prob_y_bar_x_dict = {
+            "p_tilde": p_tilde,
+            "z_tilde": z_tilde,
+            **{f"gammas_p_{i}": gammas_p[i] for i in range(len(gammas_p))},
+            **{f"gammas_z_{i}": gammas_z[i] for i in range(len(gammas_z))},
+            **{k: v for k, v in self.named_parameters()},
+        }
+
+        # ==== Debugging >>>>>>>>
+        self._print_tensor_stats(
+            {
+                "x": x,
+                "y": y,
+                "cp_params": params,
+                **prob_y_bar_x_dict,
+            }
+        )
+        # ==== Health check >>>>>>>>
+        self._ensure_finite(
+            {
+                **prob_y_bar_x_dict,
+                **{k: v for k, v in self.named_parameters()},
+            },
+        )
+        # =======================
+
         loss = (
             -torch.log(p_tilde)  # (B, T')
             + torch.log(z_tilde)  # (B, T')
