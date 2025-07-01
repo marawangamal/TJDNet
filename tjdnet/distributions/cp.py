@@ -63,7 +63,9 @@ class CPDist(AbstractDist):
             self.config.embedding_dim,
             self.config.vocab_size,
         )
-        theta = self.w_cp(x).reshape(B, R, H, D) @ self.decoder  # (B, R, H, V)
+        theta = self.positivity_func(
+            self.w_cp(x).reshape(B, R, H, D) @ self.decoder
+        )  # (B, R, H, V)
         return theta
 
     def sample(
