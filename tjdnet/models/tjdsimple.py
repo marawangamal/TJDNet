@@ -122,18 +122,19 @@ class TJDSimple(nn.Module):
     ) -> ModelOutput:
         """Forward pass for training."""
 
-        # Get hidden states
-        hidden_states = self.backbone(
-            input_ids=input_ids, attention_mask=attention_mask, **kwargs
-        ).last_hidden_state  # (B, T, D)
-
         # Truncate to multiple of horizon
-        T = (hidden_states.shape[1] // self.config.horizon) * self.config.horizon
-        hidden_states = hidden_states[:, :T, :]
+        # NOTE: Should handle partial targets in dist head in the future
+        T = (input_ids.shape[1] // self.config.horizon) * self.config.horizon
+        input_ids = input_ids[:, :T]
         if attention_mask is not None:
             attention_mask = attention_mask[:, :T]
         if labels is not None:
             labels = labels[:, :T]
+
+        # Get hidden states
+        hidden_states = self.backbone(
+            input_ids=input_ids, attention_mask=attention_mask, **kwargs
+        ).last_hidden_state  # (B, T, D)
 
         # Compute loss if labels provided
         if labels is not None:
@@ -155,6 +156,11 @@ class TJDSimple(nn.Module):
 
             z = z.reshape(-1, D)  # (B*T_eff, D)
             y = y.reshape(-1, H)  # (B*T_eff, H)
+            # Check for batch size mismatch
+            if z.shape[0] != y.shape[0]:
+                raise ValueError(
+                    f"Batch size mismatch: z.shape[0]={z.shape[0]}, y.shape[0]={y.shape[0]}"
+                )
 
             loss = self.dist_head(z, y).mean()
             return ModelOutput(

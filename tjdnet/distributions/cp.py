@@ -146,6 +146,10 @@ class CPDist(TJDist):
         y: torch.Tensor,
         **kwargs,
     ):
+        if x.shape[0] != y.shape[0]:
+            raise ValueError(
+                f"Batch size mismatch: z.shape[0]={x.shape[0]}, y.shape[0]={y.shape[0]}"
+            )
         # Get indexed distribution
         horizon = self.horizon
         B = x.size(0)

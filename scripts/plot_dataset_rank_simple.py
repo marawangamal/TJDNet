@@ -43,6 +43,12 @@ def get_samples(debug=False, num_samples=5):
             "field": "question",
             "post": lambda s: s + " Answer:",
         },
+        # "gsm8k": {
+        #     "hf_name": ("gsm8k",),
+        #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+        #     "field": "question",
+        #     "post": lambda s: s + " Answer:",
+        # },
         "wikitext2": {
             "hf_name": ("wikitext", "wikitext-2-raw-v1"),
             "load_kwargs": {"split": f"train[:{num_samples*5}]"},
@@ -107,7 +113,7 @@ def get_joint_prob(model, tokenizer, text, device, top_k=None):
         )
 
         for i, y1 in enumerate(
-            tqdm(topk_y1, desc="Computing joint p(y1,y2|x)", leave=False)
+            tqdm(topk_y1, desc=f"Computing joint p(y1,y2|x) for k={top_k}", leave=False)
         ):
             x_y1 = torch.cat([x[0], y1.unsqueeze(0)]).unsqueeze(0)  # (1, L+1)
             out2 = model(x_y1)
@@ -194,12 +200,21 @@ def main():
         action="store_true",
         help="Overwrite existing progress checkpoint.",
     )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=1000,
+        help="Number of top tokens to consider for joint probability computation.",
+    )
     args = parser.parse_args()
 
     model_name = args.model.replace("/", "_")
 
+    # Define filenames
+    progress_path = f"results/spectrum_progress_{model_name}_topk{args.top_k}.pt"
+    plot_path = f"results/spectrum_comparison_{model_name}_topk{args.top_k}.png"
+
     # Progress file path
-    progress_path = f"results/spectrum_progress_{model_name}.pt"
     os.makedirs(os.path.dirname(progress_path), exist_ok=True)
 
     # Load model
@@ -223,15 +238,15 @@ def main():
         spectra = {k: [] for k in ["wikitext2", "sst2", "aqua_rat", "reddit"]}
 
     # Compute spectra
-    print("Computing spectra...")
     for category, samples in datasets.items():
         for i, text in enumerate(samples):
             # Skip if already computed
             if len(spectra[category]) > i:
                 continue
             try:
+                print(f"[{i+1}/{len(samples)}] Computing spectra for {category}...")
                 # Compute spectrum
-                p_y1y2 = get_joint_prob(model, tokenizer, text, args.device)
+                p_y1y2 = get_joint_prob(model, tokenizer, text, args.device, args.top_k)
                 # Save p(y1, y2 | x)
                 # torch.save(p_y1y2, f"results/p_y1y2_{model_name}_{category}_{i}.pt")
                 print(f"p_y1y2.shape: {p_y1y2.shape}")
@@ -249,7 +264,7 @@ def main():
 
     # Plot
     print("Plotting...")
-    plot_spectra(spectra, f"results/spectrum_comparison_{model_name}.png")
+    plot_spectra(spectra, plot_path)
 
     summary_rows = []
     var_target = 0.99
