@@ -109,7 +109,7 @@ class CPCondl(AbstractDist):
         return_dist_slice: bool = False,
         **kwargs,
     ):
-        """Computes logP(y|x) for CPB distribution.
+        """Computes logP(y|x) for CPCondl distribution.
 
         Args:
             x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
