@@ -117,35 +117,55 @@ class TJDSimple(nn.Module):
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        # use_memory_efficient_loss: bool = True,
+        use_memory_efficient_loss: bool = True,
         **kwargs,
     ) -> ModelOutput:
         """Forward pass for training."""
+
+        # Truncate to multiple of horizon
+        # NOTE: Should handle partial targets in dist head in the future
+        T = (input_ids.shape[1] // self.config.horizon) * self.config.horizon
+        input_ids = input_ids[:, :T]
+        if attention_mask is not None:
+            attention_mask = attention_mask[:, :T]
+        if labels is not None:
+            labels = labels[:, :T]
+
         # Get hidden states
-        outputs = self.backbone(
+        hidden_states = self.backbone(
             input_ids=input_ids, attention_mask=attention_mask, **kwargs
-        )
-        hidden_states = outputs.last_hidden_state
+        ).last_hidden_state  # (B, T, D)
 
         # Compute loss if labels provided
         if labels is not None:
-            # Prepare targets first to get the correct batch size
-            y = self._prepare_targets(input_ids)  # (B*(T-H), H)
 
-            # Reshape hidden states to match target batch size
-            _, _, D = hidden_states.shape
+            # Dims
+            B, T, D = hidden_states.shape
             H = self.config.horizon
+
+            # Prepare targets first to get the correct batch size
+            y = self._prepare_targets(input_ids).reshape(B, -1, H)  # (B*(T-H), H)
+
             # Remove last H positions since we can't predict them
-            x = hidden_states[:, :-H, :]  # (B, T-H, D)
-            x = x.reshape(-1, D)  # (B*(T-H), D)
+            z = hidden_states[:, :-H, :]  # (B, T-H, D)
 
-            # if use_memory_efficient_loss:
-            #     shift = torch.randint(0, H, (1,)).item()
-            #     x = x[:, shift::H]
-            #     y = y[:, shift::H]
+            if use_memory_efficient_loss:
+                shift = torch.randint(0, H, (1,)).item()
+                z = z[:, shift::H]
+                y = y[:, shift::H]
 
-            loss = self.dist_head(x, y).mean()
-            return ModelOutput(**{"loss": loss, "nll": -1})
+            z = z.reshape(-1, D)  # (B*T_eff, D)
+            y = y.reshape(-1, H)  # (B*T_eff, H)
+            # Check for batch size mismatch
+            if z.shape[0] != y.shape[0]:
+                raise ValueError(
+                    f"Batch size mismatch: z.shape[0]={z.shape[0]}, y.shape[0]={y.shape[0]}"
+                )
+
+            loss = self.dist_head(z, y).mean()
+            return ModelOutput(
+                **{"loss": loss, "nll": loss if use_memory_efficient_loss else -1}
+            )
 
         return ModelOutput(**{"hidden_states": hidden_states})
 
@@ -164,8 +184,19 @@ class TJDSimple(nn.Module):
             self.backbone(input_ids=input_ids, attention_mask=attention_mask, **kwargs),
             "last_hidden_state",
         )
+
+        # truncate to multiple of horizon
         B, T, D = z.shape
         H = self.config.horizon
+        # Truncate to the largest multiple of horizon that fits within T
+        T_truncated = (T // H) * H
+        if T_truncated < T:
+            z = z[:, :T_truncated, :]
+            if attention_mask is not None:
+                attention_mask = attention_mask[:, :T_truncated]
+            if labels is not None:
+                labels = labels[:, :T_truncated]
+
         z = z[:, :-H, :].reshape(-1, D)
 
         # Memory-efficient backward for MultiHeadDist

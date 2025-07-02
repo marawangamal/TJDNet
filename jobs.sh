@@ -1,4 +1,2 @@
-# python main.py fit --trainer.max_epochs 10  --model.model_head base --model.rank 1 --model.horizon 1 --model.positivity_func safe_exp --model.hidden_dim 768 --data.dataset shakespeare
-# python main.py fit --trainer.max_epochs 10  --model.model_head cp   --model.rank 2 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --data.dataset shakespeare
-# python main.py fit --trainer.max_epochs 10  --model.model_head cp   --model.rank 8 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --data.dataset shakespeare
-python main.py fit --trainer.max_epochs 10  --model.model_head cp_eff   --model.rank 32 --model.horizon 2 --model.positivity_func safe_exp --model.hidden_dim 768 --data.dataset shakespeare --data.batch_size 1 --trainer.accumulate_grad_batches 32
+HF_HOME=$SCRATCH python main.py fit --model.model distilbert/distilgpt2 --model.model_head cp --model.rank 2 --model.horizon 2 --trainer.max_epochs 5 --auto_lr_find
+HF_HOME=$SCRATCH python main.py fit --model.model distilbert/distilgpt2 --model.model_head stp --model.rank 1 --model.horizon 1 --trainer.max_epochs 5 --auto_lr_find

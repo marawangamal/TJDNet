@@ -97,8 +97,8 @@ class LModel(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         out = self.model(**batch)
         self.log("val_loss", out.loss, prog_bar=True)
-        # Note: MultiTokenLlama returns CausalLMOutput which doesn't have nll attribute
-        # self.log("val_nll", out.nll, prog_bar=True)
+        if hasattr(out, "nll"):  # NOTE: MultiTokenLlama doesn't have nll
+            self.log("val_nll", out.nll, prog_bar=True)
         return out.loss
 
     def test_step(self, batch, batch_idx):

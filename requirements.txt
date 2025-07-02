@@ -12,6 +12,9 @@ huggingface_hub[cli]
 sentencepiece
 lightning[pytorch-extra]  >=2.2.0
 jsonargparse[signatures]  >=4.27,<5
+seaborn
+matplotlib
+wandb
 # matplotlib
 # tntorch
 # wandb

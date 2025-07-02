@@ -79,7 +79,10 @@ class TJDist(AbstractDist):
         print("=== END DIAGNOSTIC REPORT ===\n")
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-
+        if x.shape[0] != y.shape[0]:
+            raise ValueError(
+                f"Batch size mismatch: z.shape[0]={x.shape[0]}, y.shape[0]={y.shape[0]}"
+            )
         p_tilde, gammas_p, z_tilde, gammas_z = self.evaluate(x, y)
 
         #  === Health checks >>>
