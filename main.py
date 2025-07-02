@@ -10,9 +10,9 @@ Example usage:
 
 """
 
-import os
+# import os
 
-os.environ["WANDB_MODE"] = "disabled"
+# os.environ["WANDB_MODE"] = "disabled"
 
 
 import os.path as osp
