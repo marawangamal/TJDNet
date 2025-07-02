@@ -247,6 +247,9 @@ def main():
                 print(f"[{i+1}/{len(samples)}] Computing spectra for {category}...")
                 # Compute spectrum
                 p_y1y2 = get_joint_prob(model, tokenizer, text, args.device, args.top_k)
+                # === DEBUG >>>>
+                # p_y1y2 = torch.randn(1000, 1000)
+                # === DEBUG <<<<
                 # Save p(y1, y2 | x)
                 # torch.save(p_y1y2, f"results/p_y1y2_{model_name}_{category}_{i}.pt")
                 print(f"p_y1y2.shape: {p_y1y2.shape}")
@@ -302,3 +305,11 @@ if __name__ == "__main__":
 # | sst2       | 4.2 ± 1.9                              |
 # | aqua_rat   | 3.6 ± 2.1                              |
 # | reddit     | 5.0 ± 4.7                              |
+
+# Random matrix 1000x1000
+# | Category   | Emprical Rank for 99.0% Variance (mean ± std)   |
+# |------------|-------------------------------------------------|
+# | wikitext2  | 770.8 ± 0.4                                     |
+# | sst2       | 771.0 ± 0.0                                     |
+# | aqua_rat   | 770.8 ± 0.4                                     |
+# | reddit     | 771.0 ± 0.0                                     |
