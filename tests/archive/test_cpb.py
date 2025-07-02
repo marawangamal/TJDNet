@@ -2,7 +2,7 @@ import unittest
 import torch
 
 from tjdnet.distributions._tjdist import BaseDistConfig
-from tjdnet.distributions.cpb import CPBDist
+from tjdnet.distributions.cpb import CPCond
 from tjdnet.distributions.tpnet import TensorParamNetConfig
 
 
@@ -34,7 +34,7 @@ class TestCPBDist(unittest.TestCase):
         batch_size, seq_len, vocab_size, rank, horizon, n_embd = 8, 8, 128, 8, 2, 256
         eps = 1e-9
 
-        model_head = CPBDist(
+        model_head = CPCond(
             BaseDistConfig(
                 vocab_size=vocab_size,
                 horizon=horizon,
@@ -57,7 +57,7 @@ class TestCPBDist(unittest.TestCase):
         batch_size, seq_len, vocab_size, rank, horizon, n_embd = 32, 8, 128, 3, 2, 256
         eps = 1e-9
 
-        model_head = CPBDist(
+        model_head = CPCond(
             BaseDistConfig(
                 vocab_size=vocab_size,
                 horizon=horizon,

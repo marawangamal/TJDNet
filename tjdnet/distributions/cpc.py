@@ -9,7 +9,7 @@ from tjdnet.distributions._base import (
 )
 
 
-class CPCDist(AbstractDist):
+class CPCondl(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__()
         self.config = config

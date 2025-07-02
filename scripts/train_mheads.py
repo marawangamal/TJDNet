@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.cp import CPDist
-from tjdnet.distributions.cpb import CPBDist
+from tjdnet.distributions.cpb import CPCond
 from tjdnet.distributions.multihead import MultiHeadDist
 
 # Hyperparameters
@@ -71,7 +71,7 @@ config = BaseDistConfig(
 models = {
     "MLP-MHead": SimpleModel(create_backbone(), MultiHeadDist(config)),
     "MLP-CP": SimpleModel(create_backbone(), CPDist(config)),
-    "MLP-CPB": SimpleModel(create_backbone(), CPBDist(config)),
+    "MLP-CPB": SimpleModel(create_backbone(), CPCond(config)),
 }
 
 optimizers = {
