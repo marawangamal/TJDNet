@@ -9,9 +9,23 @@ from tjdnet.distributions._base import (
 )
 
 
-class CPCDist(AbstractDist):
+class CPCondl(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__()
+        """Parameterized CP tensor network distribution (log space version).
+
+        TN:
+              α
+            / |   \
+           /  |    \
+          θ₁  θ₂ .. θₕ
+          |   |     |
+          D   D     D
+          |   |     |
+          y₁  y₂ .. yₕ
+        """
+
+        # === dims
         self.config = config
         H, R, D, V = (
             self.config.horizon,
@@ -20,15 +34,10 @@ class CPCDist(AbstractDist):
             self.config.vocab_size,
         )
 
-        # === learnable alpha (moe weights)
-        self.w_alpha = torch.nn.Linear(
-            in_features=D,
-            out_features=R,
-        )
+        # === params
+        self.w_alpha = torch.nn.Linear(D, R)
         self.w_cp = torch.nn.Linear(D, R * H * V)
         self.decoder = torch.nn.Parameter(torch.randn(D, V))  # (d, V)
-        # === fixed alpha
-        # self.alpha_unnorm_func = lambda x: torch.ones(1, self.rank, device=x.device)
 
     @classmethod
     def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
@@ -109,7 +118,7 @@ class CPCDist(AbstractDist):
         return_dist_slice: bool = False,
         **kwargs,
     ):
-        """Computes logP(y|x) for CPB distribution.
+        """Computes logP(y|x) for CPCondl distribution.
 
         Args:
             x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
