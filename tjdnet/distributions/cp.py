@@ -72,6 +72,117 @@ class CPDist(TJDist):
         params = self.param_func(x)  # (B, R * H, V)
         params_reshaped = params.reshape(B, self.rank, self.horizon, self.vocab_size)
         return params_reshaped  # (B, R, H, V)  // H* is model level horizon
+    
+    def sample_refinement(
+        self,
+        x: torch.Tensor,
+        # (B, D) -> (B,)
+        sample_fn: Callable[[torch.Tensor], torch.Tensor],
+        horizon: Optional[int] = None,
+        return_logits: bool = False,
+        refine: bool = False,
+        refine_steps: int = 5,
+        **kwargs,
+    ):
+        """Computes P(yh|x, y1:h-1) for h in [1, H].
+
+        Args:
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+            sample_fn (Callable): Sampling function.
+            horizon (Optional[int]): Horizon for sampling. Must be <= self.horizon.
+            return_logits (bool): Whether to return logits or probabilities.
+            refine (bool): Whether to refine the sampling process.
+
+        Returns:
+            tuple:
+                - Evaluation of the distribution at the points of shape (B, H).
+                - Probabilities of shape (B, H, V) or logits of shape (B, H, V).
+        """
+        horizon = self.get_horizon(horizon)  # Possibly override model horizon
+        batch_size = x.size(0)
+        dvc = x.device
+
+        # Output tokens will be placed in `y_hat`
+        y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
+        model_head_params = self.get_params(x)  # (B, R, H, V)
+        py_tilde_list = []
+
+        # Autoregressive sampling
+        # Operations tensor (B, T). Describes batch operations to perform on the CP tensor
+        # modelled by `model_head_params`.
+        # Example:
+        #  y_hat = [[1, 2, 3]]  # (B, T)
+        #  ops_tensor = [[1, 2, -2]]  # (B, T)
+        #  p_ops_tilde = A^{(1))_1} * A^{(2)}_2 * (𝜮_r A^{(3)}_r)
+        for h in range(horizon):
+            ops_tensor = torch.cat(
+                (
+                    y_hat,  # selection
+                    -1  # free leg
+                    * torch.ones(batch_size, 1, dtype=torch.long, device=dvc),
+                    -2  # marginalization
+                    * torch.ones(
+                        batch_size, (horizon - h - 1), dtype=torch.long, device=dvc
+                    ),
+                ),
+                dim=1,
+            )  # (B, T)
+            #  (B, R, H, V) -> (B, V)
+            p_ops_tilde, _ = select_margin_cp_tensor_batched(
+                cp_params=model_head_params,
+                ops=ops_tensor,
+            )  # (B, V), (B,) * T
+            py_tilde_list.append(p_ops_tilde)
+            next_token = sample_fn(p_ops_tilde).unsqueeze(1)  # (B,1)
+
+            y_hat = torch.cat([y_hat, next_token], dim=1)            
+        py_tilde = torch.stack(py_tilde_list, dim=1)  # (B, H, V)
+
+        y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
+        if refine:
+            # Perform multiple refinement steps over the full sequence
+            for _ in range(refine_steps - 1):
+                # Refine each position h in turn
+                for h in range(horizon):
+                    # Build an ops tensor that fixes all tokens except position h (free leg)
+                    # to the current y_hat values.
+                    # Left context: y_hat[:, :h]
+                    left = y_hat[:, :h]
+                    # Free leg placeholder at position h
+                    free_leg = -1 * torch.ones(batch_size, 1, dtype=torch.long, device=dvc)
+                    # Right context: y_hat[:, h+1:]
+                    right = y_hat[:, h+1:]
+                    # Concatenate to shape (B, horizon)
+                    ops_tensor = torch.cat((left, free_leg, right), dim=1)
+                    
+                    # Query CP tensor for logits at position h
+                    p_ops_tilde, _ = select_margin_cp_tensor_batched(
+                        cp_params=model_head_params,
+                        ops=ops_tensor,
+                    )  # shape (B, V)
+                    
+                    # Sample a refined token and update y_hat at position h
+                    refined_token = sample_fn(p_ops_tilde).unsqueeze(1)  # (B,1)
+                    y_hat[:, h] = refined_token.squeeze(1)
+            
+            # Last step: compute the probabilities for each position
+            py_tilde_list.clear()
+            for h in range(horizon):
+                left = y_hat[:, :h]
+                free_leg = -1 * torch.ones(batch_size, 1, dtype=torch.long, device=dvc)
+                right = y_hat[:, h+1:]
+                ops_tensor = torch.cat((left, free_leg, right), dim=1)
+                p_ops_tilde, _ = select_margin_cp_tensor_batched(
+                    cp_params=model_head_params,
+                    ops=ops_tensor,
+                )
+                py_tilde_list.append(p_ops_tilde)
+            py_tilde = torch.stack(py_tilde_list, dim=1)
+
+        if return_logits:  # don't normalize
+            return y_hat, py_tilde
+        return y_hat, py_tilde / py_tilde.sum(dim=-1, keepdim=True)  # (B, H)
+
 
     def sample(
         self,
@@ -134,7 +245,7 @@ class CPDist(TJDist):
             py_tilde_list.append(p_ops_tilde)
             next_token = sample_fn(p_ops_tilde).unsqueeze(1)  # (B,1)
 
-            y_hat = torch.cat([y_hat, next_token], dim=1)
+            y_hat = torch.cat([y_hat, next_token], dim=1)            
         py_tilde = torch.stack(py_tilde_list, dim=1)  # (B, H, V)
         if return_logits:  # don't normalize
             return y_hat, py_tilde
