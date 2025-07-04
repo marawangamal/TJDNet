@@ -3,6 +3,72 @@ Minimal script to analyze eigen spectrum of p(y1, y2|x) for datasets with varyin
 
 Usage:
     python scripts/plots/plot_dataset_rank_simple.py --model gpt2
+
+Prompting Instructions and Few-Shot Examples for Datasets
+---------------------------------------------------------
+
+AQuA-RAT (Algebra Question Answering):
+--------------------------------------
+- Each sample is a multiple-choice math word problem.
+- Prompt format:
+    [QUESTION]\nOptions: [A) ... B) ... C) ... D) ... E) ...]\nAnswer:
+- For few-shot learning, provide several Q&A pairs in the same format.
+- Example:
+
+Q: Two friends plan to walk along a 43-km trail, starting at opposite ends of the trail at the same time. If Friend P's rate is 15% faster than Friend Q's, how many kilometers will Friend P have walked when they pass each other?
+Options: A)21 B)21.5 C)22 D)22.5 E)23
+Answer: E
+
+Q: In the coordinate plane, points (x, 1) and (5, y) are on line k. If line k passes through the origin and has slope 1/5, then what are the values of x and y respectively?
+Options: A)4 and 1 B)1 and 5 C)5 and 1 D)3 and 5 E)5 and 3
+Answer: C
+
+- For LLMs, you can concatenate several such Q&A pairs for few-shot prompting.
+
+GSM8K (Grade School Math 8K):
+-----------------------------
+- Each sample is a free-form grade school math word problem.
+- Prompt format:
+    [QUESTION]\nAnswer:
+- For few-shot learning, provide several Q&A pairs in the same format.
+- Example:
+
+Q: Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
+Answer: Natalia sold 48/2 = 24 clips in May. Natalia sold 48+24 = 72 clips altogether in April and May. #### 72
+
+Q: Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?
+Answer: Weng earns 12/60 = $0.2 per minute. Working 50 minutes, she earned 0.2 x 50 = $10. #### 10
+
+- For LLMs, you can concatenate several such Q&A pairs for few-shot prompting.
+
+MATH (Mathematics Dataset):
+--------------------------
+- Each sample is a high school mathematics problem with step-by-step solution.
+- Prompt format:
+    [PROBLEM]\nSolution:
+- For few-shot learning, provide several problem-solution pairs in the same format.
+- Example:
+
+Problem: Find the value of x in the equation 2x + 5 = 13.
+Solution: To solve for x, we need to isolate it on one side of the equation.
+2x + 5 = 13
+Subtract 5 from both sides: 2x = 8
+Divide both sides by 2: x = 4
+The value of x is 4.
+
+Problem: What is the area of a circle with radius 3?
+Solution: The area of a circle is given by the formula A = πr².
+Given r = 3, we have A = π(3)² = π(9) = 9π.
+The area of the circle is 9π square units.
+
+- For LLMs, you can concatenate several such problem-solution pairs for few-shot prompting.
+
+General Tips:
+-------------
+- For all datasets, few-shot learning is typically done by concatenating several Q&A pairs in the prompt, followed by a new question for the model to answer.
+- For AQuA-RAT, always include the options and ask for the answer letter.
+- For GSM8K, show the step-by-step reasoning and end with the answer after '####'.
+- For MATH, provide detailed step-by-step solutions with clear explanations.
 """
 
 import os
@@ -14,10 +80,11 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.utils.extmath import randomized_svd
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from datasets import load_dataset
 
 
+# TODO: Add CSQA, STEMP, and other low-rank datasets.
 # Low rank datasets (structured, algorithmic, or formulaic answers):
 #   - gsm8k (grade school math, train: 7473)
 #   - aqua_rat (algebra word problems, train: 10160)
@@ -33,34 +100,68 @@ from datasets import load_dataset
 #   - openwebtext (web crawl, millions of samples)
 #   - c4 (Colossal Clean Crawled Corpus, millions of samples)
 #   - stackexchange_qa (Q&A, diverse topics)
-def get_samples(debug=False, num_samples=5):
+def get_samples(debug=False, num_samples=25):
     """Get samples from several datasets, using dataset names as keys."""
+    # Canonical few-shot context for each dataset
+    aqua_rat_fewshot = (
+        "Q: Two friends plan to walk along a 43-km trail, starting at opposite ends of the trail at the same time. If Friend P's rate is 15% faster than Friend Q's, how many kilometers will Friend P have walked when they pass each other?\nOptions: A)21 B)21.5 C)22 D)22.5 E)23\nAnswer: E\n\n"
+        "Q: In the coordinate plane, points (x, 1) and (5, y) are on line k. If line k passes through the origin and has slope 1/5, then what are the values of x and y respectively?\nOptions: A)4 and 1 B)1 and 5 C)5 and 1 D)3 and 5 E)5 and 3\nAnswer: C\n\n"
+    )
+    gsm8k_fewshot = (
+        "Q: Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?\n"
+        "Answer: Natalia sold 48/2 = 24 clips in May. Natalia sold 48+24 = 72 clips altogether in April and May. #### 72\n\n"
+        "Q: Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?\n"
+        "Answer: Weng earns 12/60 = $0.2 per minute. Working 50 minutes, she earned 0.2 x 50 = $10. #### 10\n\n"
+    )
+    math_fewshot = (
+        "Problem: Find the value of x in the equation 2x + 5 = 13.\n"
+        "Solution: To solve for x, we need to isolate it on one side of the equation.\n"
+        "2x + 5 = 13\n"
+        "Subtract 5 from both sides: 2x = 8\n"
+        "Divide both sides by 2: x = 4\n"
+        "The value of x is 4.\n\n"
+        "Problem: What is the area of a circle with radius 3?\n"
+        "Solution: The area of a circle is given by the formula A = πr².\n"
+        "Given r = 3, we have A = π(3)² = π(9) = 9π.\n"
+        "The area of the circle is 9π square units.\n\n"
+    )
     dataset_configs = {
         # Low rank
         "aqua_rat": {
             "hf_name": ("aqua_rat",),
             "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-            "field": "question",
-            "post": lambda s: s + " Answer:",
+            "format_fn": lambda sample: (
+                aqua_rat_fewshot
+                + f"Q: {sample['question']}\nOptions: {' '.join(sample['options'])}\nAnswer: "
+                "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
+            ),
         },
-        # "gsm8k": {
-        #     "hf_name": ("gsm8k",),
-        #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-        #     "field": "question",
-        #     "post": lambda s: s + " Answer:",
-        # },
+        "gsm8k": {
+            "hf_name": ("gsm8k", "main"),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                gsm8k_fewshot + f"Q: {sample['question']}\nAnswer: "
+                "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
+            ),
+        },
+        "math": {
+            "hf_name": ("hendrycks_math",),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                math_fewshot + f"Problem: {sample['problem']}\nSolution: "
+                "(Please provide a detailed step-by-step solution)\n"
+            ),
+        },
         "wikitext2": {
             "hf_name": ("wikitext", "wikitext-2-raw-v1"),
             "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-            "field": "text",
-            "post": lambda s: s[:200],
+            "format_fn": lambda sample: sample["text"][:200],
         },
         # Medium rank
         "sst2": {
             "hf_name": ("glue", "sst2"),
             "load_kwargs": {"split": "train[:100]"},
-            "field": "sentence",
-            "post": lambda s: s,
+            "format_fn": lambda sample: sample["sentence"],
         },
         # High rank
         "reddit": {
@@ -69,24 +170,18 @@ def get_samples(debug=False, num_samples=5):
                 "split": f"train[:{num_samples*5}]",
                 "trust_remote_code": True,
             },
-            "field": "body",
-            "post": lambda s: s,
+            "format_fn": lambda sample: sample["body"],
         },
     }
 
     samples = {}
     for name, cfg in dataset_configs.items():
         ds = load_dataset(*cfg["hf_name"], **cfg["load_kwargs"])
-        s = [
-            cfg["post"](sample[cfg["field"]])
-            for sample in ds
-            if sample[cfg["field"]].strip()
-        ][:num_samples]
-        samples[name] = s
+        samples[name] = [cfg["format_fn"](sample) for sample in ds][:num_samples]
         if debug:
             print(f"=== {name} ===")
-            for i, sample in enumerate(s):
-                print(f"{i+1}. {sample[:100]}...")
+            for i, sample in enumerate(samples[name]):
+                print(f"{i+1}. {sample[:50]}...{sample[-50:]} (len={len(sample)})")
     if debug:
         print("=== Done ===")
     return samples
@@ -137,12 +232,14 @@ def plot_spectra(spectra, save_path=None):
         "sst2": "orange",
         "aqua_rat": "green",
         "reddit": "red",
+        "gsm8k": "purple",
     }
     names = {
         "wikitext2": "WikiText-2",
         "sst2": "SST-2",
         "aqua_rat": "AQuA (Math QA)",
         "reddit": "Reddit",
+        "gsm8k": "GSM8K",
     }
 
     line_styles = {
@@ -150,6 +247,7 @@ def plot_spectra(spectra, save_path=None):
         "sst2": "--",
         "aqua_rat": "-.",
         "reddit": ":",
+        "gsm8k": "-",
     }
 
     for category in spectra.keys():
@@ -201,9 +299,14 @@ def main():
         help="Overwrite existing progress checkpoint.",
     )
     parser.add_argument(
+        "--random",
+        action="store_true",
+        help="Use random initializations for the model.",
+    )
+    parser.add_argument(
         "--top_k",
         type=int,
-        default=1000,
+        default=5000,
         help="Number of top tokens to consider for joint probability computation.",
     )
     args = parser.parse_args()
@@ -211,8 +314,9 @@ def main():
     model_name = args.model.replace("/", "_")
 
     # Define filenames
-    progress_path = f"results/spectrum_progress_{model_name}_topk{args.top_k}.pt"
-    plot_path = f"results/spectrum_comparison_{model_name}_topk{args.top_k}.png"
+    rstr = "_rand" if args.random else ""
+    progress_path = f"results/spectrum_progress_{model_name}_topk{args.top_k}{rstr}.pt"
+    plot_path = f"results/spectrum_comparison_{model_name}_topk{args.top_k}{rstr}.png"
 
     # Progress file path
     os.makedirs(os.path.dirname(progress_path), exist_ok=True)
@@ -221,7 +325,11 @@ def main():
     print(f"Loading {args.model}...")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(args.model).to(args.device)
+    if args.random:
+        config = AutoConfig.from_pretrained(args.model)
+        model = AutoModelForCausalLM.from_config(config).to(args.device)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model).to(args.device)
 
     # Get samples
     print("Loading datasets...")
@@ -235,7 +343,7 @@ def main():
         if os.path.exists(progress_path) and args.overwrite:
             print(f"Overwrite flag set. Removing existing progress at {progress_path}.")
             os.remove(progress_path)
-        spectra = {k: [] for k in ["wikitext2", "sst2", "aqua_rat", "reddit"]}
+        spectra = {k: [] for k in datasets.keys()}
 
     # Compute spectra
     for category, samples in datasets.items():
@@ -248,10 +356,11 @@ def main():
                 # Compute spectrum
                 p_y1y2 = get_joint_prob(model, tokenizer, text, args.device, args.top_k)
                 # === DEBUG >>>>
-                # p_y1y2 = torch.randn(1000, 1000)
+                # p_y1y2 = torch.randn(5000, 5000)
+                # p_y1y2 = torch.nn.functional.softmax(p_y1y2.reshape(-1)).reshape(
+                #     5000, 5000
+                # )
                 # === DEBUG <<<<
-                # Save p(y1, y2 | x)
-                # torch.save(p_y1y2, f"results/p_y1y2_{model_name}_{category}_{i}.pt")
                 print(f"p_y1y2.shape: {p_y1y2.shape}")
                 # Use minimum dimension to get all singular values
                 n_components = min(p_y1y2.shape)
@@ -266,29 +375,38 @@ def main():
                 print(f"Error with {category}: {e}")
 
     # Plot
-    print("Plotting...")
+    print(f"Plotting {model_name} {rstr}...")
+    print(f"Saving to {plot_path}...")
     plot_spectra(spectra, plot_path)
+    max_fp = torch.finfo(torch.float32).max
 
     summary_rows = []
     var_target = 0.99
     for category, spectrum_list in spectra.items():
         if spectrum_list:
             ranks = []
+            non_zero_counts = []
             for spectrum in spectrum_list:
                 spectrum = spectrum.cpu()
+                non_zero_counts.append((spectrum > 1e-10).sum().item())
                 cumsum = torch.cumsum(spectrum**2, 0)
                 total = (spectrum**2).sum()
                 rank = ((cumsum / total) < var_target).sum().item() + 1
                 ranks.append(rank)
-            mean_rank = np.mean(ranks)
-            std_rank = np.std(ranks)
-            summary_rows.append([category, f"{mean_rank:.1f} ± {std_rank:.1f}"])
+            summary_rows.append(
+                [
+                    category,
+                    f"{np.mean(ranks):.1f} ± {np.std(ranks):.1f}",
+                    f"{np.mean(non_zero_counts):.1f} ± {np.std(non_zero_counts):.1f}",
+                ]
+            )
     print(
         tabulate(
             summary_rows,
             headers=[
                 f"Category",
                 f"Emprical Rank for {var_target*100}% Variance (mean ± std)",
+                f"Non-zero Eigenvalues (mean ± std)",
             ],
             tablefmt="github",
         )
@@ -298,18 +416,40 @@ def main():
 if __name__ == "__main__":
     main()
 
-# Model: meta-llama/Llama-2-7b-chat-hf
-# | Category   | Rank for 99.0% Variance (mean ± std)   |
-# |------------|----------------------------------------|
-# | wikitext2  | 2.2 ± 0.7                              |
-# | sst2       | 4.2 ± 1.9                              |
-# | aqua_rat   | 3.6 ± 2.1                              |
-# | reddit     | 5.0 ± 4.7                              |
 
-# Random matrix 1000x1000
+# Random matrix 5000x5000
 # | Category   | Emprical Rank for 99.0% Variance (mean ± std)   |
 # |------------|-------------------------------------------------|
-# | wikitext2  | 770.8 ± 0.4                                     |
-# | sst2       | 771.0 ± 0.0                                     |
-# | aqua_rat   | 770.8 ± 0.4                                     |
-# | reddit     | 771.0 ± 0.0                                     |
+# | aqua_rat   | 3657.6 ± 0.5                                    |
+# | gsm8k      | 3657.6 ± 0.5                                    |
+# | wikitext2  | 3657.2 ± 0.4                                    |
+# | sst2       | 3657.8 ± 1.0                                    |
+# | reddit     | 3657.4 ± 0.5                                    |
+
+# meta-llama_Llama-2-7b-chat-hf
+# | Category   | 99.0% Variance (mean ± std)                     | Non-zero Eigenvalues (mean ± std)   |
+# |------------|-------------------------------------------------|-------------------------------------|
+# | aqua_rat   | 1.0 ± 0.0                                       | 157.0 ± 0.0                         |
+# | gsm8k      | 1.0 ± 0.0                                       | 64.0 ± 0.0                          |
+# | wikitext2  | 2.2 ± 0.7                                       | 1071.2 ± 588.8                      |
+# | sst2       | 1.4 ± 0.5                                       | 687.4 ± 105.4                       |
+# | reddit     | 1.6 ± 0.5                                       | 386.6 ± 120.1                       |
+
+
+# meta-llama_Llama-2-7b-chat-hf (random init)
+# | Category   | 99.0% Variance (mean ± std)                     | Non-zero Eigenvalues (mean ± std)   |
+# |------------|-------------------------------------------------|-------------------------------------|
+# | aqua_rat   | 24.0 ± 0.0                                      | 1303.0 ± 0.0                        |
+# | gsm8k      | 28.0 ± 0.0                                      | 1335.0 ± 0.0                        |
+# | wikitext2  | 28.0 ± 0.6                                      | 1340.2 ± 21.0                       |
+# | sst2       | 25.4 ± 1.4                                      | 1326.2 ± 9.7                        |
+# | reddit     | 26.6 ± 0.5                                      | 1330.6 ± 14.1                       |
+
+
+# | Dataset   | Rank (pretrained) | Rank (random) |
+# |-----------|-------------------|---------------|
+# | gsm8k     | 64.0 ± 0.0       | 1335.0 ± 0.0  |
+# | aqua_rat  | 157.0 ± 0.0      | 1303.0 ± 0.0  |
+# | reddit    | 386.6 ± 120.1    | 1330.6 ± 14.1 |
+# | sst2      | 687.4 ± 105.4    | 1326.2 ± 9.7  |
+# | wikitext2 | 1071.2 ± 588.8   | 1340.2 ± 21.0 |

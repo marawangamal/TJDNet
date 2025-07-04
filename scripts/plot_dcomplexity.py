@@ -22,26 +22,41 @@ plot_df = df.sort_values("Emprical Rank")
 plt.figure(figsize=(8, 6))
 
 # Define markers and colors for each dataset
-markers = ["o", "s", "^", "D"]
-colors = ["steelblue", "coral", "green", "purple"]
+markers = ["o", "s", "^", "D", "v"]
+colors = ["steelblue", "coral", "green", "purple", "red"]
 
 # Plot each dataset separately with different markers
 for i, (_, row) in enumerate(plot_df.iterrows()):
+    # PPL (STP) - filled marker
     plt.scatter(
         row["Emprical Rank"],
-        row["Delta_PPL_percent"],
+        row["PPL (STP)"],
         s=100,
         alpha=0.8,
         color=colors[i],
         marker=markers[i],
-        label=row["Dataset"],
+        label=row["Dataset"] + " (STP)",
         edgecolor="black",
         linewidth=1,
     )
+    # PPL (MTP) - unfilled marker with gray outline
+    plt.scatter(
+        row["Emprical Rank"],
+        row["PPL (MTP)"],
+        s=100,
+        alpha=0.8,
+        facecolors="none",
+        edgecolors="gray",
+        marker=markers[i],
+        linewidth=2,
+        label=row["Dataset"] + " (MTP)",
+    )
 
 plt.xlabel(f"Empirical Rank (99% Explained Variance)")
-plt.ylabel("Δ PPL (%)")
-plt.title("Δ PPL (%) vs Empirical Rank")
+# plt.ylabel("Δ PPL (%)")
+# plt.title("Δ PPL (%) vs Empirical Rank")
+plt.ylabel("PPL (STP)")
+plt.title("PPL (STP) vs Empirical Rank")
 plt.legend()
 
 plt.tight_layout()
