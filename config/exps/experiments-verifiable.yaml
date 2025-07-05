@@ -1,0 +1,71 @@
+# experiments-dcomplexity.yaml
+# This file contains experiments to run on datasets with different empirical ranks 
+# using MTP (Multi-Task Prediction) and STP (Single-Task Prediction) approaches
+preambles:
+  glong:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long"
+    - "#SBATCH --gres=gpu:a100l:1"
+    - "#SBATCH --mem=128G"
+    - "#SBATCH --cpus-per-task=12"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
+  cshort:
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long-cpu"
+    - "#SBATCH --mem=32G"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
+# MAIN: meta-llama/Llama-3.2-3B-Instruct
+# DEBUG: distilbert/distilgpt2
+
+# Root group executed in sequence
+group:
+  # aaa
+  name: "main"
+  type: parallel
+  jobs:
+
+  ################################################
+  #                 CP                           #  
+  ################################################
+
+    - group:
+        # aaa-bbb
+        name: "dcomplexity::cp"
+        type: sequential
+        jobs:
+          - group:
+              # aaa-bbb-XXXX
+              name: "sweep"
+              type: sweep
+              preamble: glong
+              sweep: 
+                horizon: [2]
+                rank: [64]
+                model: [meta-llama/Llama-2-7b-chat-hf]
+              sweep_template:  "HF_HOME=$SCRATCH/huggingface python main.py fit --config config/config.yaml --trainer.max_epochs 5 --trainer.gradient_clip_val 1.0 --model.model {model} --model.model_head cp --model.horizon {horizon} --model.rank {rank} --data.batch_size 1 --trainer.accumulate_grad_batches 8 --data.dataset gsm8k --auto_lr_find"
+
+
+
+  ################################################
+  #                 STP                          #  
+  ################################################
+
+    - group:
+        # aaa-bbb
+        name: "dcomplexity::cp"
+        type: sequential
+        jobs:
+          - group:
+              name: "sweep"
+              type: sweep
+              preamble: glong
+              sweep:
+                model: [meta-llama/Llama-2-7b-chat-hf, meta-llama/Llama-3.2-3B-Instruct]
+              sweep_template:  "HF_HOME=$SCRATCH/huggingface python main.py fit --config config/config.yaml --trainer.max_epochs 5 --trainer.gradient_clip_val 1.0 --model.model {model} --model.model_head stp --data.batch_size 1 --trainer.accumulate_grad_batches 8 --data.dataset gsm8k --auto_lr_find"

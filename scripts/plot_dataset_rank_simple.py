@@ -100,7 +100,7 @@ from datasets import load_dataset
 #   - openwebtext (web crawl, millions of samples)
 #   - c4 (Colossal Clean Crawled Corpus, millions of samples)
 #   - stackexchange_qa (Q&A, diverse topics)
-def get_samples(debug=False, num_samples=25):
+def get_samples(debug=False, num_samples=5):
     """Get samples from several datasets, using dataset names as keys."""
     # Canonical few-shot context for each dataset
     aqua_rat_fewshot = (
@@ -142,14 +142,6 @@ def get_samples(debug=False, num_samples=25):
             "format_fn": lambda sample: (
                 gsm8k_fewshot + f"Q: {sample['question']}\nAnswer: "
                 "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
-            ),
-        },
-        "math": {
-            "hf_name": ("hendrycks_math",),
-            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-            "format_fn": lambda sample: (
-                math_fewshot + f"Problem: {sample['problem']}\nSolution: "
-                "(Please provide a detailed step-by-step solution)\n"
             ),
         },
         "wikitext2": {
@@ -446,10 +438,44 @@ if __name__ == "__main__":
 # | reddit     | 26.6 ± 0.5                                      | 1330.6 ± 14.1                       |
 
 
-# | Dataset   | Rank (pretrained) | Rank (random) |
-# |-----------|-------------------|---------------|
+# | Dataset   | Rank (pretrained) | Rank (random)|
+# |-----------|------------------|---------------|
 # | gsm8k     | 64.0 ± 0.0       | 1335.0 ± 0.0  |
 # | aqua_rat  | 157.0 ± 0.0      | 1303.0 ± 0.0  |
 # | reddit    | 386.6 ± 120.1    | 1330.6 ± 14.1 |
 # | sst2      | 687.4 ± 105.4    | 1326.2 ± 9.7  |
 # | wikitext2 | 1071.2 ± 588.8   | 1340.2 ± 21.0 |
+
+
+# | Category   | Emprical Rank for 99.0% Variance (mean ± std)   | Non-zero Eigenvalues (mean ± std)   |
+# |------------|-------------------------------------------------|-------------------------------------|
+# | aqua_rat   | 1.0 ± 0.0                                       | 139.0 ± 0.0                         |
+# | gsm8k      | 1.0 ± 0.0                                       | 109.0 ± 0.0                         |
+# | wikitext2  | 2.2 ± 0.4                                       | 1307.0 ± 266.7                      |
+# | sst2       | 2.8 ± 0.7                                       | 1139.6 ± 204.3                      |
+# | reddit     | 2.2 ± 0.4                                       | 610.2 ± 303.3                       |
+
+
+# Llama-3.2-3B (random)
+# | Category   | Emprical Rank for 99.0% Variance (mean ± std)   | Non-zero Eigenvalues (mean ± std)   |
+# |------------|-------------------------------------------------|-------------------------------------|
+# | aqua_rat   | 1.0 ± 0.0                                       | 3096.0 ± 0.0                        |
+# | gsm8k      | 1.0 ± 0.0                                       | 3096.0 ± 0.0                        |
+# | wikitext2  | 1.0 ± 0.0                                       | 3102.0 ± 6.8                        |
+# | sst2       | 1.0 ± 0.0                                       | 3102.4 ± 5.3                        |
+# | reddit     | 1.0 ± 0.0                                       | 3098.6 ± 5.3                        |
+
+
+# | Model        | Dataset   | Rank (pretrained) | Rank (random) |
+# |--------------|-----------|-------------------|---------------|
+# | Llama-2-7B   | gsm8k     | 64.0 ± 0.0        | 1335.0 ± 0.0  |
+# | Llama-2-7B   | aqua_rat  | 157.0 ± 0.0       | 1303.0 ± 0.0  |
+# | Llama-2-7B   | reddit    | 386.6 ± 120.1     | 1330.6 ± 14.1 |
+# | Llama-2-7B   | sst2      | 687.4 ± 105.4     | 1326.2 ± 9.7  |
+# | Llama-2-7B   | wikitext2 | 1071.2 ± 588.8    | 1340.2 ± 21.0 |
+# | ------------------------------------------------------------ |
+# | Llama-3.2-3B | gsm8k     | 109.0 ± 0.0       | 3096.0 ± 0.0  |
+# | Llama-3.2-3B | aqua_rat  | 139.0 ± 0.0       | 3096.0 ± 0.0  |
+# | Llama-3.2-3B | reddit    | 610.2 ± 303.3     | 3098.6 ± 5.3  |
+# | Llama-3.2-3B | sst2      | 1139.6 ± 204.3    | 3102.4 ± 5.3  |
+# | Llama-3.2-3B | wikitext2 | 1307.0 ± 266.7    | 3102.0 ± 6.8  |

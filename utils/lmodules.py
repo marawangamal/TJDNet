@@ -26,7 +26,7 @@ class LModel(L.LightningModule):
         model_head: ModelHeadType = "cp",
         horizon: int = 1,
         rank: int = 1,
-        positivity_func: PositivityFuncType = "safe_exp",
+        positivity_func: PositivityFuncType = "sigmoid",
         # trainer
         lr: float = 1e-3,
         warmup_steps: int = 100,
