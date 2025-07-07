@@ -113,18 +113,6 @@ def get_samples(debug=False, num_samples=5):
         "Q: Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?\n"
         "Answer: Weng earns 12/60 = $0.2 per minute. Working 50 minutes, she earned 0.2 x 50 = $10. #### 10\n\n"
     )
-    math_fewshot = (
-        "Problem: Find the value of x in the equation 2x + 5 = 13.\n"
-        "Solution: To solve for x, we need to isolate it on one side of the equation.\n"
-        "2x + 5 = 13\n"
-        "Subtract 5 from both sides: 2x = 8\n"
-        "Divide both sides by 2: x = 4\n"
-        "The value of x is 4.\n\n"
-        "Problem: What is the area of a circle with radius 3?\n"
-        "Solution: The area of a circle is given by the formula A = πr².\n"
-        "Given r = 3, we have A = π(3)² = π(9) = 9π.\n"
-        "The area of the circle is 9π square units.\n\n"
-    )
     dataset_configs = {
         # Low rank
         "aqua_rat": {
@@ -338,49 +326,48 @@ def main():
         spectra = {k: [] for k in datasets.keys()}
 
     # Compute spectra
-    for category, samples in datasets.items():
-        for i, text in enumerate(samples):
-            # Skip if already computed
-            if len(spectra[category]) > i:
-                continue
-            try:
-                print(f"[{i+1}/{len(samples)}] Computing spectra for {category}...")
-                # Compute spectrum
-                p_y1y2 = get_joint_prob(model, tokenizer, text, args.device, args.top_k)
-                # === DEBUG >>>>
-                # p_y1y2 = torch.randn(5000, 5000)
-                # p_y1y2 = torch.nn.functional.softmax(p_y1y2.reshape(-1)).reshape(
-                #     5000, 5000
-                # )
-                # === DEBUG <<<<
-                print(f"p_y1y2.shape: {p_y1y2.shape}")
-                # Use minimum dimension to get all singular values
-                n_components = min(p_y1y2.shape)
-                _, spectrum, _ = randomized_svd(
-                    p_y1y2.cpu().numpy(), n_components=n_components, random_state=42
-                )
-                spectra[category].append(torch.tensor(spectrum))
-                print(f"{category} [{i+1}/{len(samples)}]: {spectrum[:3]}...")
-                # Save progress
-                torch.save(spectra, progress_path)
-            except Exception as e:
-                print(f"Error with {category}: {e}")
+    total_samples = sum(len(samples) for samples in datasets.values())
+    pbar = tqdm(total=total_samples, desc="Computing spectra")
 
-    # Plot
+    for category, samples in datasets.items():
+        pbar.set_postfix({"category": category})
+        for i, text in enumerate(samples):
+            if len(spectra[category]) <= i:  #  Will skip if already computed
+                try:
+                    # Compute spectrum
+                    p_y1y2 = get_joint_prob(
+                        model, tokenizer, text, args.device, args.top_k
+                    )
+
+                    # Use minimum dimension to get all singular values
+                    n_components = min(p_y1y2.shape)
+                    _, spectrum, _ = randomized_svd(
+                        p_y1y2.cpu().numpy(), n_components=n_components, random_state=42
+                    )
+                    spectra[category].append(torch.tensor(spectrum))
+                    # Save progress
+                    torch.save(spectra, progress_path)
+                except Exception as e:
+                    print(f"Error with {category}: {e}")
+            pbar.update(1)
+    pbar.close()
+
+    # Plot spectra
     print(f"Plotting {model_name} {rstr}...")
     print(f"Saving to {plot_path}...")
     plot_spectra(spectra, plot_path)
-    max_fp = torch.finfo(torch.float32).max
 
+    # Compute summary statistics
     summary_rows = []
     var_target = 0.99
+    min_fp = torch.finfo(torch.float32).tiny
     for category, spectrum_list in spectra.items():
         if spectrum_list:
             ranks = []
             non_zero_counts = []
             for spectrum in spectrum_list:
                 spectrum = spectrum.cpu()
-                non_zero_counts.append((spectrum > 1e-10).sum().item())
+                non_zero_counts.append((spectrum > min_fp).sum().item())
                 cumsum = torch.cumsum(spectrum**2, 0)
                 total = (spectrum**2).sum()
                 rank = ((cumsum / total) < var_target).sum().item() + 1
