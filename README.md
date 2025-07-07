@@ -93,10 +93,30 @@ python main.py fit --data.dataset sharegpt \
 ```
 
 ## Evaluation
-To run evaluation (compute accuracy) run the following command
+
+### Simple Testing (Recommended)
+Lightning automatically saves the configuration in `config.yaml`, so you can test with minimal arguments:
+
 ```bash 
-python main.py test --ckpt_path path/to/my/checkpoint --data.dataset gsm8k
+# Test using the experiment directory (Lightning will find best.ckpt automatically)
+python main.py test --ckpt_path experiments/my_experiment/
+
+# Or test a specific checkpoint file
+python main.py test --ckpt_path experiments/my_experiment/best.ckpt
 ```
+
+For even simpler usage, use the convenience script:
+```bash 
+python scripts/test_checkpoint.py experiments/my_experiment/
+```
+
+### Manual Testing
+You can also test manually by providing all the required arguments:
+```bash 
+python main.py test --ckpt_path path/to/my/checkpoint --data.dataset gsm8k --model.model gpt2 --model.model_head cp --model.rank 2 --model.horizon 2
+```
+
+**Note**: Lightning CLI automatically loads the configuration from `config.yaml` in the experiment directory, so you typically only need to specify the checkpoint path and any arguments you want to override.
 
 ## Reproducing figures from the paper
 Results obtained after training Vicuna 7b on ShareGPT and testing on GSM8k.
