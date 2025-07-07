@@ -29,6 +29,18 @@ def parse_args():
         description="Train TJDNet models with PyTorch Lightning"
     )
 
+    # Mode argument
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="fit",
+        choices=["fit", "test"],
+        help="Mode: fit (train) or test",
+    )
+    parser.add_argument(
+        "--ckpt_path", type=str, help="Path to checkpoint file (required for test mode)"
+    )
+
     # Model arguments
     parser.add_argument("--model", type=str, default="gpt2", help="Model name or path")
     parser.add_argument(
@@ -111,6 +123,11 @@ def main():
     # Parse arguments
     args = parse_args()
 
+    # Validate arguments
+    if args.mode == "test" and not args.ckpt_path:
+        print("Error: --ckpt_path is required for test mode")
+        return
+
     # Set random seed for reproducibility
     L.seed_everything(42)
 
@@ -160,6 +177,21 @@ def main():
         "val_check_interval": args.val_check_interval,
     }
 
+    # Initialize model and data module
+    model = LModel(**model_config)
+    datamodule = LDataModule(**data_config)
+
+    if args.mode == "fit":
+        run_fit(args, model_config, data_config, trainer_config, model, datamodule)
+    elif args.mode == "test":
+        run_test(args, model_config, data_config, trainer_config, model, datamodule)
+
+
+def run_fit(args, model_config, data_config, trainer_config, model, datamodule):
+    """Run the fit (training) command."""
+    # Add fit-specific trainer config
+    trainer_config["max_epochs"] = args.max_epochs
+
     # Generate experiment name
     experiment_config = {
         **{
@@ -185,10 +217,6 @@ def main():
     elif osp.exists(best_ckpt_path):
         print(f"[INFO] Resuming from best checkpoint: {best_ckpt_path}")
         ckpt_path = best_ckpt_path
-
-    # Initialize model and data module
-    model = LModel(**model_config)
-    datamodule = LDataModule(**data_config)
 
     # Set up callbacks
     callbacks: list[Callback] = [
@@ -266,13 +294,20 @@ def main():
     # Train the model
     print(f"Starting training for experiment: {run_name}")
     trainer.fit(model, datamodule, ckpt_path=ckpt_path)
-
-    # Test the model if requested
-    if args.test_after_fit:
-        print("Running test...")
-        trainer.test(model, datamodule)
-
     print("Training completed!")
+
+
+def run_test(args, model_config, data_config, trainer_config, model, datamodule):
+    """Run the test command."""
+    # Initialize trainer (no max_epochs for testing)
+    test_trainer_config = {k: v for k, v in trainer_config.items() if k != "max_epochs"}
+    trainer = L.Trainer(**test_trainer_config)
+
+    # Test the model
+    print(f"Testing model with checkpoint: {args.ckpt_path}")
+    results = trainer.test(model, datamodule, ckpt_path=args.ckpt_path)
+    print(results)
+    print("Testing completed!")
 
 
 if __name__ == "__main__":
