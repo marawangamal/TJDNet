@@ -73,6 +73,7 @@ General Tips:
 
 import os
 import argparse
+from typing import Tuple
 from tqdm import tqdm
 from tabulate import tabulate
 
@@ -165,6 +166,21 @@ def get_samples(debug=False, num_samples=5):
     if debug:
         print("=== Done ===")
     return samples
+
+
+def matrix_rank_from_spectrum(
+    spectrum, matrix_shape: Tuple[int, int], eps=torch.finfo(torch.float64).eps
+):
+    """Compute matrix rank from spectrum.
+
+    Args:
+        spectrum (torch.Tensor): Spectrum of the matrix.
+        matrix_shape (tuple): Shape of the matrix.
+        eps (float): Tolerance.
+    """
+    thresh = spectrum.max() * max(matrix_shape) * eps
+    rank = (spectrum > thresh).sum().item()
+    return rank
 
 
 def get_joint_prob(model, tokenizer, text, device, top_k=None):
@@ -360,32 +376,39 @@ def main():
     # Compute summary statistics
     summary_rows = []
     var_target = 0.99
-    min_fp = torch.finfo(torch.float32).tiny
     for category, spectrum_list in spectra.items():
         if spectrum_list:
             ranks = []
-            non_zero_counts = []
+            energies = []
             for spectrum in spectrum_list:
                 spectrum = spectrum.cpu()
-                non_zero_counts.append((spectrum > min_fp).sum().item())
+                # rank
+                rank = matrix_rank_from_spectrum(spectrum, (args.top_k, args.top_k))
+                ranks.append(rank)
+
+                # energy
                 cumsum = torch.cumsum(spectrum**2, 0)
                 total = (spectrum**2).sum()
-                rank = ((cumsum / total) < var_target).sum().item() + 1
-                ranks.append(rank)
+                energy = ((cumsum / total) < var_target).sum().item() + 1
+                energies.append(energy)
+
             summary_rows.append(
                 [
                     category,
                     f"{np.mean(ranks):.1f} ± {np.std(ranks):.1f}",
-                    f"{np.mean(non_zero_counts):.1f} ± {np.std(non_zero_counts):.1f}",
+                    f"{np.mean(energies):.1f} ± {np.std(energies):.1f}",
                 ]
             )
+    # Sort by matrix rank (extract mean rank from the formatted string)
+    summary_rows.sort(key=lambda row: float(row[1].split(" ± ")[0]))
+
     print(
         tabulate(
             summary_rows,
             headers=[
                 f"Category",
-                f"Emprical Rank for {var_target*100}% Variance (mean ± std)",
-                f"Non-zero Eigenvalues (mean ± std)",
+                f"Matrix Rank (matlab threshold)",
+                f"Spectral Energy (99%)",
             ],
             tablefmt="github",
         )
