@@ -1,74 +1,7 @@
-"""
-Minimal script to analyze eigen spectrum of p(y1, y2|x) for datasets with varying rank complexity.
+"""Analyze eigen spectrum of p(y1, y2|x) for datasets with varying rank complexity.
 
 Usage:
-    python scripts/plots/plot_dataset_rank_simple.py --model gpt2
-
-Prompting Instructions and Few-Shot Examples for Datasets
----------------------------------------------------------
-
-AQuA-RAT (Algebra Question Answering):
---------------------------------------
-- Each sample is a multiple-choice math word problem.
-- Prompt format:
-    [QUESTION]\nOptions: [A) ... B) ... C) ... D) ... E) ...]\nAnswer:
-- For few-shot learning, provide several Q&A pairs in the same format.
-- Example:
-
-Q: Two friends plan to walk along a 43-km trail, starting at opposite ends of the trail at the same time. If Friend P's rate is 15% faster than Friend Q's, how many kilometers will Friend P have walked when they pass each other?
-Options: A)21 B)21.5 C)22 D)22.5 E)23
-Answer: E
-
-Q: In the coordinate plane, points (x, 1) and (5, y) are on line k. If line k passes through the origin and has slope 1/5, then what are the values of x and y respectively?
-Options: A)4 and 1 B)1 and 5 C)5 and 1 D)3 and 5 E)5 and 3
-Answer: C
-
-- For LLMs, you can concatenate several such Q&A pairs for few-shot prompting.
-
-GSM8K (Grade School Math 8K):
------------------------------
-- Each sample is a free-form grade school math word problem.
-- Prompt format:
-    [QUESTION]\nAnswer:
-- For few-shot learning, provide several Q&A pairs in the same format.
-- Example:
-
-Q: Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
-Answer: Natalia sold 48/2 = 24 clips in May. Natalia sold 48+24 = 72 clips altogether in April and May. #### 72
-
-Q: Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?
-Answer: Weng earns 12/60 = $0.2 per minute. Working 50 minutes, she earned 0.2 x 50 = $10. #### 10
-
-- For LLMs, you can concatenate several such Q&A pairs for few-shot prompting.
-
-MATH (Mathematics Dataset):
---------------------------
-- Each sample is a high school mathematics problem with step-by-step solution.
-- Prompt format:
-    [PROBLEM]\nSolution:
-- For few-shot learning, provide several problem-solution pairs in the same format.
-- Example:
-
-Problem: Find the value of x in the equation 2x + 5 = 13.
-Solution: To solve for x, we need to isolate it on one side of the equation.
-2x + 5 = 13
-Subtract 5 from both sides: 2x = 8
-Divide both sides by 2: x = 4
-The value of x is 4.
-
-Problem: What is the area of a circle with radius 3?
-Solution: The area of a circle is given by the formula A = πr².
-Given r = 3, we have A = π(3)² = π(9) = 9π.
-The area of the circle is 9π square units.
-
-- For LLMs, you can concatenate several such problem-solution pairs for few-shot prompting.
-
-General Tips:
--------------
-- For all datasets, few-shot learning is typically done by concatenating several Q&A pairs in the prompt, followed by a new question for the model to answer.
-- For AQuA-RAT, always include the options and ask for the answer letter.
-- For GSM8K, show the step-by-step reasoning and end with the answer after '####'.
-- For MATH, provide detailed step-by-step solutions with clear explanations.
+    python scripts/plot_dataset_rank_simple.py --model gpt2
 """
 
 import os
@@ -419,73 +352,22 @@ if __name__ == "__main__":
     main()
 
 
-# Random matrix 5000x5000
-# | Category   | Emprical Rank for 99.0% Variance (mean ± std)   |
-# |------------|-------------------------------------------------|
-# | aqua_rat   | 3657.6 ± 0.5                                    |
-# | gsm8k      | 3657.6 ± 0.5                                    |
-# | wikitext2  | 3657.2 ± 0.4                                    |
-# | sst2       | 3657.8 ± 1.0                                    |
-# | reddit     | 3657.4 ± 0.5                                    |
-
-# meta-llama_Llama-2-7b-chat-hf
-# | Category   | 99.0% Variance (mean ± std)                     | Non-zero Eigenvalues (mean ± std)   |
-# |------------|-------------------------------------------------|-------------------------------------|
-# | aqua_rat   | 1.0 ± 0.0                                       | 157.0 ± 0.0                         |
-# | gsm8k      | 1.0 ± 0.0                                       | 64.0 ± 0.0                          |
-# | wikitext2  | 2.2 ± 0.7                                       | 1071.2 ± 588.8                      |
-# | sst2       | 1.4 ± 0.5                                       | 687.4 ± 105.4                       |
-# | reddit     | 1.6 ± 0.5                                       | 386.6 ± 120.1                       |
+# Saving to results/spectrum_comparison_meta-llama_Llama-2-7b-chat-hf_topk5000.png...
+# | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   |
+# |------------|----------------------------------|-------------------------|
+# | gsm8k      | 241.0 ± 0.0                      | 1.0 ± 0.0               |
+# | aqua_rat   | 951.0 ± 0.0                      | 1.0 ± 0.0               |
+# | reddit     | 2079.6 ± 778.0                   | 1.6 ± 0.5               |
+# | sst2       | 3400.6 ± 612.1                   | 1.4 ± 0.5               |
+# | wikitext2  | 3828.6 ± 952.6                   | 2.2 ± 0.7               |
 
 
-# meta-llama_Llama-2-7b-chat-hf (random init)
-# | Category   | 99.0% Variance (mean ± std)                     | Non-zero Eigenvalues (mean ± std)   |
-# |------------|-------------------------------------------------|-------------------------------------|
-# | aqua_rat   | 24.0 ± 0.0                                      | 1303.0 ± 0.0                        |
-# | gsm8k      | 28.0 ± 0.0                                      | 1335.0 ± 0.0                        |
-# | wikitext2  | 28.0 ± 0.6                                      | 1340.2 ± 21.0                       |
-# | sst2       | 25.4 ± 1.4                                      | 1326.2 ± 9.7                        |
-# | reddit     | 26.6 ± 0.5                                      | 1330.6 ± 14.1                       |
-
-
-# | Dataset   | Rank (pretrained) | Rank (random)|
-# |-----------|------------------|---------------|
-# | gsm8k     | 64.0 ± 0.0       | 1335.0 ± 0.0  |
-# | aqua_rat  | 157.0 ± 0.0      | 1303.0 ± 0.0  |
-# | reddit    | 386.6 ± 120.1    | 1330.6 ± 14.1 |
-# | sst2      | 687.4 ± 105.4    | 1326.2 ± 9.7  |
-# | wikitext2 | 1071.2 ± 588.8   | 1340.2 ± 21.0 |
-
-
-# | Category   | Emprical Rank for 99.0% Variance (mean ± std)   | Non-zero Eigenvalues (mean ± std)   |
-# |------------|-------------------------------------------------|-------------------------------------|
-# | aqua_rat   | 1.0 ± 0.0                                       | 139.0 ± 0.0                         |
-# | gsm8k      | 1.0 ± 0.0                                       | 109.0 ± 0.0                         |
-# | wikitext2  | 2.2 ± 0.4                                       | 1307.0 ± 266.7                      |
-# | sst2       | 2.8 ± 0.7                                       | 1139.6 ± 204.3                      |
-# | reddit     | 2.2 ± 0.4                                       | 610.2 ± 303.3                       |
-
-
-# Llama-3.2-3B (random)
-# | Category   | Emprical Rank for 99.0% Variance (mean ± std)   | Non-zero Eigenvalues (mean ± std)   |
-# |------------|-------------------------------------------------|-------------------------------------|
-# | aqua_rat   | 1.0 ± 0.0                                       | 3096.0 ± 0.0                        |
-# | gsm8k      | 1.0 ± 0.0                                       | 3096.0 ± 0.0                        |
-# | wikitext2  | 1.0 ± 0.0                                       | 3102.0 ± 6.8                        |
-# | sst2       | 1.0 ± 0.0                                       | 3102.4 ± 5.3                        |
-# | reddit     | 1.0 ± 0.0                                       | 3098.6 ± 5.3                        |
-
-
-# | Model        | Dataset   | Rank (pretrained) | Rank (random) |
-# |--------------|-----------|-------------------|---------------|
-# | Llama-2-7B   | gsm8k     | 64.0 ± 0.0        | 1335.0 ± 0.0  |
-# | Llama-2-7B   | aqua_rat  | 157.0 ± 0.0       | 1303.0 ± 0.0  |
-# | Llama-2-7B   | reddit    | 386.6 ± 120.1     | 1330.6 ± 14.1 |
-# | Llama-2-7B   | sst2      | 687.4 ± 105.4     | 1326.2 ± 9.7  |
-# | Llama-2-7B   | wikitext2 | 1071.2 ± 588.8    | 1340.2 ± 21.0 |
-# | ------------------------------------------------------------ |
-# | Llama-3.2-3B | gsm8k     | 109.0 ± 0.0       | 3096.0 ± 0.0  |
-# | Llama-3.2-3B | aqua_rat  | 139.0 ± 0.0       | 3096.0 ± 0.0  |
-# | Llama-3.2-3B | reddit    | 610.2 ± 303.3     | 3098.6 ± 5.3  |
-# | Llama-3.2-3B | sst2      | 1139.6 ± 204.3    | 3102.4 ± 5.3  |
-# | Llama-3.2-3B | wikitext2 | 1307.0 ± 266.7    | 3102.0 ± 6.8  |
+# Plotting meta-llama_Llama-2-7b-chat-hf _rand...
+# Saving to results/spectrum_comparison_meta-llama_Llama-2-7b-chat-hf_topk5000_rand.png...
+# | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   |
+# |------------|----------------------------------|-------------------------|
+# | aqua_rat   | 1295.0 ± 0.0                     | 26.0 ± 0.0              |
+# | gsm8k      | 1311.0 ± 0.0                     | 27.0 ± 0.0              |
+# | sst2       | 1322.6 ± 22.1                    | 27.2 ± 1.5              |
+# | wikitext2  | 1338.0 ± 17.9                    | 26.8 ± 1.5              |
+# | reddit     | 1339.6 ± 9.6                     | 25.4 ± 1.0              |
