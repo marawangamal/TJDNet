@@ -34,10 +34,34 @@ group:
   ################################################
 
 
-    # # w/o speculation
+    # w/o speculation
+    - group:
+        # aaa-bbb
+        name: "sharegpt:base"
+        type: sequential
+        jobs:
+          #  Train on ShareGPT dataset
+          #  1. Sweep over lr, rank, horizon
+          - group:
+              # aaa-bbb-XXXX
+              name: "sweep"
+              type: sweep
+              preamble: glong
+              sweep: 
+                lr: [1e-3]
+                max_num_samples: [5000]
+              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 1 --model.model lmsys/vicuna-7b-v1.5 --model.hidden_dim 4096 --model.horizon 1 --model.rank 1 --model.positivity_func safe_exp --data.batch_size 8 --data.dataset sharegpt --data.max_num_samples {max_num_samples} --auto_lr_find"
+
+
+  ################################################
+  #                 CP                           #  
+  ################################################
+
+
+    # w/o speculation
     # - group:
     #     # aaa-bbb
-    #     name: "sharegpt:base"
+    #     name: "sharegpt:cp"
     #     type: sequential
     #     jobs:
     #       #  Train on ShareGPT dataset
@@ -49,72 +73,7 @@ group:
     #           preamble: glong
     #           sweep: 
     #             lr: [1e-3]
-    #             max_num_samples: [5000, 10000, 68000]
-    #           sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 1 --model.model lmsys/vicuna-7b-v1.5 --model.hidden_dim 4096 --model.horizon 1 --model.rank 1 --model.positivity_func safe_exp --data.batch_size 8 --data.dataset sharegpt --data.max_num_samples {max_num_samples} --auto_lr_find"
-
-
-  ################################################
-  #                 CP                           #  
-  ################################################
-
-
-    # w/o speculation
-    - group:
-        # aaa-bbb
-        name: "sharegpt:cp"
-        type: sequential
-        jobs:
-          #  Train on ShareGPT dataset
-          #  1. Sweep over lr, rank, horizon
-          - group:
-              # aaa-bbb-XXXX
-              name: "sweep"
-              type: sweep
-              preamble: glong
-              sweep: 
-                lr: [1e-3]
-                max_num_samples: [5000]
-                positivity_func: [safe_exp, sigmoid]
-                horizon: [2]
-              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 1 --trainer.gradient_clip_val 1.0 --model.model lmsys/vicuna-7b-v1.5 --model.horizon {horizon} --model.rank 8 --model.model_head cp --model.positivity_func {positivity_func} --data.batch_size 8 --data.dataset sharegpt --data.max_num_samples {max_num_samples} --auto_lr_find"
-
-
-    # w/o speculation
-    - group:
-        # aaa-bbb
-        name: "sharegpt:cpb"
-        type: sequential
-        jobs:
-          #  Train on ShareGPT dataset
-          #  1. Sweep over lr, rank, horizon
-          - group:
-              # aaa-bbb-XXXX
-              name: "sweep"
-              type: sweep
-              preamble: glong
-              sweep: 
-                lr: [1e-3]
-                max_num_samples: [5000]
-                horizon: [2]
-              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 1 --trainer.gradient_clip_val 1.0 --model.model lmsys/vicuna-7b-v1.5 --model.horizon {horizon} --model.rank 8 --model.model_head cpb --data.batch_size 8 --data.dataset sharegpt --data.max_num_samples {max_num_samples} --auto_lr_find"
-
-
-
-    # w/o speculation
-    - group:
-        # aaa-bbb
-        name: "sharegpt:multihead"
-        type: sequential
-        jobs:
-          #  Train on ShareGPT dataset
-          #  1. Sweep over lr, rank, horizon
-          - group:
-              # aaa-bbb-XXXX
-              name: "sweep"
-              type: sweep
-              preamble: glong
-              sweep: 
-                lr: [1e-3]
-                max_num_samples: [5000]
-                horizon: [2]
-              sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 1 --trainer.gradient_clip_val 1.0 --model.model lmsys/vicuna-7b-v1.5 --model.horizon {horizon} --model.model_head multihead --data.batch_size 8 --data.dataset sharegpt --data.max_num_samples {max_num_samples} --auto_lr_find"
+    #             max_num_samples: [5000]
+    #             positivity_func: [sigmoid]
+    #             horizon: [2]
+    #           sweep_template:  "python main.py fit --config config/config.yaml --trainer.max_epochs 1 --trainer.gradient_clip_val 1.0 --model.model lmsys/vicuna-7b-v1.5 --model.horizon {horizon} --model.rank 8 --model.model_head cp --model.positivity_func {positivity_func} --data.batch_size 8 --data.dataset sharegpt --data.max_num_samples {max_num_samples} --auto_lr_find"

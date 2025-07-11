@@ -6,7 +6,7 @@ Usage:
 
 import os
 import argparse
-from typing import Tuple
+from typing import Dict, List, Tuple
 from tqdm import tqdm
 from tabulate import tabulate
 
@@ -84,77 +84,77 @@ def get_samples(debug=False, num_samples=5):
                 "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
             ),
         },
-        "gsm8k": {
-            "hf_name": ("gsm8k", "main"),
-            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-            "format_fn": lambda sample: (
-                gsm8k_fewshot + f"Q: {sample['question']}\nAnswer: "
-                "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
-            ),
-        },
-        "wikitext2": {
-            "hf_name": ("wikitext", "wikitext-2-raw-v1"),
-            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-            "format_fn": lambda sample: sample["text"][:200],
-        },
-        # "csqa": {
-        #     "hf_name": ("commonsense_qa",),
+        # "gsm8k": {
+        #     "hf_name": ("gsm8k", "main"),
         #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
         #     "format_fn": lambda sample: (
-        #         csqa_fewshot
-        #         + f"Q: {sample['question']}\nA) {sample['choices']['text'][0]}\nB) {sample['choices']['text'][1]}\nC) {sample['choices']['text'][2]}\nD) {sample['choices']['text'][3]}\nE) {sample['choices']['text'][4]}\nAnswer: "
-        #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
+        #         gsm8k_fewshot + f"Q: {sample['question']}\nAnswer: "
+        #         "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
         #     ),
         # },
-        # "mbpp": {
-        #     "hf_name": ("mbpp",),
+        # "wikitext2": {
+        #     "hf_name": ("wikitext", "wikitext-2-raw-v1"),
         #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+        #     "format_fn": lambda sample: sample["text"][:200],
+        # },
+        # "humaneval": {
+        #     "hf_name": ("openai_humaneval",),
+        #     "load_kwargs": {"split": f"test[:{num_samples*5}]"},
         #     "format_fn": lambda sample: (
-        #         mbpp_fewshot + f"def {sample['entry_point']}({sample['prompt']}):\n"
+        #         humaneval_fewshot + f"{sample['prompt']}\n"
         #         "(Please complete the function implementation)\n"
         #     ),
         # },
-        "humaneval": {
-            "hf_name": ("openai_humaneval",),
-            "load_kwargs": {"split": f"test[:{num_samples*5}]"},
-            "format_fn": lambda sample: (
-                humaneval_fewshot + f"{sample['prompt']}\n"
-                "(Please complete the function implementation)\n"
-            ),
-        },
-        # "hellaswag": {
-        #     "hf_name": ("hellaswag",),
-        #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-        #     "format_fn": lambda sample: (
-        #         hellaswag_fewshot
-        #         + f"{sample['ctx']} {sample['endings'][0]}\nA) {sample['endings'][0]}\nB) {sample['endings'][1]}\nC) {sample['endings'][2]}\nD) {sample['endings'][3]}\nAnswer: "
-        #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
-        #     ),
+        # # Medium rank
+        # "sst2": {
+        #     "hf_name": ("glue", "sst2"),
+        #     "load_kwargs": {"split": "train[:100]"},
+        #     "format_fn": lambda sample: sample["sentence"],
         # },
-        # "ai2_reasoning": {
-        #     "hf_name": ("ai2_arc", "ARC-Challenge"),
-        #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-        #     "format_fn": lambda sample: (
-        #         ai2_reasoning_fewshot
-        #         + f"Q: {sample['question']}\nA) {sample['choices']['text'][0]}\nB) {sample['choices']['text'][1]}\nC) {sample['choices']['text'][2]}\nD) {sample['choices']['text'][3]}\nAnswer: "
-        #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
-        #     ),
+        # # High rank
+        # "reddit": {
+        #     "hf_name": ("reddit",),
+        #     "load_kwargs": {
+        #         "split": f"train[:{num_samples*5}]",
+        #         "trust_remote_code": True,
+        #     },
+        #     "format_fn": lambda sample: sample["body"],
         # },
-        # Medium rank
-        "sst2": {
-            "hf_name": ("glue", "sst2"),
-            "load_kwargs": {"split": "train[:100]"},
-            "format_fn": lambda sample: sample["sentence"],
-        },
-        # High rank
-        "reddit": {
-            "hf_name": ("reddit",),
-            "load_kwargs": {
-                "split": f"train[:{num_samples*5}]",
-                "trust_remote_code": True,
-            },
-            "format_fn": lambda sample: sample["body"],
-        },
+        # # "hellaswag": {
+        # #     "hf_name": ("hellaswag",),
+        # #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+        # #     "format_fn": lambda sample: (
+        # #         hellaswag_fewshot
+        # #         + f"{sample['ctx']} {sample['endings'][0]}\nA) {sample['endings'][0]}\nB) {sample['endings'][1]}\nC) {sample['endings'][2]}\nD) {sample['endings'][3]}\nAnswer: "
+        # #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
+        # #     ),
+        # # },
+        # # "ai2_reasoning": {
+        # #     "hf_name": ("ai2_arc", "ARC-Challenge"),
+        # #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+        # #     "format_fn": lambda sample: (
+        # #         ai2_reasoning_fewshot
+        # #         + f"Q: {sample['question']}\nA) {sample['choices']['text'][0]}\nB) {sample['choices']['text'][1]}\nC) {sample['choices']['text'][2]}\nD) {sample['choices']['text'][3]}\nAnswer: "
+        # #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
+        # #     ),
+        # # },
+        # # "csqa": {
+        # #     "hf_name": ("commonsense_qa",),
+        # #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+        # #     "format_fn": lambda sample: (
+        # #         csqa_fewshot
+        # #         + f"Q: {sample['question']}\nA) {sample['choices']['text'][0]}\nB) {sample['choices']['text'][1]}\nC) {sample['choices']['text'][2]}\nD) {sample['choices']['text'][3]}\nE) {sample['choices']['text'][4]}\nAnswer: "
+        # #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
+        # #     ),
+        # # },
+        # # "mbpp": {
+        # #     "hf_name": ("mbpp",),
+        # #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+        # #     "format_fn": lambda sample: (
+        # #         mbpp_fewshot + f"def {sample['entry_point']}({sample['prompt']}):\n"
+        # #         "(Please complete the function implementation)\n"
+        # #     ),
+        # # },
     }
 
     samples = {}
@@ -187,26 +187,16 @@ def matrix_rank_from_spectrum(
 
 def num_zero_rows_cols(matrix: torch.Tensor, eps=torch.finfo(torch.float64).eps):
     """Compute number of zero rows and columns in a matrix."""
-    num_zero_rows = (matrix < eps).all(dim=0).sum().item()
-    num_zero_cols = (matrix < eps).all(dim=1).sum().item()
+    num_zero_rows = (matrix < 10 * eps).all(dim=0).sum().item()
+    num_zero_cols = (matrix < 10 * eps).all(dim=1).sum().item()
     return num_zero_rows, num_zero_cols
 
 
-# def matrix_row_col_hist(matrix: torch.Tensor, eps=torch.finfo(torch.float32).eps):
-#     """Compute histogram of row and column sums in a matrix."""
-#     # row_wise_hist = torch.stack(
-#     #     [
-#     #         torch.histc(matrix[i] - torch.tensor(eps), bins=100, min=0, max=1)
-#     #         for i in range(matrix.shape[0])
-#     #     ]
-#     # )  # (num_rows, 100)
-#     col_wise_hist = torch.stack(
-#         [
-#             torch.histc(matrix[:, i] - torch.tensor(eps), bins=100, min=0, max=1)
-#             for i in range(matrix.shape[0])
-#         ]
-#     )  # (num_cols, 100)
-#     return row_wise_hist, col_wise_hist
+def matrix_row_col_hist(matrix: torch.Tensor, eps=torch.finfo(torch.float32).eps):
+    """Compute histogram of row and column sums in a matrix."""
+    ys = matrix.max(dim=0).values.cpu()
+    xs = matrix.max(dim=1).values.cpu()
+    return ys, xs
 
 
 def get_joint_prob(model, tokenizer, text, device, top_k=None):
@@ -408,6 +398,8 @@ def main():
                 "spectra": [],
                 "num_zero_rows": [],
                 "num_zero_cols": [],
+                "max_ys": [],
+                "max_xs": [],
             }
             for k in datasets.keys()
         }
@@ -434,11 +426,14 @@ def main():
 
                     # compute sparsity
                     num_zero_rows, num_zero_cols = num_zero_rows_cols(p_y1y2)
+                    max_ys, max_xs = matrix_row_col_hist(p_y1y2)
 
                     # save progress
                     joint_stats[category]["spectra"].append(torch.tensor(spectrum))
                     joint_stats[category]["num_zero_rows"].append(num_zero_rows)
                     joint_stats[category]["num_zero_cols"].append(num_zero_cols)
+                    joint_stats[category]["max_ys"].append(max_ys)
+                    joint_stats[category]["max_xs"].append(max_xs)
                     torch.save(joint_stats, progress_path)
                 except Exception as e:
                     print(f"Error with {category}: {e}")
@@ -501,14 +496,26 @@ if __name__ == "__main__":
     main()
 
 
+# Plotting deepseek-ai_DeepSeek-R1-0528-Qwen3-8B ...
+# Saving to results/spectrum_comparison_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000.png...
+# | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   | Zero Rows   | Zero Cols   |
+# |------------|----------------------------------|-------------------------|-------------|-------------|
+# | gsm8k      | 137.0 ± 0.0                      | 1.0 ± 0.0               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | aqua_rat   | 200.0 ± 0.0                      | 1.0 ± 0.0               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | humaneval  | 537.6 ± 771.3                    | 1.2 ± 0.4               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | reddit     | 1519.2 ± 747.3                   | 1.6 ± 0.5               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | wikitext2  | 1960.3 ± 664.0                   | 1.3 ± 0.5               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | sst2       | 3290.2 ± 663.9                   | 2.2 ± 0.4               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+
 # Saving to results/spectrum_comparison_meta-llama_Llama-2-7b-chat-hf_topk5000.png...
-# | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   |
-# |------------|----------------------------------|-------------------------|
-# | gsm8k      | 241.0 ± 0.0                      | 1.0 ± 0.0               |
-# | aqua_rat   | 951.0 ± 0.0                      | 1.0 ± 0.0               |
-# | reddit     | 2079.6 ± 778.0                   | 1.6 ± 0.5               |
-# | sst2       | 3400.6 ± 612.1                   | 1.4 ± 0.5               |
-# | wikitext2  | 3828.6 ± 952.6                   | 2.2 ± 0.7               |
+# | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   | Zero Rows   | Zero Cols   |
+# |------------|----------------------------------|-------------------------|-------------|-------------|
+# | gsm8k      | 241.0 ± 0.0                      | 1.0 ± 0.0               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | humaneval  | 404.6 ± 473.7                    | 1.0 ± 0.0               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | aqua_rat   | 951.0 ± 0.0                      | 1.0 ± 0.0               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | reddit     | 2079.6 ± 778.0                   | 1.6 ± 0.5               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | sst2       | 3400.6 ± 612.1                   | 1.4 ± 0.5               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | wikitext2  | 3828.6 ± 952.6                   | 2.2 ± 0.7               | 0.0 ± 0.0   | 0.0 ± 0.0   |
 
 
 # Plotting meta-llama_Llama-2-7b-chat-hf _rand...
@@ -520,14 +527,3 @@ if __name__ == "__main__":
 # | sst2       | 1322.6 ± 22.1                    | 27.2 ± 1.5              |
 # | wikitext2  | 1338.0 ± 17.9                    | 26.8 ± 1.5              |
 # | reddit     | 1339.6 ± 9.6                     | 25.4 ± 1.0              |
-
-
-# Saving to results/spectrum_comparison_distilbert_distilgpt2_topk5000.png...
-# | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   |
-# |------------|----------------------------------|-------------------------|
-# | aqua_rat   | 1394.0 ± 0.0                     | 1.0 ± 0.0               |
-# | reddit     | 2066.6 ± 871.6                   | 1.6 ± 0.8               |
-# | gsm8k      | 2768.0 ± 0.0                     | 2.0 ± 0.0               |
-# | humaneval  | 2887.0 ± 1173.1                  | 1.4 ± 0.8               |
-# | wikitext2  | 2918.8 ± 1737.7                  | 1.8 ± 1.0               |
-# | sst2       | 3852.4 ± 654.6                   | 2.2 ± 1.0               |
