@@ -84,77 +84,77 @@ def get_samples(debug=False, num_samples=5):
                 "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
             ),
         },
-        # "gsm8k": {
-        #     "hf_name": ("gsm8k", "main"),
+        "gsm8k": {
+            "hf_name": ("gsm8k", "main"),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                gsm8k_fewshot + f"Q: {sample['question']}\nAnswer: "
+                "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
+            ),
+        },
+        "wikitext2": {
+            "hf_name": ("wikitext", "wikitext-2-raw-v1"),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: sample["text"][:200],
+        },
+        "humaneval": {
+            "hf_name": ("openai_humaneval",),
+            "load_kwargs": {"split": f"test[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                humaneval_fewshot + f"{sample['prompt']}\n"
+                "(Please complete the function implementation)\n"
+            ),
+        },
+        # Medium rank
+        "sst2": {
+            "hf_name": ("glue", "sst2"),
+            "load_kwargs": {"split": "train[:100]"},
+            "format_fn": lambda sample: sample["sentence"],
+        },
+        # High rank
+        "reddit": {
+            "hf_name": ("reddit",),
+            "load_kwargs": {
+                "split": f"train[:{num_samples*5}]",
+                "trust_remote_code": True,
+            },
+            "format_fn": lambda sample: sample["body"],
+        },
+        # "hellaswag": {
+        #     "hf_name": ("hellaswag",),
         #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
         #     "format_fn": lambda sample: (
-        #         gsm8k_fewshot + f"Q: {sample['question']}\nAnswer: "
-        #         "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
+        #         hellaswag_fewshot
+        #         + f"{sample['ctx']} {sample['endings'][0]}\nA) {sample['endings'][0]}\nB) {sample['endings'][1]}\nC) {sample['endings'][2]}\nD) {sample['endings'][3]}\nAnswer: "
+        #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
         #     ),
         # },
-        # "wikitext2": {
-        #     "hf_name": ("wikitext", "wikitext-2-raw-v1"),
+        # "ai2_reasoning": {
+        #     "hf_name": ("ai2_arc", "ARC-Challenge"),
         #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-        #     "format_fn": lambda sample: sample["text"][:200],
-        # },
-        # "humaneval": {
-        #     "hf_name": ("openai_humaneval",),
-        #     "load_kwargs": {"split": f"test[:{num_samples*5}]"},
         #     "format_fn": lambda sample: (
-        #         humaneval_fewshot + f"{sample['prompt']}\n"
+        #         ai2_reasoning_fewshot
+        #         + f"Q: {sample['question']}\nA) {sample['choices']['text'][0]}\nB) {sample['choices']['text'][1]}\nC) {sample['choices']['text'][2]}\nD) {sample['choices']['text'][3]}\nAnswer: "
+        #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
+        #     ),
+        # },
+        # "csqa": {
+        #     "hf_name": ("commonsense_qa",),
+        #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+        #     "format_fn": lambda sample: (
+        #         csqa_fewshot
+        #         + f"Q: {sample['question']}\nA) {sample['choices']['text'][0]}\nB) {sample['choices']['text'][1]}\nC) {sample['choices']['text'][2]}\nD) {sample['choices']['text'][3]}\nE) {sample['choices']['text'][4]}\nAnswer: "
+        #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
+        #     ),
+        # },
+        # "mbpp": {
+        #     "hf_name": ("mbpp",),
+        #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+        #     "format_fn": lambda sample: (
+        #         mbpp_fewshot + f"def {sample['entry_point']}({sample['prompt']}):\n"
         #         "(Please complete the function implementation)\n"
         #     ),
         # },
-        # # Medium rank
-        # "sst2": {
-        #     "hf_name": ("glue", "sst2"),
-        #     "load_kwargs": {"split": "train[:100]"},
-        #     "format_fn": lambda sample: sample["sentence"],
-        # },
-        # # High rank
-        # "reddit": {
-        #     "hf_name": ("reddit",),
-        #     "load_kwargs": {
-        #         "split": f"train[:{num_samples*5}]",
-        #         "trust_remote_code": True,
-        #     },
-        #     "format_fn": lambda sample: sample["body"],
-        # },
-        # # "hellaswag": {
-        # #     "hf_name": ("hellaswag",),
-        # #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-        # #     "format_fn": lambda sample: (
-        # #         hellaswag_fewshot
-        # #         + f"{sample['ctx']} {sample['endings'][0]}\nA) {sample['endings'][0]}\nB) {sample['endings'][1]}\nC) {sample['endings'][2]}\nD) {sample['endings'][3]}\nAnswer: "
-        # #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
-        # #     ),
-        # # },
-        # # "ai2_reasoning": {
-        # #     "hf_name": ("ai2_arc", "ARC-Challenge"),
-        # #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-        # #     "format_fn": lambda sample: (
-        # #         ai2_reasoning_fewshot
-        # #         + f"Q: {sample['question']}\nA) {sample['choices']['text'][0]}\nB) {sample['choices']['text'][1]}\nC) {sample['choices']['text'][2]}\nD) {sample['choices']['text'][3]}\nAnswer: "
-        # #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
-        # #     ),
-        # # },
-        # # "csqa": {
-        # #     "hf_name": ("commonsense_qa",),
-        # #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-        # #     "format_fn": lambda sample: (
-        # #         csqa_fewshot
-        # #         + f"Q: {sample['question']}\nA) {sample['choices']['text'][0]}\nB) {sample['choices']['text'][1]}\nC) {sample['choices']['text'][2]}\nD) {sample['choices']['text'][3]}\nE) {sample['choices']['text'][4]}\nAnswer: "
-        # #         "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
-        # #     ),
-        # # },
-        # # "mbpp": {
-        # #     "hf_name": ("mbpp",),
-        # #     "load_kwargs": {"split": f"train[:{num_samples*5}]"},
-        # #     "format_fn": lambda sample: (
-        # #         mbpp_fewshot + f"def {sample['entry_point']}({sample['prompt']}):\n"
-        # #         "(Please complete the function implementation)\n"
-        # #     ),
-        # # },
     }
 
     samples = {}

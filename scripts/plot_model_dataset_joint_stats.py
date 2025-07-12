@@ -9,72 +9,6 @@ import torch
 import numpy as np
 
 
-def plot_dataset_rank_v1():
-
-    # Load the summary data
-    csv_path = os.path.join("results", "data", "spectrum_rank_comparison.csv")
-    df = pd.read_csv(csv_path)
-
-    # Add a column for legend: ModelType + InitType
-    # (e.g., 'DeepSeek-R1 (pretrained)', 'Llama-2-7B (random)')
-    df = df[df["InitType"] != "random"]
-    # remove aqua_rat
-    df = df[df["Category"] != "aqua_rat"]
-    df["ModelInit"] = df["ModelType"] + " (" + df["InitType"] + ")"
-
-    # Set plotting order
-    dataset_order = ["gsm8k", "humaneval", "reddit", "wikitext2", "sst2"]
-    modelinit_order = [
-        "DeepSeek-R1 (pretrained)",
-        "Llama-2-7B (pretrained)",
-        # "Llama-2-7B (random)",
-    ]
-
-    # Set seaborn style
-    sns.set_theme(style="whitegrid")
-
-    # Color and hatch mapping
-    color_map = {
-        "Llama-2-7B (pretrained)": "#1f77b4",
-        "Llama-2-7B (random)": "#1f77b4",
-        "DeepSeek-R1 (pretrained)": "#ff7f0e",
-    }
-    hatch_map = {
-        "Llama-2-7B (pretrained)": None,
-        "Llama-2-7B (random)": "//",
-        "DeepSeek-R1 (pretrained)": None,
-    }
-
-    plt.figure(figsize=(10, 6))
-    ax = sns.barplot(
-        data=df,
-        x="Category",
-        y="MatrixRankMean",
-        hue="ModelInit",
-        order=dataset_order,
-        hue_order=modelinit_order,
-        palette=color_map,
-        edgecolor="black",
-    )
-
-    # Apply hatches for random init
-    for bars, modelinit in zip(ax.containers, modelinit_order):
-        for bar in bars:
-            if hatch_map[modelinit]:
-                bar.set_hatch(hatch_map[modelinit])
-
-    plt.ylabel("Matrix Rank (Mean)")
-    plt.xlabel("Dataset")
-    plt.title("Matrix Rank Comparison Across Datasets and Model Initializations")
-    plt.legend(title="Model (Init)", loc="upper left")
-    plt.tight_layout()
-
-    save_path = os.path.join("results", "matrix_rank_comparison_hatch.png")
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    plt.show()
-
-
 def ckpt_friendly_name(ckpt_name: str):
     # results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000_rand.pt' => 'meta-llama_Llama-2-7b-chat-hf (rand)'
     return (
@@ -156,19 +90,18 @@ def plot_dataset_rank(ckpt_paths: List[str], save_path=None):
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Saved plot to {save_path}")
-    plt.show()
 
 
 def plot_histograms(
     # max_ys: Dict[str, List[torch.Tensor]],
     # max_xs: Dict[str, List[torch.Tensor]],
     # save_path=None,
-    ckpt_paths: List[str],
+    ckpt_path: str,
     save_path=None,
 ):
     """Plot histograms of max_ys and max_xs in a single figure with subplots for each category."""
 
-    ckpt = torch.load(ckpt_paths[0], weights_only=False)
+    ckpt = torch.load(ckpt_path, weights_only=False)
     max_ys = {k: v["max_ys"] for k, v in ckpt.items()}
     max_xs = {k: v["max_xs"] for k, v in ckpt.items()}
 
@@ -196,7 +129,6 @@ def plot_histograms(
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    plt.show()
 
 
 def main():
@@ -205,14 +137,19 @@ def main():
     args = parser.parse_args()
 
     save_path_rank = os.path.join(
-        "results", "plots", f"{args.ckpts[0].split('/')[-1]}_rank.png"
+        "results",
+        "plots",
+        f"{args.ckpts[0].split('/')[-1].replace('.pt', '')}_rank.png",
     )
 
-    save_path_hist = os.path.join(
-        "results", "plots", f"{args.ckpts[0].split('/')[-1]}_hist.png"
-    )
     plot_dataset_rank(args.ckpts, save_path=save_path_rank)
-    plot_histograms(args.ckpts, save_path=save_path_hist)
+    for ckpt_path in args.ckpts:
+        save_path_hist = os.path.join(
+            "results",
+            "plots",
+            f"{ckpt_path.split('/')[-1].replace('.pt', '')}_hist.png",
+        )
+        plot_histograms(ckpt_path, save_path=save_path_hist)
 
 
 if __name__ == "__main__":
