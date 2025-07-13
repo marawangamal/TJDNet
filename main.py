@@ -5,8 +5,7 @@ This script sets up the Lightning CLI for training and testing models, including
 experiment management, learning rate finding, and integration with Weights & Biases (wandb).
 
 Example usage:
-    python main_v2.py fit --model.model distilbert/distilgpt2 --model.model_head cpb --model.rank 1 --model.horizon 2 --trainer.max_epochs 8 --trainer.gradient_clip_val 1.0
-    python main_v2.py test --ckpt_path experiments/<run_name>/best.ckpt
+    python main.py fit --model.model distilbert/distilgpt2 --model.model_head cp --model.rank 1 --model.horizon 2 --trainer.max_epochs 1 --data.batch_size 1 --data.seq_len 10 --data.max_num_samples 10 --trainer.max_epochs 1
 
 """
 
@@ -19,11 +18,12 @@ import os.path as osp
 from datetime import timedelta
 
 import lightning as L
-from lightning.pytorch.tuner import Tuner
+from lightning.pytorch.tuner.tuning import Tuner
 from lightning.pytorch.cli import LightningCLI
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from transformers import AutoTokenizer
+import yaml
 
 from dataloaders import DATASETS
 from utils.experiment_naming import get_experiment_name
@@ -79,7 +79,7 @@ class MyLightningCLI(LightningCLI):
         parser.add_argument("--auto_lr_find", action="store_true", default=False)
 
     def after_fit(self):
-        if self.config.get("test_after_fit"):
+        if self.config.fit.get("test_after_fit"):
             print("[INFO] Running test after fit...")
             self.trainer.test(ckpt_path="best")
 
@@ -113,10 +113,12 @@ class MyLightningCLI(LightningCLI):
                 print(f"  ↳ suggested lr = {suggested_lr:.2e}")
                 self.model.hparams.lr = suggested_lr
 
+    # TODO: if test, parse the config
     def before_instantiate_classes(self):
         cfg = self.config
 
         if "test" in cfg:
+            self._load_model_config(cfg.test.ckpt_path)
             return
 
         # 1. Set root dir
@@ -177,6 +179,17 @@ class MyLightningCLI(LightningCLI):
             save_dir=osp.join(EXPERIMENTS_DIR, run_name),
         )
         cfg.fit.trainer.logger = wandb_logger
+
+    def _load_model_config(self, ckpt_path: str):
+        """Load the model config from yaml file."""
+        print(f"[INFO] Loading model config from {ckpt_path}")
+        config_path = osp.join(osp.dirname(ckpt_path), "config.yaml")
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+
+        # Set model configuration using the parser
+        for key, value in config["model"].items():
+            setattr(self.config.test.model, key, value)
 
 
 def cli_main() -> None:

@@ -26,11 +26,11 @@ class LModel(L.LightningModule):
         model_head: ModelHeadType = "cp",
         horizon: int = 1,
         rank: int = 1,
-        positivity_func: PositivityFuncType = "safe_exp",
+        positivity_func: PositivityFuncType = "sigmoid",
         # trainer
         lr: float = 1e-3,
         warmup_steps: int = 100,
-        grad_clip_val: Optional[float] = None,
+        gradient_clip_val: Optional[float] = None,
         # sampling parameters
         max_new_tokens: int = 128,
         do_sample: bool = False,

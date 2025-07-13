@@ -1,0 +1,38 @@
+# experiments-dcomplexity.yaml
+# This file contains experiments to run on datasets with different empirical ranks 
+# using MTP (Multi-Task Prediction) and STP (Single-Task Prediction) approaches
+preambles:
+  glong:   
+    - "#!/bin/bash"
+    - "#SBATCH --output=slurm/slurm-%j.out"
+    - "#SBATCH --error=slurm/slurm-%j.err"   
+    - "#SBATCH --partition=long"
+    - "#SBATCH --gres=gpu:a100l:1"
+    - "#SBATCH --mem=128G"
+    - "#SBATCH --cpus-per-task=12"
+    - "#SBATCH --nodes=1"
+    - "source /home/mila/m/marawan.gamal/scratch/tjdnet/.venv/bin/activate"
+
+# Root group executed in sequence
+group:
+  # aaa
+  name: "main"
+  type: parallel
+  jobs:
+
+    - group:
+        name: "dsrank::pretrained"
+        type: sweep
+        preamble: glong
+        sweep: 
+          model: [meta-llama/Llama-2-7b-chat-hf, deepseek-ai/DeepSeek-R1-0528-Qwen3-8B]
+        sweep_template:  "HF_HOME=$SCRATCH/huggingface python scripts/plot_dataset_spectrum.py --model {model}"
+
+    - group:
+        name: "dsrank::random"
+        type: sweep
+        preamble: glong
+        sweep: 
+          model: [meta-llama/Llama-2-7b-chat-hf, deepseek-ai/DeepSeek-R1-0528-Qwen3-8B]
+        sweep_template:  "HF_HOME=$SCRATCH/huggingface python scripts/plot_dataset_spectrum.py --model {model} --random"
+
