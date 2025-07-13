@@ -107,6 +107,8 @@ def plot_histograms(ckpt_path: str, save_path=None):
 
     # Prepare data for seaborn
     data = []
+    zero_thresholds = {}  # Store zero thresholds for each category
+
     for category, stats in ckpt.items():
         ys = (
             torch.cat(stats["max_ys"]).numpy()
@@ -145,7 +147,6 @@ def plot_histograms(ckpt_path: str, save_path=None):
 
     # Set consistent x-axis limits
     g.set(xlim=(1e-16, 1e-1))
-
     plt.tight_layout()
 
     if save_path:
