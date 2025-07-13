@@ -59,6 +59,9 @@ def plot_dataset_rank(ckpt_paths: List[str], save_path=None):
 
     df = pd.DataFrame(data)
 
+    # sort by rank
+    df = df.sort_values(by="Rank", ascending=True)
+
     # Set seaborn style
     sns.set_theme(style="whitegrid")
 
@@ -76,7 +79,7 @@ def plot_dataset_rank(ckpt_paths: List[str], save_path=None):
         x="Category",
         y="Rank",
         hue="Model",
-        palette=color_map,
+        # palette=color_map,
         edgecolor="black",
     )
 
@@ -97,64 +100,58 @@ def get_model_name(ckpt_path: str):
     return "".join(ckpt_path.split("spectrum_progress_")[-1].split("_")[:-1])
 
 
-def plot_histograms(
-    # max_ys: Dict[str, List[torch.Tensor]],
-    # max_xs: Dict[str, List[torch.Tensor]],
-    # save_path=None,
-    ckpt_path: str,
-    save_path=None,
-):
-    """Plot histograms of max_ys and max_xs in a single figure with subplots for each category."""
+def plot_histograms(ckpt_path: str, save_path=None):
+    """Plot histograms using seaborn FacetGrid for cleaner visualization."""
 
     ckpt = torch.load(ckpt_path, weights_only=False)
-    max_ys = {k: v["max_ys"] for k, v in ckpt.items()}
-    max_xs = {k: v["max_xs"] for k, v in ckpt.items()}
 
-    categories = list(max_ys.keys())
-    n = len(categories)
-    ncols = min(3, n)
-    nrows = math.ceil(n / ncols)
-    fig, axes = plt.subplots(
-        nrows, ncols, figsize=(6 * ncols, 5 * nrows), squeeze=False
-    )
-    for idx, category in tqdm(
-        enumerate(categories), leave=False, desc="Creating histograms"
-    ):
-        row, col = divmod(idx, ncols)
-        ax = axes[row][col]
+    # Prepare data for seaborn
+    data = []
+    for category, stats in ckpt.items():
         ys = (
-            torch.cat(max_ys[category]).numpy()
-            if len(max_ys[category]) > 0
+            torch.cat(stats["max_ys"]).numpy()
+            if len(stats["max_ys"]) > 0
             else np.array([])
         )
         xs = (
-            torch.cat(max_xs[category]).numpy()
-            if len(max_xs[category]) > 0
+            torch.cat(stats["max_xs"]).numpy()
+            if len(stats["max_xs"]) > 0
             else np.array([])
         )
         zs = np.concatenate([ys, xs])
-        # print(f"Max zs: {zs.max()} | Min zs: {zs.min()}")
+
         if len(zs) > 0:
-            sns.histplot(
-                data=zs,
-                bins=10,
-                alpha=0.5,
-                label="Max Xs",
-                log_scale=True,
-                ax=ax,
-                # binrange=(10e-16, 10e-1),  # set range here
-            )
-        ax.set_title(category)
-        ax.set_xlim(10e-16, 10e-1)
-        ax.legend()
-    # Hide any unused subplots
-    for idx in range(n, nrows * ncols):
-        row, col = divmod(idx, ncols)
-        fig.delaxes(axes[row][col])
+            ranks = [
+                matrix_rank_from_spectrum(stats["spectra"][i])
+                for i in range(len(stats["spectra"]))
+            ]
+            mu_rank = torch.mean(torch.tensor(ranks, dtype=torch.float32)).item()
+            for value in zs:
+                data.append({"Category": category, "Value": value, "Rank": mu_rank})
+
+    if not data:
+        print("No data to plot")
+        return
+
+    df = pd.DataFrame(data)
+    df = df.sort_values(by="Rank", ascending=True)
+
+    # Create seaborn FacetGrid with percentage y-axis
+    g = sns.FacetGrid(df, col="Category", col_wrap=3, height=4, aspect=1.2)
+    g.map_dataframe(sns.histplot, x="Value", bins=50, log_scale=True, stat="percent")
+    g.set_titles(col_template="{col_name}")
+    g.set_xlabels("Value")
+    g.set_ylabels("Percentage")
+
+    # Set consistent x-axis limits
+    g.set(xlim=(1e-16, 1e-1))
+
     plt.tight_layout()
+
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Saved histogram to {save_path}")
 
 
 def main():
