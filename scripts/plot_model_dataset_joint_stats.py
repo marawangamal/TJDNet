@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import numpy as np
+from tqdm import tqdm
 
 
 def ckpt_friendly_name(ckpt_name: str):
@@ -92,6 +93,10 @@ def plot_dataset_rank(ckpt_paths: List[str], save_path=None):
         print(f"Saved plot to {save_path}")
 
 
+def get_model_name(ckpt_path: str):
+    return "".join(ckpt_path.split("spectrum_progress_")[-1].split("_")[:-1])
+
+
 def plot_histograms(
     # max_ys: Dict[str, List[torch.Tensor]],
     # max_xs: Dict[str, List[torch.Tensor]],
@@ -112,14 +117,35 @@ def plot_histograms(
     fig, axes = plt.subplots(
         nrows, ncols, figsize=(6 * ncols, 5 * nrows), squeeze=False
     )
-    for idx, category in enumerate(categories):
+    for idx, category in tqdm(
+        enumerate(categories), leave=False, desc="Creating histograms"
+    ):
         row, col = divmod(idx, ncols)
         ax = axes[row][col]
-        ys = torch.cat(max_ys[category]).numpy() if len(max_ys[category]) > 0 else []
-        xs = torch.cat(max_xs[category]).numpy() if len(max_xs[category]) > 0 else []
-        ax.hist(ys, bins=100, alpha=0.5, label="Max Ys")
-        ax.hist(xs, bins=100, alpha=0.5, label="Max Xs")
+        ys = (
+            torch.cat(max_ys[category]).numpy()
+            if len(max_ys[category]) > 0
+            else np.array([])
+        )
+        xs = (
+            torch.cat(max_xs[category]).numpy()
+            if len(max_xs[category]) > 0
+            else np.array([])
+        )
+        zs = np.concatenate([ys, xs])
+        # print(f"Max zs: {zs.max()} | Min zs: {zs.min()}")
+        if len(zs) > 0:
+            sns.histplot(
+                data=zs,
+                bins=10,
+                alpha=0.5,
+                label="Max Xs",
+                log_scale=True,
+                ax=ax,
+                # binrange=(10e-16, 10e-1),  # set range here
+            )
         ax.set_title(category)
+        ax.set_xlim(10e-16, 10e-1)
         ax.legend()
     # Hide any unused subplots
     for idx in range(n, nrows * ncols):
@@ -139,7 +165,7 @@ def main():
     save_path_rank = os.path.join(
         "results",
         "plots",
-        f"{args.ckpts[0].split('/')[-1].replace('.pt', '')}_rank.png",
+        f"model_dataset_ranks.png",
     )
 
     plot_dataset_rank(args.ckpts, save_path=save_path_rank)
@@ -147,10 +173,14 @@ def main():
         save_path_hist = os.path.join(
             "results",
             "plots",
-            f"{ckpt_path.split('/')[-1].replace('.pt', '')}_hist.png",
+            f"model_dataset_histogram_{get_model_name(ckpt_path)}.png",
         )
         plot_histograms(ckpt_path, save_path=save_path_hist)
+
+    print("Done")
 
 
 if __name__ == "__main__":
     main()
+
+# --ckpts results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000.pt results/spectrum_progress_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000.pt

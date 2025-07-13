@@ -495,17 +495,16 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-# Plotting deepseek-ai_DeepSeek-R1-0528-Qwen3-8B ...
 # Saving to results/spectrum_comparison_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000.png...
 # | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   | Zero Rows   | Zero Cols   |
 # |------------|----------------------------------|-------------------------|-------------|-------------|
 # | gsm8k      | 137.0 ± 0.0                      | 1.0 ± 0.0               | 0.0 ± 0.0   | 0.0 ± 0.0   |
 # | aqua_rat   | 200.0 ± 0.0                      | 1.0 ± 0.0               | 0.0 ± 0.0   | 0.0 ± 0.0   |
-# | humaneval  | 537.6 ± 771.3                    | 1.2 ± 0.4               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | humaneval  | 537.6 ± 771.3                    | 1.2 ± 0.4               | 0.0 ± 0.0   | 0.6 ± 1.2   |
 # | reddit     | 1519.2 ± 747.3                   | 1.6 ± 0.5               | 0.0 ± 0.0   | 0.0 ± 0.0   |
 # | wikitext2  | 1960.3 ± 664.0                   | 1.3 ± 0.5               | 0.0 ± 0.0   | 0.0 ± 0.0   |
 # | sst2       | 3290.2 ± 663.9                   | 2.2 ± 0.4               | 0.0 ± 0.0   | 0.0 ± 0.0   |
+
 
 # Saving to results/spectrum_comparison_meta-llama_Llama-2-7b-chat-hf_topk5000.png...
 # | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   | Zero Rows   | Zero Cols   |
@@ -518,6 +517,17 @@ if __name__ == "__main__":
 # | wikitext2  | 3828.6 ± 952.6                   | 2.2 ± 0.7               | 0.0 ± 0.0   | 0.0 ± 0.0   |
 
 
+# Saving to results/spectrum_comparison_meta-llama_Llama-2-7b-chat-hf_topk5000_rand.png...
+# | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   | Zero Rows   | Zero Cols   |
+# |------------|----------------------------------|-------------------------|-------------|-------------|
+# | sst2       | 1325.0 ± 12.7                    | 27.2 ± 1.2              | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | wikitext2  | 1326.2 ± 9.3                     | 24.4 ± 1.2              | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | gsm8k      | 1334.0 ± 0.0                     | 28.0 ± 0.0              | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | reddit     | 1334.0 ± 13.3                    | 24.6 ± 1.6              | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | humaneval  | 1334.2 ± 17.7                    | 26.8 ± 1.5              | 0.0 ± 0.0   | 0.0 ± 0.0   |
+# | aqua_rat   | 1349.0 ± 0.0                     | 29.0 ± 0.0              | 0.0 ± 0.0   | 0.0 ± 0.0   |
+
+# OLD RESULTS
 # Plotting meta-llama_Llama-2-7b-chat-hf _rand...
 # Saving to results/spectrum_comparison_meta-llama_Llama-2-7b-chat-hf_topk5000_rand.png...
 # | Category   | Matrix Rank (matlab threshold)   | Spectral Energy (99%)   |
