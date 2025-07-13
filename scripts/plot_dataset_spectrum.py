@@ -74,38 +74,82 @@ def get_samples(debug=False, num_samples=5):
     )
 
     dataset_configs = {
-        # Low rank
-        "aqua_rat": {
+        # ==== Low rank ====
+        # AQuA (Math QA)
+        "aqua_rat:fewshot": {
             "hf_name": ("aqua_rat",),
             "load_kwargs": {"split": f"train[:{num_samples*5}]"},
             "format_fn": lambda sample: (
                 aqua_rat_fewshot
-                + f"Q: {sample['question']}\nOptions: {' '.join(sample['options'])}\nAnswer: "
-                "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc.)\n"
+                + f"Q: {sample['question']}\nOptions: {' '.join(sample['options'])}\nAnswer: Let's think step by step.\n"
+                "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc., and show your reasoning.)\n"
+            ),
+        },
+        "aqua_rat:cot": {
+            "hf_name": ("aqua_rat",),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                f"Q: {sample['question']}\nOptions: {' '.join(sample['options'])}\nAnswer: Let's think step by step.\n"
+                "(Please answer with the letter of the correct option, e.g., 'A', 'B', etc., and show your reasoning.)\n"
+            ),
+        },
+        "aqua_rat": {
+            "hf_name": ("aqua_rat",),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                f"Q: {sample['question']}\nOptions: {' '.join(sample['options'])}\nAnswer: "
+            ),
+        },
+        # GSM8K (Grade School Math)
+        "gsm8k:fewshot": {
+            "hf_name": ("gsm8k", "main"),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                gsm8k_fewshot
+                + f"Q: {sample['question']}\nAnswer: Let's think step by step.\n"
+                "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
+            ),
+        },
+        "gsm8k:cot": {
+            "hf_name": ("gsm8k", "main"),
+            "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                f"Q: {sample['question']}\nAnswer: Let's think step by step.\n"
+                "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
             ),
         },
         "gsm8k": {
             "hf_name": ("gsm8k", "main"),
             "load_kwargs": {"split": f"train[:{num_samples*5}]"},
+            "format_fn": lambda sample: (f"Q: {sample['question']}\nAnswer: "),
+        },
+        "humaneval:fewshot": {
+            "hf_name": ("openai_humaneval",),
+            "load_kwargs": {"split": f"test[:{num_samples*5}]"},
             "format_fn": lambda sample: (
-                gsm8k_fewshot + f"Q: {sample['question']}\nAnswer: "
-                "(Please show your step-by-step reasoning and end with the answer after '####', e.g., '#### 42')\n"
+                humaneval_fewshot + f"{sample['prompt']}\n"
+                "(Please complete the function implementation, and think step by step.)\n"
             ),
         },
+        "humaneval:cot": {
+            "hf_name": ("openai_humaneval",),
+            "load_kwargs": {"split": f"test[:{num_samples*5}]"},
+            "format_fn": lambda sample: (
+                f"{sample['prompt']}\nAnswer: Let's think step by step.\n"
+                "(Please complete the function implementation, and think step by step.)\n"
+            ),
+        },
+        "humaneval": {
+            "hf_name": ("openai_humaneval",),
+            "load_kwargs": {"split": f"test[:{num_samples*5}]"},
+            "format_fn": lambda sample: (f"{sample['prompt']}\n"),
+        },
+        # Medium rank
         "wikitext2": {
             "hf_name": ("wikitext", "wikitext-2-raw-v1"),
             "load_kwargs": {"split": f"train[:{num_samples*5}]"},
             "format_fn": lambda sample: sample["text"][:200],
         },
-        "humaneval": {
-            "hf_name": ("openai_humaneval",),
-            "load_kwargs": {"split": f"test[:{num_samples*5}]"},
-            "format_fn": lambda sample: (
-                humaneval_fewshot + f"{sample['prompt']}\n"
-                "(Please complete the function implementation)\n"
-            ),
-        },
-        # Medium rank
         "sst2": {
             "hf_name": ("glue", "sst2"),
             "load_kwargs": {"split": "train[:100]"},
@@ -201,9 +245,7 @@ def matrix_row_col_hist(matrix: torch.Tensor, eps=torch.finfo(torch.float32).eps
 
 def get_joint_prob(model, tokenizer, text, device, top_k=None):
     """Compute joint probability p(y1, y2 | x) for given text. If top_k is None, use all vocab."""
-    x = tokenizer(text, return_tensors="pt", max_length=128, truncation=True)[
-        "input_ids"
-    ].to(device)
+    x = tokenizer(text, return_tensors="pt")["input_ids"].to(device)
 
     with torch.no_grad():
         out = model(x)
@@ -320,6 +362,7 @@ def main():
     # meta-llama/Llama-2-7b-chat-hf
     # deepseek-ai/DeepSeek-R1
     # deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
+    # distilbert/distilgpt2
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
