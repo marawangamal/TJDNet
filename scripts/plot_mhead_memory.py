@@ -9,25 +9,22 @@ import torch
 import gc
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.cp import CPDist
+from utils.perf import get_peak_memory_usage
 
 
-def measure_memory_usage(
-    batch_size,
-    horizon,
-    rank,
+sns.set_theme(style="whitegrid")
+
+
+def cp_forward(
+    batch_size: int,
+    horizon: int,
+    rank: int,
     embedding_dim=256,
     vocab_size=30000,
-    backward=False,
+    backward: bool = False,
 ):
     """Measure peak memory usage for a single configuration."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # Setup
-    if device == "cuda":
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
-
-    # Create model and run forward pass
     config = BaseDistConfig(
         vocab_size=vocab_size,
         horizon=horizon,
@@ -42,81 +39,59 @@ def measure_memory_usage(
     if backward:
         loss.backward()
 
-    # Measure memory
-    if device == "cuda":
-        memory_mb = torch.cuda.max_memory_allocated() / (1024**2)
-        torch.cuda.empty_cache()
-    else:
-        import psutil
 
-        memory_mb = psutil.Process().memory_info().rss / (1024**2)
-
-    # reset peak memory stats
-    if device == "cuda":
-        torch.cuda.reset_peak_memory_stats()
-    else:
-        import psutil
-
-        psutil.Process().memory_info().rss
-
-    gc.collect()
-    return memory_mb
-
-
-def generate_data():
-    """Generate memory data for different parameters."""
-    data = []
-
+if __name__ == "__main__":
+    # Set up parameters
     defaults = {
         "batch_size": 2,
         "horizon": 2,
         "rank": 2,
         "embedding_dim": 256,
         "vocab_size": 30000,
+        "backward": False,
     }
-
     variables = {
-        "batch_size": [2, 4, 8, 16, 32],
-        "horizon": [2, 4, 8, 16, 32],
-        "rank": [2, 4, 8, 16, 32],
+        "batch_size": [2, 4, 8, 16],
+        "horizon": [2, 4, 8, 16],
+        "rank": [2, 4, 8, 16],
     }
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    # Compute memory usage
+    data = []
     for param, values in variables.items():
         for value in values:
             kwargs = defaults.copy()
-            kwargs[param] = value
-            memory = measure_memory_usage(**kwargs)
+            kwargs[param] = kwargs[param] * value
+            model = cp_forward(**kwargs)
+            memory = get_peak_memory_usage(cp_forward, device=device, **kwargs)
             data.append({**kwargs, "memory_mb": memory})
+    df = pd.DataFrame(data)
 
-    return pd.DataFrame(data)
-
-
-def plot_memory_usage(df, save_path="results/plots/memory_usage_facetgrid.png"):
-    """Create seaborn visualization of memory usage."""
-    sns.set_theme(style="whitegrid")
-
-    # Create subplots for each parameter
+    # Plot memory usage
+    save_path = "results/plots/memory_usage_facetgrid.png"
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
     for i, param in enumerate(["batch_size", "horizon", "rank"]):
+        # Filter out rows where other two parameters are not at defaults
+        fixed_params = {k: v for k, v in defaults.items() if k != param}
+        df_filtered = df.copy()
+        for fixed_param, fixed_value in fixed_params.items():
+            df_filtered = df_filtered[df_filtered[fixed_param] == fixed_value]
+
         sns.lineplot(
-            data=df.groupby(param)["memory_mb"].mean().reset_index(),
+            data=df_filtered,
             x=param,
             y="memory_mb",
-            marker="o",
             ax=axes[i],
         )
         axes[i].set_title(f'Memory vs {param.replace("_", " ").title()}')
         axes[i].set_ylabel("Memory (MB)")
+        axes[i].set_xlabel(param.replace("_", " ").title())
+        axes[i].set_xticks(sorted(df_filtered[param].unique()))
 
     plt.suptitle("Peak Memory Usage vs Model Parameters", y=1.02)
     plt.tight_layout()
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    plt.show()
-
-
-if __name__ == "__main__":
-    df = generate_data()
-    plot_memory_usage(df)
