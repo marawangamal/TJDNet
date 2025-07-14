@@ -12,7 +12,6 @@ from tjdnet.distributions.cp import CPDist
 from utils.perf import get_peak_memory_usage
 
 
-# sns.set_theme(style="whitegrid")
 sns.set_theme()
 
 
@@ -53,7 +52,6 @@ def main():
         "rank": 2,
         "embedding_dim": 256,
         "vocab_size": 30000,
-        "backward": False,
     }
     max_exp = 10
     max_exp_embedding_dim = 3
@@ -75,9 +73,7 @@ def main():
     )
 
     # Add backward pass
-    configs = configs + [
-        {**conf, "backward": True} for conf in configs if "backward" not in conf
-    ]
+    configs = configs + [{**conf, "backward": True} for conf in configs]
 
     # Collect data
     data = []
@@ -99,19 +95,19 @@ def main():
             ]
 
         sns.lineplot(
-            data=df_filtered[df_filtered["backward"] == False],  # type: ignore
+            data=df_filtered[df_filtered["backward"] != True],  # type: ignore
             x=param,
             y="memory_mb",
             ax=axes[i],
             marker="o",
-            label="Forward",
+            label="Forward Only",
         )
         sns.lineplot(
             data=df_filtered[df_filtered["backward"] == True],  # type: ignore
             x=param,
             y="memory_mb",
             ax=axes[i],
-            marker="x",
+            marker="o",
             label="Forward + Backward",
         )
         axes[i].set_title(f'Memory vs {param.replace("_", " ").title()}')
