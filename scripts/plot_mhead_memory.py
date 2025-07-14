@@ -47,6 +47,11 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Memory usage comparison for CP tensor functions"
     )
+    parser.add_argument(
+        "--backward",
+        action="store_true",
+        help="Include backward pass in memory measurement",
+    )
     return parser.parse_args()
 
 
@@ -72,19 +77,16 @@ def main():
         "vocab_size": 30000,
     }
 
-    # Collect data for both forward-only and forward+backward
+    # Collect data
     data = []
-    for backward_pass in [False, True]:
-        for param, values in params.items():
-            for value in values:
-                kwargs = defaults.copy()
-                kwargs[param] = value * defaults[param]
-                kwargs["backward_pass"] = backward_pass
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                memory = get_peak_memory_usage(forward_pass, device=device, **kwargs)
-                data.append(
-                    {**kwargs, "memory_mb": memory, "backward_pass": backward_pass}
-                )
+    for param, values in params.items():
+        for value in values:
+            kwargs = defaults.copy()
+            kwargs[param] = value * defaults[param]
+            kwargs["backward_pass"] = args.backward
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            memory = get_peak_memory_usage(forward_pass, device=device, **kwargs)
+            data.append({**kwargs, "memory_mb": memory})
 
     df = pd.DataFrame(data)
 
@@ -104,38 +106,21 @@ def main():
         if isinstance(df_filtered, pd.Series):
             df_filtered = df_filtered.to_frame().T
 
-        # Plot both forward-only and forward+backward
-        sns.lineplot(
-            data=df_filtered[df_filtered["backward_pass"] == False],
-            x=param,
-            y="memory_mb",
-            ax=axes[i],
-            marker="o",
-            label="Forward Only",
-        )
-        sns.lineplot(
-            data=df_filtered[df_filtered["backward_pass"] == True],
-            x=param,
-            y="memory_mb",
-            ax=axes[i],
-            marker="s",
-            label="Forward + Backward",
-        )
-
+        sns.lineplot(data=df_filtered, x=param, y="memory_mb", ax=axes[i], marker="o")
         axes[i].set_title(f'Memory vs {param.replace("_", " ").title()}')
         axes[i].set_ylabel("Memory (MB)")
         axes[i].set_xlabel("Param Multiplier")
-        axes[i].legend()
 
         # axis
         axes[i].set_xscale("log", base=2)
         axes[i].set_ylim(0, 4000)
 
-    plt.suptitle("Peak Memory Usage vs Model Parameters", y=1.02)
+    pass_type = "Forward + Backward" if args.backward else "Forward Only"
+    plt.suptitle(f"Peak Memory Usage vs Model Parameters ({pass_type})", y=1.02)
     plt.tight_layout()
 
     # Save plot
-    save_path = "results/plots/memory_usage_facetgrid.png"
+    save_path = f"results/plots/memory_usage_facetgrid_{pass_type.lower().replace(' ', '_')}.png"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     print(f"Plot saved to {save_path}")
