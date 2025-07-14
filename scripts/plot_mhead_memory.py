@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Simple memory usage comparison for CP tensor functions."""
 
-import argparse
-import os
+from tqdm import tqdm
+
+import torch
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import torch
+
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.cp import CPDist
 from utils.perf import get_peak_memory_usage
@@ -22,6 +23,7 @@ def forward_pass(
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
     embedding_dim=256,
     vocab_size=30000,
+    forward: bool = False,
     backward: bool = False,
 ):
     config = BaseDistConfig(
@@ -34,13 +36,13 @@ def forward_pass(
     model = CPDist(config).to(device)
     x = torch.randn(batch_size, embedding_dim, device=device)
     y = torch.randint(0, vocab_size, (batch_size, horizon), device=device)
-    loss = model(x, y)
 
-    if backward:
-        loss = loss.mean()
-        loss.backward()
+    if forward:
+        loss = model(x, y)
 
-    return loss
+        if backward:
+            loss = loss.mean()
+            loss.backward()
 
 
 def main():
@@ -50,11 +52,11 @@ def main():
         "batch_size": 2,
         "horizon": 2,
         "rank": 2,
-        "embedding_dim": 256,
+        "embedding_dim": 128,
         "vocab_size": 30000,
     }
     max_exp = 10
-    max_exp_embedding_dim = 3
+    max_exp_embedding_dim = 5
     configs = (
         [
             {**defaults, "batch_size": 2**i * defaults["batch_size"]}
@@ -73,12 +75,16 @@ def main():
     )
 
     # Add backward pass
-    configs = configs + [{**conf, "backward": True} for conf in configs]
+    configs = (
+        configs
+        + [{**conf, "forward": True} for conf in configs]
+        + [{**conf, "forward": True, "backward": True} for conf in configs]
+    )
 
     # Collect data
     data = []
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    for conf in configs:
+    for conf in tqdm(configs, desc="Running forward pass"):
         memory = get_peak_memory_usage(forward_pass, device=device, **conf)
         data.append({**conf, "memory_mb": memory})
     df = pd.DataFrame(data)
@@ -95,12 +101,20 @@ def main():
             ]
 
         sns.lineplot(
-            data=df_filtered[df_filtered["backward"] != True],  # type: ignore
+            data=df_filtered[df_filtered["forward"] != True],  # type: ignore
             x=param,
             y="memory_mb",
             ax=axes[i],
             marker="o",
-            label="Forward Only",
+            label="Init",
+        )
+        sns.lineplot(
+            data=df_filtered[df_filtered["forward"] == True],  # type: ignore
+            x=param,
+            y="memory_mb",
+            ax=axes[i],
+            marker="o",
+            label="Init + Forward",
         )
         sns.lineplot(
             data=df_filtered[df_filtered["backward"] == True],  # type: ignore
@@ -108,7 +122,7 @@ def main():
             y="memory_mb",
             ax=axes[i],
             marker="o",
-            label="Forward + Backward",
+            label="Init + Forward + Backward",
         )
         axes[i].set_title(f'Memory vs {param.replace("_", " ").title()}')
         axes[i].set_ylabel("Memory (MB)")
