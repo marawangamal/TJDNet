@@ -25,7 +25,8 @@ group:
         type: sweep
         preamble: glong
         sweep: 
-          model: [meta-llama/Llama-2-7b-chat-hf, deepseek-ai/DeepSeek-R1-0528-Qwen3-8B]
+          # model: [meta-llama/Llama-4-Scout-17B-16E-Instruct, meta-llama/Llama-2-7b-chat-hf, deepseek-ai/DeepSeek-R1-0528-Qwen3-8B]
+          model: [meta-llama/Llama-4-Scout-17B-16E-Instruct]
         sweep_template:  "HF_HOME=$SCRATCH/huggingface python scripts/plot_dataset_spectrum.py --model {model}"
 
     - group:
@@ -33,6 +34,7 @@ group:
         type: sweep
         preamble: glong
         sweep: 
-          model: [meta-llama/Llama-2-7b-chat-hf, deepseek-ai/DeepSeek-R1-0528-Qwen3-8B]
+          # model: [meta-llama/Llama-2-7b-chat-hf, deepseek-ai/DeepSeek-R1-0528-Qwen3-8B]
+          model: [meta-llama/Llama-4-Scout-17B-16E-Instruct]
         sweep_template:  "HF_HOME=$SCRATCH/huggingface python scripts/plot_dataset_spectrum.py --model {model} --random"
 

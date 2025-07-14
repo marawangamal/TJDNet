@@ -10,6 +10,9 @@ import numpy as np
 from tqdm import tqdm
 
 
+sns.set_theme()
+
+
 def ckpt_friendly_name(ckpt_name: str):
     # results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000_rand.pt' => 'meta-llama_Llama-2-7b-chat-hf (rand)'
     return (
@@ -17,7 +20,7 @@ def ckpt_friendly_name(ckpt_name: str):
         .split("_topk")[0]
         .replace(".pt", "")
         .replace("_", "/")
-        + f"{'_rand' if 'rand' in ckpt_name else 'pretrained'}"
+        + f"{'_rand' if 'rand' in ckpt_name else '_pretrained'}"
     )
 
 
@@ -62,38 +65,63 @@ def plot_dataset_rank(ckpt_paths: List[str], save_path=None):
     # sort by rank
     df = df.sort_values(by="Rank", ascending=True)
 
-    # Set seaborn style
-    sns.set_theme(style="whitegrid")
-
-    # Get unique models and categories for ordering
-    models = df["Model"].unique()
-    categories = df["Category"].unique()
-
-    # Create color mapping
-    colors = plt.cm.get_cmap("Set3")(np.linspace(0, 1, len(models)))
-    color_map = {model: colors[i] for i, model in enumerate(models)}
-
-    plt.figure(figsize=(12, 8))
-    ax = sns.barplot(
-        data=df,
-        x="Category",
-        y="Rank",
-        hue="Model",
-        # palette=color_map,
-        edgecolor="black",
+    # for datasets with ':fewshot' only keep the fewshot rank and remove other variants
+    # df = df[df["Category"].str.contains(":fewshot")]
+    mask = (
+        ~df["Category"]
+        .str.split(":")
+        .str[0]
+        .isin(
+            set(
+                df[df["Category"].str.contains(":fewshot")]["Category"]
+                .str.split(":")
+                .str[0]
+            )
+        )
     )
+    mask_fewshot = df["Category"].str.contains("fewshot")
+    df = df[mask + mask_fewshot]
+    df["Category"] = df["Category"].str.replace(":fewshot", "")
 
-    plt.ylabel("Matrix Rank (Mean)")
-    plt.xlabel("Dataset")
-    plt.title("Matrix Rank Comparison Across Datasets and Models")
-    plt.legend(title="Model", loc="upper left")
-    plt.xticks(rotation=45)
-    plt.tight_layout()
+    # Create a visualization
+    sns.barplot(data=df, x="Category", y="Rank", hue="Model")
+    # plt.xticks(rotation=45)
+    # plt.tight_layout()
+    plt.savefig("results/plots/model_dataset_ranks.png", dpi=300, bbox_inches="tight")
+    print(f"Saved plot to results/plots/model_dataset_ranks.png")
 
-    if save_path:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        print(f"Saved plot to {save_path}")
+    # # Set seaborn style
+    # sns.set_theme(style="whitegrid")
+
+    # # Get unique models and categories for ordering
+    # models = df["Model"].unique()
+    # categories = df["Category"].unique()
+
+    # # Create color mapping
+    # colors = plt.cm.get_cmap("Set3")(np.linspace(0, 1, len(models)))
+    # color_map = {model: colors[i] for i, model in enumerate(models)}
+
+    # plt.figure(figsize=(12, 8))
+    # ax = sns.barplot(
+    #     data=df,
+    #     x="Category",
+    #     y="Rank",
+    #     hue="Model",
+    #     # palette=color_map,
+    #     edgecolor="black",
+    # )
+
+    # plt.ylabel("Matrix Rank (Mean)")
+    # plt.xlabel("Dataset")
+    # plt.title("Matrix Rank Comparison Across Datasets and Models")
+    # plt.legend(title="Model", loc="upper left")
+    # plt.xticks(rotation=45)
+    # plt.tight_layout()
+
+    # if save_path:
+    #     os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    #     plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    #     print(f"Saved plot to {save_path}")
 
 
 def get_model_name(ckpt_path: str):
@@ -181,4 +209,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# --ckpts results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000.pt results/spectrum_progress_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000.pt
+# --ckpts results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000.pt results/spectrum_progress_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000.pt results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000_rand.pt results/spectrum_progress_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000_rand.pt
