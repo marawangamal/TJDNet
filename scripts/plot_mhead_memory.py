@@ -12,7 +12,8 @@ from tjdnet.distributions.cp import CPDist
 from utils.perf import get_peak_memory_usage
 
 
-sns.set_theme(style="whitegrid")
+# sns.set_theme(style="whitegrid")
+sns.set_theme()
 
 
 def forward_pass(
@@ -22,7 +23,7 @@ def forward_pass(
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
     embedding_dim=256,
     vocab_size=30000,
-    backward_pass: bool = False,
+    backward: bool = False,
 ):
     config = BaseDistConfig(
         vocab_size=vocab_size,
@@ -36,37 +37,14 @@ def forward_pass(
     y = torch.randint(0, vocab_size, (batch_size, horizon), device=device)
     loss = model(x, y)
 
-    if backward_pass:
+    if backward:
         loss = loss.mean()
         loss.backward()
 
     return loss
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Memory usage comparison for CP tensor functions"
-    )
-    parser.add_argument(
-        "--backward",
-        action="store_true",
-        help="Include backward pass in memory measurement",
-    )
-    return parser.parse_args()
-
-
 def main():
-    args = parse_args()
-
-    # Parameters to test
-    mult_factors = [2**i for i in range(10)]
-
-    params = {
-        "batch_size": mult_factors,
-        "horizon": mult_factors,
-        "rank": mult_factors,
-        "embedding_dim": [2, 4, 8],
-    }
 
     # Default values
     defaults = {
@@ -75,55 +53,76 @@ def main():
         "rank": 2,
         "embedding_dim": 256,
         "vocab_size": 30000,
+        "backward": False,
     }
+    max_exp = 10
+    max_exp_embedding_dim = 3
+    configs = (
+        [
+            {**defaults, "batch_size": 2**i * defaults["batch_size"]}
+            for i in range(max_exp)
+        ]
+        + [{**defaults, "horizon": 2**i * defaults["horizon"]} for i in range(max_exp)]
+        + [{**defaults, "rank": 2**i * defaults["rank"]} for i in range(max_exp)]
+        + [
+            {**defaults, "vocab_size": 2**i * defaults["vocab_size"]}
+            for i in range(max_exp)
+        ]
+        + [
+            {**defaults, "embedding_dim": 2**i * defaults["embedding_dim"]}
+            for i in range(max_exp_embedding_dim)
+        ]
+    )
+
+    # Add backward pass
+    configs = configs + [
+        {**conf, "backward": True} for conf in configs if "backward" not in conf
+    ]
 
     # Collect data
     data = []
-    for param, values in params.items():
-        for value in values:
-            kwargs = defaults.copy()
-            kwargs[param] = value * defaults[param]
-            kwargs["backward_pass"] = args.backward
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            memory = get_peak_memory_usage(forward_pass, device=device, **kwargs)
-            data.append({**kwargs, "memory_mb": memory})
-
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    for conf in configs:
+        memory = get_peak_memory_usage(forward_pass, device=device, **conf)
+        data.append({**conf, "memory_mb": memory})
     df = pd.DataFrame(data)
 
     # Create plot
-    fig, axes = plt.subplots(1, len(params), figsize=(15, 5))
-
-    for i, param in enumerate(params.keys()):
-        # Filter data for this parameter
+    variable_params = ["batch_size", "horizon", "rank", "embedding_dim"]
+    fig, axes = plt.subplots(1, len(variable_params), figsize=(15, 5))
+    for i, param in enumerate(variable_params):
         df_filtered = df.copy()
-        for other_param in params.keys():
-            if other_param != param:
-                df_filtered = df_filtered[
-                    df_filtered[other_param] == defaults[other_param]
-                ]
+        fixed_params = {k: v for k, v in defaults.items() if k != param}
+        for fixed_param in fixed_params.keys():
+            df_filtered = df_filtered[
+                df_filtered[fixed_param] == fixed_params[fixed_param]
+            ]
 
-        # Ensure df_filtered is a DataFrame, not a Series
-        if isinstance(df_filtered, pd.Series):
-            df_filtered = df_filtered.to_frame().T
-
-        sns.lineplot(data=df_filtered, x=param, y="memory_mb", ax=axes[i], marker="o")
+        sns.lineplot(
+            data=df_filtered[df_filtered["backward"] == False],  # type: ignore
+            x=param,
+            y="memory_mb",
+            ax=axes[i],
+            marker="o",
+            label="Forward",
+        )
+        sns.lineplot(
+            data=df_filtered[df_filtered["backward"] == True],  # type: ignore
+            x=param,
+            y="memory_mb",
+            ax=axes[i],
+            marker="x",
+            label="Forward + Backward",
+        )
         axes[i].set_title(f'Memory vs {param.replace("_", " ").title()}')
         axes[i].set_ylabel("Memory (MB)")
         axes[i].set_xlabel("Param Multiplier")
-
-        # axis
         axes[i].set_xscale("log", base=2)
         axes[i].set_ylim(0, 4000)
 
-    pass_type = "Forward + Backward" if args.backward else "Forward Only"
-    plt.suptitle(f"Peak Memory Usage vs Model Parameters ({pass_type})", y=1.02)
-    plt.tight_layout()
-
-    # Save plot
-    save_path = f"results/plots/memory_usage_facetgrid_{pass_type.lower().replace(' ', '_')}.png"
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    print(f"Plot saved to {save_path}")
+    # save
+    plt.savefig("results/plots/memory_usage_facetgrid.png")
+    print(f"Plot saved to results/plots/memory_usage_facetgrid.png")
 
 
 if __name__ == "__main__":
