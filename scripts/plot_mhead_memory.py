@@ -11,7 +11,7 @@ import seaborn as sns
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig
-from utils.perf import get_peak_memory_usage
+from utils.perf import get_latency, get_peak_memory_usage
 
 
 sns.set_theme()
@@ -90,8 +90,10 @@ def main():
     # Compute memory
     device = "cuda" if torch.cuda.is_available() else "cpu"
     for conf in tqdm(kwargs, desc="Running forward pass"):
-        memory = get_peak_memory_usage(train_fn, device=device, **conf)
-        conf["memory_mb"] = memory
+        memory_mb = get_peak_memory_usage(train_fn, device=device, **conf)
+        latency_sec = get_latency(train_fn, device=device, **conf)
+        conf["memory_mb"] = memory_mb
+        conf["latency_sec"] = latency_sec
 
     df = pd.DataFrame(kwargs)
     sns.relplot(
@@ -108,6 +110,22 @@ def main():
     plt.xscale("log", base=2)
     plt.savefig("results/plots/memory_usage_facetgrid.png")
     print(f"Plot saved to results/plots/memory_usage_facetgrid.png")
+
+    # Plot latency
+    sns.relplot(
+        data=df,
+        x="multiplier",
+        y="latency_sec",
+        col="hparam",
+        style="model_head",
+        hue="mode",
+        kind="line",
+        markers=True,
+        alpha=0.6,
+    )
+    plt.xscale("log", base=2)
+    plt.savefig("results/plots/latency_facetgrid.png")
+    print(f"Plot saved to results/plots/latency_facetgrid.png")
 
 
 if __name__ == "__main__":

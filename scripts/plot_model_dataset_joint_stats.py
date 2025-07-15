@@ -74,17 +74,17 @@ def plot_dataset_rank(ckpt_paths: List[str], save_path=None):
         .isin(
             set(
                 df[df["Category"].str.contains(":fewshot")]["Category"]
-                .str.split(":")
+                .str.split(":")  # type: ignore
                 .str[0]
             )
         )
     )
     mask_fewshot = df["Category"].str.contains("fewshot")
     df = df[mask + mask_fewshot]
-    df["Category"] = df["Category"].str.replace(":fewshot", "")
+    df["Category"] = df["Category"].str.replace(":fewshot", "")  # type: ignore
 
     # Create a visualization
-    sns.barplot(data=df, x="Category", y="Rank", hue="Model")
+    sns.barplot(data=df, x="Category", y="Rank", hue="Model")  # type: ignore
     # plt.xticks(rotation=45)
     # plt.tight_layout()
     plt.savefig("results/plots/model_dataset_ranks.png", dpi=300, bbox_inches="tight")

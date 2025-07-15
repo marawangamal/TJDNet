@@ -109,7 +109,7 @@ class CPDropDist(TJDist):
         # Encoder: (B, D) -> (B, D, R', H)
         rmask = torch.randint(0, 2, (R,), dtype=torch.bool, device=x.device)
         rmask[torch.randint(R, (1,), device=x.device)] = True  # guarantee ≥1 True
-        print(f"Rank pruning: {R} -> {rmask.sum()}")
+        # print(f"Rank pruning: {R} -> {rmask.sum()}")
 
         # MoE-like rank pruning
         w_encoder = torch.stack(
