@@ -23,7 +23,6 @@ class TJDSimpleConfig:
     train_mode: Literal["full", "lora"] = "lora"
     lora_rank: int = 32
     positivity_func: PositivityFuncType = "exp"
-    dropout: float = 0.5
 
 
 @dataclass
@@ -84,7 +83,6 @@ class TJDSimple(nn.Module):
             rank=config.rank,
             embedding_dim=self.embedding_dim,
             positivity_func=config.positivity_func,
-            dropout=config.dropout,
         )
         self.dist_head = TJD_DISTS[config.model_head](dist_config)
 
