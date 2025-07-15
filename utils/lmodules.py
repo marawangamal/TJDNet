@@ -27,6 +27,7 @@ class LModel(L.LightningModule):
         horizon: int = 1,
         rank: int = 1,
         positivity_func: PositivityFuncType = "sigmoid",
+        dropout: float = 0.5,
         # trainer
         lr: float = 1e-3,
         warmup_steps: int = 100,
@@ -66,6 +67,7 @@ class LModel(L.LightningModule):
                     train_mode=train_mode,
                     lora_rank=lora_rank,
                     positivity_func=positivity_func,
+                    dropout=dropout,
                 )
             )
 

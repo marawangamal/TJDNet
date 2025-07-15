@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Simple memory usage comparison for CP tensor functions."""
 
+from typing import Literal
 from tqdm import tqdm
 
 import torch
@@ -8,6 +9,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions.cp import CPDist
 from utils.perf import get_peak_memory_usage
@@ -16,15 +18,16 @@ from utils.perf import get_peak_memory_usage
 sns.set_theme()
 
 
-def forward_pass(
+def train_fn(
     batch_size: int,
     horizon: int,
     rank: int,
+    model_head: str = "cp",
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
     embedding_dim=256,
     vocab_size=30000,
-    forward: bool = False,
-    backward: bool = False,
+    mode: Literal["init", "forward", "backward"] = "init",
+    **kwargs,
 ):
     config = BaseDistConfig(
         vocab_size=vocab_size,
@@ -33,14 +36,13 @@ def forward_pass(
         embedding_dim=embedding_dim,
         positivity_func="sigmoid",
     )
-    model = CPDist(config).to(device)
+    model = TJD_DISTS[model_head](config).to(device)
     x = torch.randn(batch_size, embedding_dim, device=device)
     y = torch.randint(0, vocab_size, (batch_size, horizon), device=device)
 
-    if forward:
+    if mode in ["forward", "backward"]:
         loss = model(x, y)
-
-        if backward:
+        if mode in ["backward"]:
             loss = loss.mean()
             loss.backward()
 
@@ -57,80 +59,50 @@ def main():
     }
     max_exp = 10
     max_exp_embedding_dim = 5
-    configs = (
-        [
-            {**defaults, "batch_size": 2**i * defaults["batch_size"]}
-            for i in range(max_exp)
-        ]
-        + [{**defaults, "horizon": 2**i * defaults["horizon"]} for i in range(max_exp)]
-        + [{**defaults, "rank": 2**i * defaults["rank"]} for i in range(max_exp)]
-        + [
-            {**defaults, "vocab_size": 2**i * defaults["vocab_size"]}
-            for i in range(max_exp)
-        ]
-        + [
-            {**defaults, "embedding_dim": 2**i * defaults["embedding_dim"]}
-            for i in range(max_exp_embedding_dim)
-        ]
-    )
 
-    # Add backward pass
-    configs = (
-        configs
-        + [{**conf, "forward": True} for conf in configs]
-        + [{**conf, "forward": True, "backward": True} for conf in configs]
-    )
+    # Attrs:
+    # col: hparam (batch_size, horizon, rank, embedding_dim)
+    # x: multiplier
+    # y: memory_mb
+    # hue: mode (init, init + forward, init + forward + backward)
+    # style: model_head (cp, cp_drop)
 
-    # Collect data
-    data = []
+    kwargs = []
+    for mode in ["init", "forward", "backward"]:
+        for head in ["cp", "cp_drop"]:
+            for hparam in ["batch_size", "horizon", "rank", "embedding_dim"]:
+                T = max_exp_embedding_dim if hparam == "embedding_dim" else max_exp
+                for i in range(T):
+                    kwargs.append(
+                        {
+                            **defaults,
+                            "hparam": hparam,
+                            "multiplier": 2**i,
+                            "mode": mode,
+                            "model_head": head,
+                            hparam: 2**i * defaults[hparam],
+                        }
+                    )
+
+    # Compute memory
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    for conf in tqdm(configs, desc="Running forward pass"):
-        memory = get_peak_memory_usage(forward_pass, device=device, **conf)
-        data.append({**conf, "memory_mb": memory})
-    df = pd.DataFrame(data)
+    for conf in tqdm(kwargs, desc="Running forward pass"):
+        memory = get_peak_memory_usage(train_fn, device=device, **conf)
+        conf["memory_mb"] = memory
 
-    # Create plot
-    variable_params = ["batch_size", "horizon", "rank", "embedding_dim"]
-    fig, axes = plt.subplots(1, len(variable_params), figsize=(15, 5))
-    for i, param in enumerate(variable_params):
-        df_filtered = df.copy()
-        fixed_params = {k: v for k, v in defaults.items() if k != param}
-        for fixed_param in fixed_params.keys():
-            df_filtered = df_filtered[
-                df_filtered[fixed_param] == fixed_params[fixed_param]
-            ]
-
-        sns.lineplot(
-            data=df_filtered[df_filtered["forward"] != True],  # type: ignore
-            x=param,
-            y="memory_mb",
-            ax=axes[i],
-            marker="o",
-            label="Init",
-        )
-        sns.lineplot(
-            data=df_filtered[df_filtered["forward"] == True],  # type: ignore
-            x=param,
-            y="memory_mb",
-            ax=axes[i],
-            marker="o",
-            label="Init + Forward",
-        )
-        sns.lineplot(
-            data=df_filtered[df_filtered["backward"] == True],  # type: ignore
-            x=param,
-            y="memory_mb",
-            ax=axes[i],
-            marker="o",
-            label="Init + Forward + Backward",
-        )
-        axes[i].set_title(f'Memory vs {param.replace("_", " ").title()}')
-        axes[i].set_ylabel("Memory (MB)")
-        axes[i].set_xlabel("Param Multiplier")
-        axes[i].set_xscale("log", base=2)
-        axes[i].set_ylim(0, 4000)
-
-    # save
+    df = pd.DataFrame(kwargs)
+    sns.relplot(
+        data=df,
+        x="multiplier",
+        y="memory_mb",
+        col="hparam",
+        style="model_head",
+        hue="mode",
+        kind="line",
+        markers=True,
+        alpha=0.6,
+    )
+    plt.xscale("log", base=2)
     plt.savefig("results/plots/memory_usage_facetgrid.png")
     print(f"Plot saved to results/plots/memory_usage_facetgrid.png")
 

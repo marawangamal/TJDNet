@@ -26,6 +26,7 @@ class BaseDistConfig:
     rank: int
     embedding_dim: int = 768
     positivity_func: PositivityFuncType = "exp"
+    dropout: float = 0.5
 
 
 class AbstractDist(ABC, torch.nn.Module):

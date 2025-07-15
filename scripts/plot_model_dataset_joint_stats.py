@@ -209,4 +209,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# --ckpts results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000.pt results/spectrum_progress_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000.pt results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000_rand.pt results/spectrum_progress_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000_rand.pt
+# --ckpts results/spectrum_progress_meta-llama_Llama-2-7b-chat-hf_topk5000.pt results/spectrum_progress_deepseek-ai_DeepSeek-R1-0528-Qwen3-8B_topk5000.pt
