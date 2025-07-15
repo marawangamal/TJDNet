@@ -8,7 +8,7 @@ from tjdnet.distributions._tpnet import safe_exp
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
 
 
-class CPDropDist(TJDist):
+class CPRMoEDist(TJDist):
     def __init__(self, config: BaseDistConfig, bypass_config=False, **kwargs):
         super().__init__(config)
         self.param_func = None
@@ -23,78 +23,15 @@ class CPDropDist(TJDist):
             "none": lambda x: x,
         }[config.positivity_func]
         self.config = config
-
         R, D, H = config.rank, config.embedding_dim, config.horizon
 
         # Encoder
-        for i in range(R):
-            setattr(
-                self,
-                f"w_encoder_{i}",
-                torch.nn.init.kaiming_uniform_(
-                    torch.nn.Parameter(torch.empty(D, D * H))
-                ),
-            )
-            setattr(self, f"b_encoder_{i}", torch.nn.Parameter(torch.zeros(D * H)))
-        # self.w_encoder = torch.nn.init.kaiming_uniform_(
-        #     torch.nn.Parameter(
-        #         torch.empty(
-        #             config.embedding_dim,
-        #             config.embedding_dim * config.rank * config.horizon,
-        #         )
-        #     )
-        # )
-        # self.b_encoder = torch.nn.Parameter(
-        #     torch.zeros(config.embedding_dim * config.rank * config.horizon)
-        # )
-
-        # # Decoder
-        self.w_decoder = torch.nn.init.kaiming_uniform_(
-            torch.nn.Parameter(torch.empty(config.embedding_dim, config.vocab_size))
+        self.w_encoder_experts = torch.nn.ModuleList(
+            [torch.nn.Linear(D, H * D) for _ in range(R)]
         )
-        self.b_decoder = torch.nn.Parameter(torch.zeros(config.vocab_size))
 
-    # @classmethod
-    # def from_pretrained(
-    #     cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
-    # ):
-    #     """Create a CP distribution from a linear layer.
-
-    #     Args:
-    #         linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
-    #         config (BaseDistFromLinearConfig): Configuration for the distribution.
-
-    #     Returns:
-    #         CPDist: CP distribution with the given configuration.
-    #     """
-
-    #     vocab_size, hidden_dim = linear.weight.shape
-    #     use_bias_decoder = False
-    #     if linear.bias is not None:
-    #         use_bias_decoder = True
-    #         raise Warning("CPDist: Skiping bias initialization.")
-
-    #     param_net_conf = config.param_net.to_dict()
-    #     param_net_conf["hidden_dim"] = hidden_dim
-    #     param_net_conf["out_dim_decoder"] = vocab_size
-    #     param_net_conf["use_bias_decoder"] = use_bias_decoder
-
-    #     obj = cls(
-    #         config=BaseDistConfig(
-    #             vocab_size=vocab_size,
-    #             horizon=config.horizon,
-    #             rank=config.rank,
-    #             param_net=TensorParamNetConfig(**param_net_conf),
-    #         ),
-    #         **kwargs,
-    #     )
-
-    #     # Initialize the parameters in obj.tensor_param_net
-    #     # with the parameters from the linear layer
-    #     obj.param_func.decoder.weight.data = linear.weight.data  # type: ignore
-    #     if use_bias_decoder:
-    #         obj.param_func.decoder.bias.data = linear.bias.data  # type: ignore
-    #     return obj
+        # Decoder
+        self.w_decoder = torch.nn.Linear(D, config.vocab_size)
 
     @classmethod
     def from_pretrained(
@@ -104,41 +41,34 @@ class CPDropDist(TJDist):
 
     def get_params(self, x: torch.Tensor, **kwargs):
         # Setup
-        D, R, H = self.config.embedding_dim, self.config.rank, self.config.horizon
+        B, R, H, D, V = (
+            x.size(0),
+            self.config.rank,
+            self.config.horizon,
+            self.config.embedding_dim,
+            self.config.vocab_size,
+        )
 
         # Encoder: (B, D) -> (B, D, R', H)
         rmask = torch.randint(0, 2, (R,), dtype=torch.bool, device=x.device)
         rmask[torch.randint(R, (1,), device=x.device)] = True  # guarantee ≥1 True
-        # print(f"Rank pruning: {R} -> {rmask.sum()}")
 
-        # MoE-like rank pruning
-        w_encoder = torch.stack(
-            [
-                getattr(self, f"w_encoder_{i}").reshape(D, D, H)
-                for i in range(R)
-                if rmask[i]
-            ],
-            dim=2,
-        )  # (D, D, R', H)
-        b_encoder = torch.stack(
-            [
-                getattr(self, f"b_encoder_{i}").reshape(D, H)
-                for i in range(R)
-                if rmask[i]
-            ],
-            dim=1,
-        )  # (D, R', H)
+        # choose `self.n_active` experts randomly
+        expert_ids = torch.multinomial(
+            torch.arange(R, dtype=torch.float), num_samples=self.config.rank_active
+        ).to(torch.long)
 
-        gamma = 1 / (1 - 0.5) if self.training else 1.0
-        z = gamma * torch.einsum("be,edrh->bdrh", x, w_encoder) + b_encoder
+        # Apply experts
+        p_keep = self.config.rank_active / R
+        gamma = 1 / p_keep if self.training and p_keep > 0 else 1.0
+        z = gamma * torch.stack(
+            [self.w_encoder_experts[eid](x) for eid in expert_ids.tolist()], dim=1
+        )  # (B, R', H*D)
 
-        # Decoder: (B, D, R', H) -> (B, R', H, V)
-        theta = torch.einsum("bdrh,dv->brhv", z, self.w_decoder) + self.b_decoder
+        # Decoder: (B, R', H*D) -> (B, R', H, V)
+        z = self.positivity_func(self.w_decoder(z.reshape(B, -1, H, D)))
 
-        # Positivity
-        theta = self.positivity_func(theta)
-
-        return theta  # (B, R', H, V)
+        return z  # (B, R', H, V)
 
     def sample(
         self,

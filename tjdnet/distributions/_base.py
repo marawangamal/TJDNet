@@ -16,7 +16,7 @@ class BaseDistFromLinearConfig:
     horizon: int
     rank: int
     embedding_dim: int = 768
-    positivity_func: PositivityFuncType = "exp"
+    positivity_func: PositivityFuncType = "sigmoid"
 
 
 @dataclass
@@ -25,8 +25,8 @@ class BaseDistConfig:
     horizon: int
     rank: int
     embedding_dim: int = 768
-    positivity_func: PositivityFuncType = "exp"
-    dropout: float = 0.5
+    positivity_func: PositivityFuncType = "sigmoid"
+    rank_active: int = 2
 
 
 class AbstractDist(ABC, torch.nn.Module):
