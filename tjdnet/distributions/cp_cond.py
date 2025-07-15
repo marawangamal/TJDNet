@@ -33,9 +33,10 @@ class CPCond(AbstractDist):
         )
 
         # === params
-        self.w_alpha = torch.nn.Linear(D, R)
-        self.w_cp = torch.nn.Linear(D, R * H * V)
-        self.decoder = torch.nn.Parameter(torch.randn(D, V))  # (d, V)
+        self.w_alpha = torch.nn.Linear(D, R, bias=False)
+        self.w_cp = torch.nn.Linear(D, R * H * V, bias=False)
+        # self.w_cp = torch.nn.Linear(D, R * H * D, bias=False)
+        # self.decoder = torch.nn.Embedding(V, D)
 
     @classmethod
     def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
@@ -61,6 +62,10 @@ class CPCond(AbstractDist):
 
         # === cp params
         theta = torch.softmax(self.w_cp(x).reshape(-1, R, H, V), dim=-1)  # cores
+        # w_cp = torch.einsum(
+        #     "rhde,vd->rhdv", self.w_cp.weight.reshape(R, H, D, D), self.decoder.weight
+        # )
+        # theta = torch.softmax(torch.einsum("be,rhdv->brhv", x, w_cp), dim=-1)  # cores
         alpha = torch.softmax(self.w_alpha(x).reshape(-1, R), dim=-1)  # moe weights
 
         # === test mode - compute conditional distribution p(y_next | x, y_prev)
@@ -117,6 +122,10 @@ class CPCond(AbstractDist):
 
         # === cp params
         theta = torch.softmax(self.w_cp(x).reshape(-1, R, H, V), dim=-1)  # cores
+        # w_cp = torch.einsum(
+        #     "rhde,vd->rhdv", self.w_cp.weight.reshape(R, H, D, D), self.decoder.weight
+        # )
+        # theta = torch.softmax(torch.einsum("be,rhdv->brhv", x, w_cp), dim=-1)  # cores
         alpha = torch.softmax(self.w_alpha(x).reshape(-1, R), dim=-1)  # moe weights
 
         # === train mode - evaluate joint probability p(y | x)

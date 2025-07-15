@@ -72,7 +72,7 @@ def main():
 
     kwargs = []
     for mode in ["init", "forward", "backward"]:
-        for head in ["cp", "cp_drop"]:
+        for head in ["cp", "cp_rmoe"]:
             for hparam in ["batch_size", "horizon", "rank", "embedding_dim"]:
                 T = max_exps[hparam]
                 for i in range(T):
@@ -108,8 +108,8 @@ def main():
         alpha=0.6,
     )
     plt.xscale("log", base=2)
-    plt.savefig("results/plots/memory_usage_facetgrid.png")
-    print(f"Plot saved to results/plots/memory_usage_facetgrid.png")
+    plt.savefig("results/plots/mhead_memory_usage_facetgrid.png")
+    print(f"Plot saved to results/plots/mhead_memory_usage_facetgrid.png")
 
     # Plot latency
     sns.relplot(
@@ -124,8 +124,8 @@ def main():
         alpha=0.6,
     )
     plt.xscale("log", base=2)
-    plt.savefig("results/plots/latency_facetgrid.png")
-    print(f"Plot saved to results/plots/latency_facetgrid.png")
+    plt.savefig("results/plots/mhead_latency_facetgrid.png")
+    print(f"Plot saved to results/plots/mhead_latency_facetgrid.png")
 
 
 if __name__ == "__main__":
