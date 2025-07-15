@@ -11,7 +11,6 @@ import seaborn as sns
 
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig
-from tjdnet.distributions.cp import CPDist
 from utils.perf import get_peak_memory_usage
 
 
@@ -51,14 +50,18 @@ def main():
 
     # Default values
     defaults = {
-        "batch_size": 2,
+        "batch_size": 128,
         "horizon": 2,
         "rank": 2,
-        "embedding_dim": 128,
+        "embedding_dim": 768,
         "vocab_size": 30000,
     }
-    max_exp = 10
-    max_exp_embedding_dim = 5
+    max_exps = {
+        "horizon": 5,
+        "rank": 5,
+        "embedding_dim": 5,
+        "batch_size": 5,
+    }
 
     # Attrs:
     # col: hparam (batch_size, horizon, rank, embedding_dim)
@@ -71,7 +74,7 @@ def main():
     for mode in ["init", "forward", "backward"]:
         for head in ["cp", "cp_drop"]:
             for hparam in ["batch_size", "horizon", "rank", "embedding_dim"]:
-                T = max_exp_embedding_dim if hparam == "embedding_dim" else max_exp
+                T = max_exps[hparam]
                 for i in range(T):
                     kwargs.append(
                         {

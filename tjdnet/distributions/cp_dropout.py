@@ -24,20 +24,31 @@ class CPDropDist(TJDist):
         }[config.positivity_func]
         self.config = config
 
-        # Encoder
-        self.w_encoder = torch.nn.init.kaiming_uniform_(
-            torch.nn.Parameter(
-                torch.empty(
-                    config.embedding_dim,
-                    config.embedding_dim * config.rank * config.horizon,
-                )
-            )
-        )
-        self.b_encoder = torch.nn.Parameter(
-            torch.zeros(config.embedding_dim * config.rank * config.horizon)
-        )
+        R, D, H = config.rank, config.embedding_dim, config.horizon
 
-        # Decoder
+        # Encoder
+        for i in range(R):
+            setattr(
+                self,
+                f"w_encoder_{i}",
+                torch.nn.init.kaiming_uniform_(
+                    torch.nn.Parameter(torch.empty(D, D * H))
+                ),
+            )
+            setattr(self, f"b_encoder_{i}", torch.nn.Parameter(torch.zeros(D * H)))
+        # self.w_encoder = torch.nn.init.kaiming_uniform_(
+        #     torch.nn.Parameter(
+        #         torch.empty(
+        #             config.embedding_dim,
+        #             config.embedding_dim * config.rank * config.horizon,
+        #         )
+        #     )
+        # )
+        # self.b_encoder = torch.nn.Parameter(
+        #     torch.zeros(config.embedding_dim * config.rank * config.horizon)
+        # )
+
+        # # Decoder
         self.w_decoder = torch.nn.init.kaiming_uniform_(
             torch.nn.Parameter(torch.empty(config.embedding_dim, config.vocab_size))
         )
@@ -96,24 +107,30 @@ class CPDropDist(TJDist):
         D, R, H = self.config.embedding_dim, self.config.rank, self.config.horizon
 
         # Encoder: (B, D) -> (B, D, R', H)
-        mask_keep = (
-            torch.rand(R, device=x.device) > self.config.dropout
-            if not self.training
-            else torch.ones(R, device=x.device) == torch.tensor(1.0)
-        )
-        # If all ranks are dropped, keep all ranks
-        mask_keep = (
-            torch.ones(R, device=x.device) == torch.tensor(1.0)
-            if mask_keep.sum() == 0
-            else mask_keep
-        )
+        rmask = torch.randint(0, 2, (R,), dtype=torch.bool, device=x.device)
+        rmask[torch.randint(R, (1,), device=x.device)] = True  # guarantee ≥1 True
+        print(f"Rank pruning: {R} -> {rmask.sum()}")
 
-        gamma = 1 / (1 - self.config.dropout) if self.training else 1.0
-        w_encoder = self.w_encoder.reshape(D, D, R, H)[:, :, mask_keep]  # (D, D, R', H)
-        z = gamma * (
-            torch.einsum("be,edrh->bdrh", x, w_encoder)
-            + self.b_encoder.reshape(D, R, H)[:, mask_keep]
-        )  # (B, D, R', H)
+        # MoE-like rank pruning
+        w_encoder = torch.stack(
+            [
+                getattr(self, f"w_encoder_{i}").reshape(D, D, H)
+                for i in range(R)
+                if rmask[i]
+            ],
+            dim=2,
+        )  # (D, D, R', H)
+        b_encoder = torch.stack(
+            [
+                getattr(self, f"b_encoder_{i}").reshape(D, H)
+                for i in range(R)
+                if rmask[i]
+            ],
+            dim=1,
+        )  # (D, R', H)
+
+        gamma = 1 / (1 - 0.5) if self.training else 1.0
+        z = gamma * torch.einsum("be,edrh->bdrh", x, w_encoder) + b_encoder
 
         # Decoder: (B, D, R', H) -> (B, R', H, V)
         theta = torch.einsum("bdrh,dv->brhv", z, self.w_decoder) + self.b_decoder
