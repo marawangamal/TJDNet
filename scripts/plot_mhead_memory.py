@@ -60,7 +60,7 @@ def main():
     max_exps = {
         "horizon": 5,
         "rank": 5,
-        "embedding_dim": 5,
+        # "embedding_dim": 2,
         "batch_size": 5,
     }
 
@@ -73,10 +73,9 @@ def main():
 
     kwargs = []
     for mode in ["init", "forward", "backward"]:
-        for head in ["cp", "cp_rmoe"]:
-            for hparam in ["batch_size", "horizon", "rank", "embedding_dim"]:
-                T = max_exps[hparam]
-                for i in range(T):
+        for head in ["cp", "cp_condl"]:
+            for hparam, max_exp in max_exps.items():
+                for i in range(max_exp):
                     kwargs.append(
                         {
                             **defaults,
@@ -90,11 +89,13 @@ def main():
 
     # Compute memory
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    for conf in tqdm(kwargs, desc="Running forward pass"):
+    pbar = tqdm(kwargs, desc="Running forward pass")
+    for conf in pbar:
         memory_mb = get_peak_memory_usage(train_fn, device=device, **conf)
         latency_sec = get_latency(train_fn, device=device, **conf)
         conf["memory_mb"] = memory_mb
         conf["latency_sec"] = latency_sec
+        pbar.set_postfix({"model_head": conf["model_head"]})
 
     df = pd.DataFrame(kwargs)
     sns.relplot(

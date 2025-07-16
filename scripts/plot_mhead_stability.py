@@ -71,7 +71,7 @@ def main():
     configs = []
 
     # add cp configs
-    for model_head, rank in itertools.product(["cp"], range_exp(1, 6)):
+    for model_head, rank in itertools.product(["cp", "cp_cond", "cp_condl"], [1]):
         configs.append(
             {
                 "model_head": model_head,
@@ -83,23 +83,23 @@ def main():
             }
         )
 
-    # # add multihead config
-    # configs.append(
-    #     {
-    #         "model_head": "multihead",
-    #         "model_head_kwargs": {**model_hparams},
-    #         "rank": 1,
-    #     }
-    # )
+    # add multihead config
+    configs.append(
+        {
+            "model_head": "multihead",
+            "model_head_kwargs": {**model_hparams},
+            "rank": 1,
+        }
+    )
 
-    # # add dummy dist
-    # configs.append(
-    #     {
-    #         "model_head": "dummy",
-    #         "model_head_kwargs": {**model_hparams},
-    #         "rank": 1,
-    #     }
-    # )
+    # add dummy dist
+    configs.append(
+        {
+            "model_head": "dummy",
+            "model_head_kwargs": {**model_hparams},
+            "rank": 1,
+        }
+    )
 
     # create synthetic data
     train_ds = torch.utils.data.TensorDataset(

@@ -37,7 +37,7 @@ class CPCondl(AbstractDist):
         # === params
         self.w_alpha = torch.nn.Linear(D, R)
         self.w_cp = torch.nn.Linear(D, H * R * V)
-        self.decoder = torch.nn.Parameter(torch.randn(D, V))  # (d, V)
+        # self.decoder = torch.nn.Parameter(torch.randn(D, V))  # (d, V)
 
     @classmethod
     def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
