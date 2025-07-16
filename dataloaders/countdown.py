@@ -39,7 +39,7 @@ class Countdown(AbstractDataset):
 
     def get_sample_prompt(self) -> str:
         return self.templates[self.template_mode].format(
-            question="Count down from 15 to 1. What is the 5th number in this sequence?",
+            question="Calculate 139 using all of these numbers: 36, 29, 95, 32, 4, 15.\nEach number may be used at most once.\n\nFinal answer format instructions:\n1. Provide your solution as a arithmetic expression (no '=' sign).\n2. Do not include the target number in the expression.\n3. Use '*' for multiplication.\n4. Use '/' for division.\n5. Do not include any other text or formatting.\n",
             answer="",
         )
 
@@ -63,7 +63,8 @@ class Countdown(AbstractDataset):
 
     def load_raw_data(self):
         # Generate synthetic countdown problems since reasoning-gym dataset might not be available
-        train_ds = reasoning_gym.create_dataset("countdown", size=1000, seed=42)
+        n_samples = self.max_num_samples if self.max_num_samples is not None else 1000
+        train_ds = reasoning_gym.create_dataset("countdown", size=n_samples, seed=42)
         eval_ds = reasoning_gym.create_dataset("countdown", size=100, seed=42)
         test_ds = reasoning_gym.create_dataset("countdown", size=100, seed=42)
 

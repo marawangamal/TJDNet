@@ -73,3 +73,13 @@ class AbstractDist(ABC, torch.nn.Module):
             T: An instance of the distribution class.
         """
         pass
+
+    # @abstractmethod
+    # def get_output_embeddings(self):
+    #     """Get the output embeddings of the distribution."""
+    #     pass
+
+    # @abstractmethod
+    # def set_output_embeddings(self, new_embeddings):
+    #     """Set the output embeddings of the distribution."""
+    #     pass

@@ -40,7 +40,17 @@ class CPCondl(AbstractDist):
         )
 
     def w_cp(self, x: torch.Tensor):
-        return torch.einsum("be,ehrd,dv->brhv", x, self.w_cp_fac, self.decoder)
+        return torch.einsum("erd,dv,->brhv", x, self.w_cp_fac, self.decoder)
+
+    def get_output_embeddings(self):
+        return torch.einsum(
+            "rd,ehrd,dv->brhv", self.w_alpha.weight, self.w_cp_fac[:, 0], self.decoder
+        )
+
+    def set_output_embeddings(self, new_embeddings):
+        raise NotImplementedError(
+            "set_output_embeddings method must be implemented in the subclass"
+        )
 
     @classmethod
     def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):

@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from peft import LoraConfig, TaskType
 from transformers import AutoModelForCausalLM, AutoConfig
 from transformers.utils.generic import ModelOutput
 from dataclasses import dataclass
@@ -38,7 +37,9 @@ class TJDGenerationConfig:
 
 def get_backbone(model_name: str) -> torch.nn.Module:
     """Get the backbone of a HuggingFace model."""
-    hf_model = AutoModelForCausalLM.from_pretrained(model_name)
+    config = AutoConfig.from_pretrained(model_name)
+    config.torch_dtype = torch.float32
+    hf_model = AutoModelForCausalLM.from_config(config)
     if hasattr(hf_model, "transformer"):
         return hf_model.transformer
     elif hasattr(hf_model, "model"):  # e.g., Llama
@@ -62,21 +63,16 @@ def get_lm_head_dims(model_name: str) -> tuple[int, int]:
 
 
 class TJDSimple(nn.Module):
-    """Super minimal TJD model combining TJD and TJDHF functionality."""
+    """Minimal TJD model"""
 
     def __init__(self, config: TJDSimpleConfig):
         super().__init__()
         self.config = config
-
-        # Load HuggingFace model
-        self.hf_model = AutoModelForCausalLM.from_pretrained(config.model_name)
+        self.hf_model_config = AutoConfig.from_pretrained(config.model_name)
         self.backbone = get_backbone(config.model_name)
-        self.lm_head = self.hf_model.lm_head
-
-        # Get model dimensions
         self.vocab_size, self.embedding_dim = get_lm_head_dims(config.model_name)
 
-        # Create distribution head
+        # init stp/mtp head
         dist_config = BaseDistConfig(
             vocab_size=self.vocab_size,
             horizon=config.horizon,
@@ -84,40 +80,7 @@ class TJDSimple(nn.Module):
             embedding_dim=self.embedding_dim,
             positivity_func=config.positivity_func,
         )
-        try:
-            self.dist_head = TJD_DISTS[config.model_head].from_pretrained(
-                self.lm_head, dist_config
-            )
-            # set decoder requires_grad to False
-            if hasattr(self.dist_head, "decoder"):
-                for param in self.dist_head.decoder.parameters():  # type: ignore
-                    param.requires_grad = False
-                print("Dist head decoder frozen")
-            print("Initialized dist head from pretrained")
-        except:
-            self.dist_head = TJD_DISTS[config.model_head](dist_config)
-            print("Initialized dist head from scratch")
-        # self.dist_head = TJD_DISTS[config.model_head](dist_config)
-
-        # Apply LoRA if needed
-        if config.train_mode == "lora":
-            peft_config = LoraConfig(
-                task_type=TaskType.FEATURE_EXTRACTION,
-                inference_mode=False,
-                r=config.lora_rank,
-                lora_alpha=32,
-                lora_dropout=0.1,
-            )
-            self.backbone.add_adapter(peft_config, adapter_name="lora_1")  # type: ignore
-
-            # Freeze non-LoRA params
-            for name, param in self.backbone.named_parameters():
-                if "lora" not in name:
-                    param.requires_grad = False
-
-        # Free original model
-        del self.hf_model
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        self.dist_head = TJD_DISTS[config.model_head](dist_config)
 
     def _prepare_targets(self, labels: torch.Tensor) -> torch.Tensor:
         # Use the same approach as in tjd.py
@@ -181,54 +144,6 @@ class TJDSimple(nn.Module):
             )
 
         return ModelOutput(**{"hidden_states": hidden_states})
-
-    def forward_backward(
-        self,
-        input_ids: torch.Tensor,
-        labels: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        **kwargs,
-    ) -> ModelOutput:
-        """Forward pass for training."""
-
-        y = self._prepare_targets(input_ids)
-
-        z = getattr(
-            self.backbone(input_ids=input_ids, attention_mask=attention_mask, **kwargs),
-            "last_hidden_state",
-        )
-
-        # truncate to multiple of horizon
-        B, T, D = z.shape
-        H = self.config.horizon
-        # Truncate to the largest multiple of horizon that fits within T
-        T_truncated = (T // H) * H
-        if T_truncated < T:
-            z = z[:, :T_truncated, :]
-            if attention_mask is not None:
-                attention_mask = attention_mask[:, :T_truncated]
-            if labels is not None:
-                labels = labels[:, :T_truncated]
-
-        z = z[:, :-H, :].reshape(-1, D)
-
-        # Memory-efficient backward for MultiHeadDist
-        if hasattr(self.dist_head, "forward_partial"):
-            d = z.detach()
-            d.requires_grad = True
-
-            total_loss = 0.0
-            for h in range(H):
-                loss_i = self.dist_head.forward_partial(d, y, head_ids=[h]).mean()  # type: ignore
-                loss_i.backward()
-                total_loss += loss_i.detach()
-            z.backward(gradient=d.grad)
-            return ModelOutput(**{"loss": total_loss, "nll": -1})
-
-        # Fallback: normal backward
-        loss = self.dist_head(z, y).mean()
-        loss.backward()
-        return ModelOutput(**{"loss": loss, "nll": -1})
 
     def generate(
         self,

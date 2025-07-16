@@ -9,7 +9,6 @@ from dataloaders.sharegpt import ShareGPT
 from dataloaders.sst2 import SST2
 from dataloaders.stemp import STemp
 from dataloaders.wikitext2 import WikiText2
-from dataloaders.smollm_corpus import SmolLMDataset
 
 DATASETS: dict[str, type[AbstractDataset]] = {
     "gsm8k": GSM8k,
@@ -22,6 +21,5 @@ DATASETS: dict[str, type[AbstractDataset]] = {
     "sst2": SST2,
     "reddit": Reddit,
     "countdown": Countdown,
-    "smollm_corpus": SmolLMDataset,
     # Add more datasets here as needed
 }

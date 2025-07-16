@@ -5,13 +5,13 @@ This script sets up the Lightning CLI for training and testing models, including
 experiment management, learning rate finding, and integration with Weights & Biases (wandb).
 
 Example usage:
-    python main.py fit --model.model distilbert/distilgpt2 --model.model_head cp_condl --model.rank 1 --model.horizon 2 --trainer.max_epochs 1 --data.batch_size 1 --data.seq_len 10 --data.max_num_samples 10 --trainer.max_epochs 1
+    python main.py fit --model.model HuggingFaceTB/SmolLM-135M --model.model_head cp_condl --model.rank 1 --model.horizon 2 --trainer.max_epochs 1 --data.batch_size 1 --data.seq_len 10 --data.max_num_samples 10 --trainer.max_epochs 1
 
 """
 
-import os
+# import os
 
-os.environ["WANDB_MODE"] = "disabled"
+# os.environ["WANDB_MODE"] = "disabled"
 
 
 import os.path as osp

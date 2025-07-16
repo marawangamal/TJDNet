@@ -31,6 +31,16 @@ class CPDist(TJDist):
         params_reshaped = params.reshape(B, self.rank, self.horizon, self.vocab_size)
         return params_reshaped  # (B, R, H, V)  // H* is model level horizon
 
+    def get_output_embeddings(self):
+        raise NotImplementedError(
+            "get_output_embeddings method must be implemented in the subclass"
+        )
+
+    def set_output_embeddings(self, new_embeddings):
+        raise NotImplementedError(
+            "set_output_embeddings method must be implemented in the subclass"
+        )
+
     def sample(
         self,
         x: torch.Tensor,
