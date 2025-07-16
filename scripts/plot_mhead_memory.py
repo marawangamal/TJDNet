@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Simple memory usage comparison for CP tensor functions."""
 
+import os
 from typing import Literal
 from tqdm import tqdm
 
@@ -124,6 +125,7 @@ def main():
         alpha=0.6,
     )
     plt.xscale("log", base=2)
+    os.makedirs("results/plots", exist_ok=True)
     plt.savefig("results/plots/mhead_latency_facetgrid.png")
     print(f"Plot saved to results/plots/mhead_latency_facetgrid.png")
 

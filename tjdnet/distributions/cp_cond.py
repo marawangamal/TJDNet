@@ -35,6 +35,8 @@ class CPCond(AbstractDist):
         # === params
         self.w_alpha = torch.nn.Linear(D, R, bias=False)
         self.w_cp = torch.nn.Linear(D, R * H * V, bias=False)
+
+        # factorized version
         # self.w_cp = torch.nn.Linear(D, R * H * D, bias=False)
         # self.decoder = torch.nn.Embedding(V, D)
 
@@ -180,3 +182,16 @@ class CPCond(AbstractDist):
             torch.Tensor: Computed loss. Shape (B,).
         """
         return -self.log_prob(x, y)
+
+
+if __name__ == "__main__":
+
+    B, R, H, D, V = 1, 4, 2, 512, 1000
+
+    config = BaseDistConfig(horizon=H, rank=R, embedding_dim=D, vocab_size=V)
+    dist = CPCond(config)
+
+    x = torch.randn(B, D)
+    y = torch.randint(0, V, (B, H))
+    print(dist(x, y))
+    print(dist.sample(x, sample_fn=lambda x: x.argmax(-1)))

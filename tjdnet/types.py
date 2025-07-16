@@ -5,5 +5,5 @@ PositivityFuncType = Literal[
 ]
 
 ModelHeadType = Literal[
-    "stp", "cp", "cp_cond", "cp_drop", "cp_condl", "cpme", "multihead"
+    "stp", "cp", "cp_cond", "cp_rmoe", "cp_condl", "cpme", "multihead"
 ]
