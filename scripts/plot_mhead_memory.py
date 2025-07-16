@@ -73,7 +73,7 @@ def main():
 
     kwargs = []
     for mode in ["init", "forward", "backward"]:
-        for head in ["cp", "cp_condl"]:
+        for head in ["cp", "cp_cond", "cp_condl"]:
             for hparam, max_exp in max_exps.items():
                 for i in range(max_exp):
                     kwargs.append(

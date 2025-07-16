@@ -32,18 +32,45 @@ class CPCond(AbstractDist):
         )
 
         # === params
-        self.w_alpha = torch.nn.Linear(D, R, bias=False)
-        self.w_cp = torch.nn.Linear(D, R * H * V, bias=False)
+        self.w_alpha = torch.nn.Linear(D, R)
+        self.w_cp_fac = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(D, H, R, D))
+        )
+        self.decoder = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(D, V))
+        )
 
-        # factorized version
-        # self.w_cp = torch.nn.Linear(D, R * H * D, bias=False)
-        # self.decoder = torch.nn.Embedding(V, D)
+    def w_cp(self, x: torch.Tensor):
+        return torch.einsum("be,ehrd,dv->brhv", x, self.w_cp_fac, self.decoder)
 
     @classmethod
-    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig):
-        raise NotImplementedError(
-            "from_linear method must be implemented in the subclass"
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
+        """Create a CP distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        vocab_size, embedding_dim = linear.weight.shape
+
+        obj = cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                embedding_dim=embedding_dim,
+            ),
+            **kwargs,
         )
+
+        # Initialize the parameters in obj.tensor_param_net
+        # with the parameters from the linear layer
+        obj.decoder.weight.data = linear.weight.data  # type: ignore
+        return obj
 
     def prob_y_bar_x(
         self,

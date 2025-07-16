@@ -32,12 +32,15 @@ class CPCondl(AbstractDist):
 
         # === params
         self.w_alpha = torch.nn.Linear(D, R)
-        self.w_cp_factor = torch.nn.Linear(D, H * R * D)
-        # self.decoder = torch.nn.init.kaiming_uniform_(
-        #     torch.nn.Parameter(torch.empty(D, V))
-        # )
-        self.decoder = torch.nn.Linear(D, V, bias=False)
-        self.w_cp = torch.nn.Sequential(self.w_cp_factor, self.decoder)
+        self.w_cp_fac = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(D, H, R, D))
+        )
+        self.decoder = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(D, V))
+        )
+
+    def w_cp(self, x: torch.Tensor):
+        return torch.einsum("be,ehrd,dv->brhv", x, self.w_cp_fac, self.decoder)
 
     @classmethod
     def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):

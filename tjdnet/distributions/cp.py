@@ -20,32 +20,10 @@ class CPDist(TJDist):
         super().__init__(config)
 
     @classmethod
-    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
-        """Create a CP distribution from a linear layer.
-
-        Args:
-            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
-            config (BaseDistFromLinearConfig): Configuration for the distribution.
-
-        Returns:
-            CPDist: CP distribution with the given configuration.
-        """
-
-        vocab_size, hidden_dim = linear.weight.shape
-        obj = cls(
-            config=BaseDistConfig(
-                vocab_size=vocab_size,
-                horizon=config.horizon,
-                rank=config.rank,
-                embedding_dim=hidden_dim,
-            ),
-            **kwargs,
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig):
+        raise NotImplementedError(
+            "from_linear method must be implemented in the subclass"
         )
-
-        # Initialize the parameters in obj.tensor_param_net
-        # with the parameters from the linear layer
-        obj.param_func.decoder.weight.data = linear.weight.data  # type: ignore
-        return obj
 
     def get_params(self, x: torch.Tensor, **kwargs):
         B = x.size(0)

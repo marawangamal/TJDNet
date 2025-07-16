@@ -90,7 +90,7 @@ class TJDSimple(nn.Module):
             )
             # set decoder requires_grad to False
             if hasattr(self.dist_head, "decoder"):
-                for param in self.dist_head.decoder.parameters():
+                for param in self.dist_head.decoder.parameters():  # type: ignore
                     param.requires_grad = False
                 print("Dist head decoder frozen")
             print("Initialized dist head from pretrained")
@@ -219,7 +219,7 @@ class TJDSimple(nn.Module):
 
             total_loss = 0.0
             for h in range(H):
-                loss_i = self.dist_head.forward_partial(d, y, head_ids=[h]).mean()
+                loss_i = self.dist_head.forward_partial(d, y, head_ids=[h]).mean()  # type: ignore
                 loss_i.backward()
                 total_loss += loss_i.detach()
             z.backward(gradient=d.grad)

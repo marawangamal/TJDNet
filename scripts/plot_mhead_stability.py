@@ -92,14 +92,14 @@ def main():
         }
     )
 
-    # add dummy dist
-    configs.append(
-        {
-            "model_head": "dummy",
-            "model_head_kwargs": {**model_hparams},
-            "rank": 1,
-        }
-    )
+    # # add dummy dist
+    # configs.append(
+    #     {
+    #         "model_head": "dummy",
+    #         "model_head_kwargs": {**model_hparams},
+    #         "rank": 1,
+    #     }
+    # )
 
     # create synthetic data
     train_ds = torch.utils.data.TensorDataset(
