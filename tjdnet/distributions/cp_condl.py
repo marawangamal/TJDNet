@@ -124,12 +124,12 @@ class CPCondl(AbstractDist):
         """Computes logP(y|x) for CPCondl distribution.
 
         Args:
-            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
-            y (torch.Tensor): Target labels. Shape (B, H).
+            x (torch.Tensor): Input features. Shape: (B, D). (i.e., last hidden state)
+            y (torch.Tensor): Target labels. Shape: (B, H).
             return_logit (bool, optional): Whether to return dist over next token. Defaults to False.
 
         Returns:
-            torch.Tensor: Computed logP(y|x). Shape (B,) if return_dist_slice is False, else (B, V).
+            torch.Tensor: log(p(y|x)). Shape: (B,)
 
         """
         if return_dist_slice:
@@ -139,6 +139,53 @@ class CPCondl(AbstractDist):
             self.w_cp(x),  # (B, H*R*V)
             y,  # (B, H)
         )
+
+    def log_prob_dist(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        **kwargs,
+    ):
+        """Computes logP(y|x) for CPCondl distribution.
+
+        Args:
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+            y (torch.Tensor): Target labels. Shape (B, H).
+            return_logit (bool, optional): Whether to return dist over next token. Defaults to False.
+
+        Returns:
+            torch.Tensor: Computed logP(y|x). Shape (B,) if return_dist_slice is False, else (B, V).
+
+        """
+        B, H, R, V = (
+            y.size(0),
+            self.config.horizon,
+            self.config.rank,
+            self.config.vocab_size,
+        )
+        assert y.size(1) <= H, f"y > horizon"
+
+        # log-softmax of unnormalized mixture weights. Shape: (B, R)
+        lsm_alpha = torch.log_softmax(self.w_alpha(x), dim=-1)  # (B, R)
+        # log-softmax of unnormalized conditional probs. Shape: (B, H, R, V)
+        lsm_cp_cores = torch.log_softmax(self.w_cp(x).reshape(B, H, R, V), dim=-1)
+
+        # Select op on first h-1 conditional probs
+        # (B, H, R, V) -> (B, H, R, 1) -> (B, R, 1)
+        H_prime = y.size(1)  # current horizon idx
+        lsm_cp_cores_slct = (
+            lsm_cp_cores[:, :H_prime]
+            .gather(-1, y.reshape(B, H_prime, 1, 1).expand(-1, -1, R, -1))
+            .sum(dim=1)
+        )
+
+        lsm_cp_core_free = lsm_cp_cores[:, -1]  # (B, R, V)
+
+        # Update prior using intermediate tokens
+        z = lsm_alpha.unsqueeze(-1) + lsm_cp_cores_slct + lsm_cp_core_free  # (B, R, V)
+
+        # (B, R) -> (B,)
+        return torch.logsumexp(z, dim=1)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor):
         """Computes loss for CPB distribution.
@@ -160,7 +207,31 @@ class CPCondl(AbstractDist):
         return_logits: bool = False,
         **kwargs,
     ):
-        raise NotImplementedError("sample not implemented")
+        """Sample from CPCondl distribution.
+
+        Args:
+            x (torch.Tensor): Input features. Shape (B, D). (i.e., last hidden state)
+            sample_fn (Callable[[torch.Tensor], torch.Tensor]): Function to sample from the distribution.
+            horizon (Optional[int], optional): Horizon. Defaults to None.
+            return_logits (bool, optional): Whether to return logits. Defaults to False.
+
+        Returns:
+            torch.Tensor: Sampled tokens. Shape (B, H).
+        """
+
+        B, H = (x.size(0), self.config.horizon)
+        y_out = torch.empty(B, 0, dtype=torch.long, device=x.device)
+        for h in range(H):
+            logits = self.log_prob_dist(x, y_out)  # (B, V)
+            log_z = (
+                self.log_prob(x, y_out).unsqueeze(-1)
+                if y_out.size(1) > 0
+                else torch.zeros_like(logits)
+            )
+            logits = logits - log_z
+            yh = sample_fn(logits.exp())  # (B,)
+            y_out = torch.cat([y_out, yh.unsqueeze(1)], dim=1)
+        return y_out
 
 
 if __name__ == "__main__":
@@ -169,3 +240,4 @@ if __name__ == "__main__":
     x = torch.randn(2, D)
     y = torch.randint(0, V, (2, H))
     print(cp_condl.log_prob(x, y))
+    print(cp_condl.sample(x, lambda logits: logits.argmax(dim=-1)))
