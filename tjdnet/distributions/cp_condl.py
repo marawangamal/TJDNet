@@ -104,39 +104,6 @@ class CPCondl(AbstractDist):
         # (B, R) -> (B,)
         return torch.logsumexp(z, dim=1)
 
-    def _compute_log_prob_unstable(
-        self,
-        alpha_tilde: torch.Tensor,
-        p_dists_tilde: torch.Tensor,
-        y: torch.Tensor,
-        return_dist_slice: bool = False,
-        **kwargs,
-    ):
-        B, H, R, V = (
-            y.size(0),
-            self.config.horizon,
-            self.config.rank,
-            self.config.vocab_size,
-        )
-        assert y.size(1) <= H, f"y > horizon"
-        if return_dist_slice:
-            raise NotImplementedError("return_dist_slice not implemented")
-
-        # log-softmax of unnormalized mixture weights. Shape: (B, R)
-        sm_alpha = torch.softmax(alpha_tilde, dim=-1)  # (B, R)
-        # log-softmax of unnormalized conditional probs. Shape: (B, H, R, V)
-        sm_cp_cores = torch.softmax(p_dists_tilde.reshape(B, H, R, V), dim=-1)
-        # (B, H, R, V) -> (B, H, R)
-        sm_cp_cores_slct = sm_cp_cores.gather(
-            -1, y.reshape(B, H, 1, 1).expand(-1, -1, R, -1)
-        ).squeeze(-1)
-
-        # res = sm_cp_cores_slct.prod(dim=1).sum(dim=1)
-        res = 0.0
-        for r in range(R):
-            res += sm_cp_cores_slct[:, :, r].prod(dim=1) * sm_alpha[:, r]
-        return torch.log(res)
-
     def log_prob(
         self,
         x: torch.Tensor,
