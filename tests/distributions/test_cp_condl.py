@@ -36,23 +36,23 @@ class TestCPDist(unittest.TestCase):
             cores_cp = [ti.T for ti in tens_cp.cores]
             y = torch.tensor([idx])
 
-            log_prob_hat_unst = cp_condl._compute_log_prob_unstable(
+            # log_prob_hat_unst = cp_condl._compute_log_prob_unstable(
+            #     alpha_tilde=alpha.reshape(1, -1).repeat(B, 1),
+            #     # (B, H, R, V)
+            #     p_dists_tilde=torch.stack(cores_cp, dim=0).unsqueeze(0),
+            #     y=y,
+            # )  # (B,)
+
+            log_prob_hat = cp_condl._compute_log_prob(
                 alpha_tilde=alpha.reshape(1, -1).repeat(B, 1),
                 # (B, H, R, V)
                 p_dists_tilde=torch.stack(cores_cp, dim=0).unsqueeze(0),
                 y=y,
             )  # (B,)
 
-            # log_prob_hat = cp_condl._compute_log_prob(
-            #     alpha_tilde=torch.ones(B, R),
-            #     # (B, H, R, V)
-            #     p_dists_tilde=torch.stack(cores_cp, dim=0).unsqueeze(0),
-            #     y=y,
-            # )  # (B,)
-
             log_prob_actual = torch.log(tens_cp_normalized[idx]).reshape(1)
             torch.testing.assert_close(
-                log_prob_actual, log_prob_hat_unst, atol=1e-1, rtol=1e-1
+                log_prob_actual, log_prob_hat, atol=1e-1, rtol=1e-1
             )
 
 
