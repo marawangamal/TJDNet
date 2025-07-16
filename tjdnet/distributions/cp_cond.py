@@ -3,8 +3,7 @@ from typing import Callable, Optional
 
 import torch
 
-from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
-from tjdnet.distributions._tjdist import BaseDistConfig
+from tjdnet.distributions._base import AbstractDist, BaseDistConfig
 
 
 class CPCond(AbstractDist):
@@ -34,14 +33,44 @@ class CPCond(AbstractDist):
 
         # === params
         self.w_alpha = torch.nn.Linear(D, R)
-        self.w_cp = torch.nn.Linear(D, R * H * V)
-        self.decoder = torch.nn.Parameter(torch.randn(D, V))  # (d, V)
+        self.w_cp_fac = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(D, H, R, D))
+        )
+        self.decoder = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(D, V))
+        )
+
+    def w_cp(self, x: torch.Tensor):
+        return torch.einsum("be,ehrd,dv->brhv", x, self.w_cp_fac, self.decoder)
 
     @classmethod
-    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
-        raise NotImplementedError(
-            "from_linear method must be implemented in the subclass"
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
+        """Create a CP distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        vocab_size, embedding_dim = linear.weight.shape
+
+        obj = cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                embedding_dim=embedding_dim,
+            ),
+            **kwargs,
         )
+
+        # Initialize the parameters in obj.tensor_param_net
+        # with the parameters from the linear layer
+        obj.decoder.weight.data = linear.weight.data  # type: ignore
+        return obj
 
     def prob_y_bar_x(
         self,
@@ -61,6 +90,10 @@ class CPCond(AbstractDist):
 
         # === cp params
         theta = torch.softmax(self.w_cp(x).reshape(-1, R, H, V), dim=-1)  # cores
+        # w_cp = torch.einsum(
+        #     "rhde,vd->rhdv", self.w_cp.weight.reshape(R, H, D, D), self.decoder.weight
+        # )
+        # theta = torch.softmax(torch.einsum("be,rhdv->brhv", x, w_cp), dim=-1)  # cores
         alpha = torch.softmax(self.w_alpha(x).reshape(-1, R), dim=-1)  # moe weights
 
         # === test mode - compute conditional distribution p(y_next | x, y_prev)
@@ -117,6 +150,10 @@ class CPCond(AbstractDist):
 
         # === cp params
         theta = torch.softmax(self.w_cp(x).reshape(-1, R, H, V), dim=-1)  # cores
+        # w_cp = torch.einsum(
+        #     "rhde,vd->rhdv", self.w_cp.weight.reshape(R, H, D, D), self.decoder.weight
+        # )
+        # theta = torch.softmax(torch.einsum("be,rhdv->brhv", x, w_cp), dim=-1)  # cores
         alpha = torch.softmax(self.w_alpha(x).reshape(-1, R), dim=-1)  # moe weights
 
         # === train mode - evaluate joint probability p(y | x)
@@ -171,3 +208,16 @@ class CPCond(AbstractDist):
             torch.Tensor: Computed loss. Shape (B,).
         """
         return -self.log_prob(x, y)
+
+
+if __name__ == "__main__":
+
+    B, R, H, D, V = 1, 4, 2, 512, 1000
+
+    config = BaseDistConfig(horizon=H, rank=R, embedding_dim=D, vocab_size=V)
+    dist = CPCond(config)
+
+    x = torch.randn(B, D)
+    y = torch.randint(0, V, (B, H))
+    print(dist(x, y))
+    print(dist.sample(x, sample_fn=lambda x: x.argmax(-1)))

@@ -4,7 +4,7 @@ import torch
 from tjdnet.distributions._base import (
     AbstractDist,
     BaseDistConfig,
-    BaseDistFromLinearConfig,
+    BaseDistConfig,
 )
 
 
@@ -33,9 +33,7 @@ class STPDist(AbstractDist):
         )
 
     @classmethod
-    def from_pretrained(
-        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
-    ):
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
         raise NotImplementedError("CPDist does not support from_pretrained")
 
     # @classmethod

@@ -24,7 +24,7 @@ class TensorParamNetConfig:
     out_dim_decoder: int = 1
     positivity_func: Literal[
         "sq", "abs", "exp", "safe_exp", "sigmoid", "none", "relu", "leaky_relu"
-    ] = "exp"
+    ] = "sigmoid"
     use_decoder: bool = True
     use_bias_encoder: bool = True
     use_bias_decoder: bool = True

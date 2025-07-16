@@ -1,5 +1,6 @@
 from dataloaders.aqua import AQUA
 from dataloaders.base import AbstractDataset
+from dataloaders.countdown import Countdown
 from dataloaders.csqa import CSQA
 from dataloaders.gms8k import GSM8k
 from dataloaders.reddit import Reddit
@@ -19,5 +20,6 @@ DATASETS: dict[str, type[AbstractDataset]] = {
     "wikitext2": WikiText2,
     "sst2": SST2,
     "reddit": Reddit,
+    "countdown": Countdown,
     # Add more datasets here as needed
 }

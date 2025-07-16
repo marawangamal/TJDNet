@@ -84,7 +84,20 @@ class TJDSimple(nn.Module):
             embedding_dim=self.embedding_dim,
             positivity_func=config.positivity_func,
         )
-        self.dist_head = TJD_DISTS[config.model_head](dist_config)
+        try:
+            self.dist_head = TJD_DISTS[config.model_head].from_pretrained(
+                self.lm_head, dist_config
+            )
+            # set decoder requires_grad to False
+            if hasattr(self.dist_head, "decoder"):
+                for param in self.dist_head.decoder.parameters():  # type: ignore
+                    param.requires_grad = False
+                print("Dist head decoder frozen")
+            print("Initialized dist head from pretrained")
+        except:
+            self.dist_head = TJD_DISTS[config.model_head](dist_config)
+            print("Initialized dist head from scratch")
+        # self.dist_head = TJD_DISTS[config.model_head](dist_config)
 
         # Apply LoRA if needed
         if config.train_mode == "lora":
@@ -95,7 +108,7 @@ class TJDSimple(nn.Module):
                 lora_alpha=32,
                 lora_dropout=0.1,
             )
-            self.backbone.add_adapter(peft_config, adapter_name="lora_1")
+            self.backbone.add_adapter(peft_config, adapter_name="lora_1")  # type: ignore
 
             # Freeze non-LoRA params
             for name, param in self.backbone.named_parameters():
@@ -206,7 +219,7 @@ class TJDSimple(nn.Module):
 
             total_loss = 0.0
             for h in range(H):
-                loss_i = self.dist_head.forward_partial(d, y, head_ids=[h]).mean()
+                loss_i = self.dist_head.forward_partial(d, y, head_ids=[h]).mean()  # type: ignore
                 loss_i.backward()
                 total_loss += loss_i.detach()
             z.backward(gradient=d.grad)

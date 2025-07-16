@@ -4,32 +4,69 @@ import torch
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions._tjdist import BaseDistConfig, TJDist
 
+from tjdnet.distributions._tpnet import safe_exp
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
 
 
-class CPDist(TJDist):
+class CPRMoEDist(TJDist):
     def __init__(self, config: BaseDistConfig, bypass_config=False, **kwargs):
-        """CP Distribution
-
-        Args:
-            n_embd (int): Embedding dimension
-            vocab_size (int): Vocabulary size
-            rank (int): Rank of the CP decomposition
-            horizon (int): Horizon of the model (Number of tokens to predict)
-        """
         super().__init__(config)
+        self.param_func = None
+        self.positivity_func = {
+            "sq": lambda x: x**2,
+            "abs": lambda x: torch.abs(x),
+            "exp": torch.exp,
+            "safe_exp": safe_exp,
+            "sigmoid": torch.sigmoid,
+            "relu": torch.relu,
+            "leaky_relu": torch.nn.functional.leaky_relu,
+            "none": lambda x: x,
+        }[config.positivity_func]
+        self.config = config
+        R, D, H = config.rank, config.embedding_dim, config.horizon
 
-    @classmethod
-    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig):
-        raise NotImplementedError(
-            "from_linear method must be implemented in the subclass"
+        # Encoder
+        self.w_encoder_experts = torch.nn.ModuleList(
+            [torch.nn.Linear(D, H * D) for _ in range(R)]
         )
 
+        # Decoder
+        self.w_decoder = torch.nn.Linear(D, config.vocab_size)
+
+    @classmethod
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
+        raise NotImplementedError("CPDist does not support from_pretrained")
+
     def get_params(self, x: torch.Tensor, **kwargs):
-        B = x.size(0)
-        params = self.param_func(x)  # (B, R * H, V)
-        params_reshaped = params.reshape(B, self.rank, self.horizon, self.vocab_size)
-        return params_reshaped  # (B, R, H, V)  // H* is model level horizon
+        # Setup
+        B, R, H, D, V = (
+            x.size(0),
+            self.config.rank,
+            self.config.horizon,
+            self.config.embedding_dim,
+            self.config.vocab_size,
+        )
+
+        # Encoder: (B, D) -> (B, D, R', H)
+        rmask = torch.randint(0, 2, (R,), dtype=torch.bool, device=x.device)
+        rmask[torch.randint(R, (1,), device=x.device)] = True  # guarantee ≥1 True
+
+        # choose `self.n_active` experts randomly
+        expert_ids = torch.multinomial(
+            torch.arange(R, dtype=torch.float), num_samples=self.config.rank_active
+        ).to(torch.long)
+
+        # Apply experts
+        p_keep = self.config.rank_active / R
+        gamma = 1 / p_keep if self.training and p_keep > 0 else 1.0
+        z = gamma * torch.stack(
+            [self.w_encoder_experts[eid](x) for eid in expert_ids.tolist()], dim=1
+        )  # (B, R', H*D)
+
+        # Decoder: (B, R', H*D) -> (B, R', H, V)
+        z = self.positivity_func(self.w_decoder(z.reshape(B, -1, H, D)))
+
+        return z  # (B, R', H, V)
 
     def sample(
         self,
@@ -55,13 +92,13 @@ class CPDist(TJDist):
                 - Evaluation of the distribution at the points of shape (B, H).
                 - Probabilities of shape (B, H, V) or logits of shape (B, H, V).
         """
-        horizon = self.get_horizon(horizon)  # Possibly override model horizon
-        batch_size = x.size(0)
         dvc = x.device
 
         # Output tokens will be placed in `y_hat`
-        y_hat = torch.empty(batch_size, 0, device=dvc, dtype=torch.long)
         model_head_params = self.get_params(x)  # (B, R, H, V)
+        B, R, H, V = model_head_params.shape
+        y_hat = torch.empty(B, 0, device=dvc, dtype=torch.long)
+
         py_tilde_list = []
 
         # Autoregressive sampling
@@ -71,16 +108,13 @@ class CPDist(TJDist):
         #  y_hat = [[1, 2, 3]]  # (B, T)
         #  ops_tensor = [[1, 2, -2]]  # (B, T)
         #  p_ops_tilde = A^{(1))_1} * A^{(2)}_2 * (𝜮_r A^{(3)}_r)
-        for h in range(horizon):
+        for h in range(H):
             ops_tensor = torch.cat(
                 (
                     y_hat,  # selection
-                    -1  # free leg
-                    * torch.ones(batch_size, 1, dtype=torch.long, device=dvc),
+                    -1 * torch.ones(B, 1, dtype=torch.long, device=dvc),  # free leg
                     -2  # marginalization
-                    * torch.ones(
-                        batch_size, (horizon - h - 1), dtype=torch.long, device=dvc
-                    ),
+                    * torch.ones(B, (H - h - 1), dtype=torch.long, device=dvc),
                 ),
                 dim=1,
             )  # (B, T)
@@ -109,17 +143,16 @@ class CPDist(TJDist):
                 f"Batch size mismatch: z.shape[0]={x.shape[0]}, y.shape[0]={y.shape[0]}"
             )
         # Get indexed distribution
-        horizon = self.horizon
-        B = x.size(0)
         params = self.get_params(x)  # (B, R, H, V)
+        B, R, H, V = params.shape
         p_tilde, p_tilde_scale_factors = select_margin_cp_tensor_batched(
-            cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
-            ops=y.reshape(B, horizon),
+            cp_params=params.reshape(B, R, H, V),
+            ops=y.reshape(B, H),
         )  # (B,), (B, H)
         norm_consts, norm_consts_scale_factors = select_margin_cp_tensor_batched(
-            cp_params=params.reshape(B, self.rank, horizon, self.vocab_size),
+            cp_params=params.reshape(B, R, H, V),
             ops=torch.full(
-                (B, horizon),
+                (B, H),
                 -2,
                 dtype=torch.long,
                 device=x.device,

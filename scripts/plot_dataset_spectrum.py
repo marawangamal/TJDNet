@@ -363,6 +363,7 @@ def main():
     # deepseek-ai/DeepSeek-R1
     # deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
     # distilbert/distilgpt2
+    # Qwen/Qwen3-235B-A22B
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
