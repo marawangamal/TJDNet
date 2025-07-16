@@ -19,8 +19,6 @@ class CPDist(TJDist):
         """
         super().__init__(config)
 
-        # TopK gating of CP rank
-
     # @classmethod
     # def from_pretrained(
     #     cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs

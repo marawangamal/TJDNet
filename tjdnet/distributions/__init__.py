@@ -2,6 +2,7 @@
 from typing import Dict, Type
 from tjdnet.distributions._base import AbstractDist
 from tjdnet.distributions.cp_rmoe import CPRMoEDist
+from tjdnet.distributions.dummy import DummyDist
 from tjdnet.distributions.stp import STPDist
 from tjdnet.distributions.cp import CPDist
 from tjdnet.distributions.cp_cond import CPCond
@@ -18,4 +19,5 @@ TJD_DISTS: Dict[str, Type[AbstractDist]] = {
     "cp_rmoe": CPRMoEDist,
     "cpme": CPME,
     "multihead": MultiHeadDist,
+    "dummy": DummyDist,
 }

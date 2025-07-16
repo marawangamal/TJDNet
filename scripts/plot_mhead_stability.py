@@ -50,7 +50,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--lr", type=float, default=5e-4)
-    p.add_argument("--epochs", type=int, default=5)
+    p.add_argument("--epochs", type=int, default=25)
     p.add_argument("--n_samples", type=int, default=1024)
     args = p.parse_args()
 
@@ -65,7 +65,7 @@ def main():
     # create experiment configs
     configs = []
     # add cp configs
-    for model_head, rank in itertools.product(["cp", "cp_cond"], range_exp(2, 8)):
+    for model_head, rank in itertools.product(["cp", "cp_cond"], range_exp(1, 4)):
         configs.append(
             {
                 "model_head": model_head,
@@ -77,14 +77,23 @@ def main():
             }
         )
 
-    # add multihead config
-    configs.append(
-        {
-            "model_head": "multihead",
-            "model_head_kwargs": {**model_hparams},
-            "rank": 1,
-        }
-    )
+    # # add multihead config
+    # configs.append(
+    #     {
+    #         "model_head": "multihead",
+    #         "model_head_kwargs": {**model_hparams},
+    #         "rank": 1,
+    #     }
+    # )
+
+    # # add dummy dist
+    # configs.append(
+    #     {
+    #         "model_head": "dummy",
+    #         "model_head_kwargs": {**model_hparams},
+    #         "rank": 1,
+    #     }
+    # )
 
     # create synthetic data
     train_ds = torch.utils.data.TensorDataset(
@@ -95,7 +104,7 @@ def main():
     )
     train_dl = torch.utils.data.DataLoader(train_ds, batch_size=args.batch_size)
 
-    for config in configs:
+    for config in tqdm(configs, desc="Computing stats"):
         train_stats = run_train(
             model=TJD_DISTS[config["model_head"]](
                 BaseDistConfig(**config["model_head_kwargs"])
@@ -124,16 +133,19 @@ def main():
         var_name="metric",  # new col → facet
         value_name="value",  # y‑axis
     )
-    sns.relplot(
+    g = sns.relplot(
         data=long,
         x="timestep",
         y="value",
-        hue="rank",
-        style="model_head",
+        hue="model_head",
+        style="rank",
         col="metric",  # facet by metric (use row='metric' if you prefer)
         kind="line",
         facet_kws=dict(sharey=False),  # separate y‑scales (optional)
+        alpha=0.5,
     )
+    for ax in g.axes.flat:
+        ax.set_yscale("log")  # or "log", "symlog", etc.
     plt.savefig("results/plots/mhead_stability.png", dpi=300, bbox_inches="tight")
 
 
