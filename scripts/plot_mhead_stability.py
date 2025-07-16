@@ -23,25 +23,30 @@ def run_train(model, train_dl, device, lr, epochs):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
     stats = []
-    for _ in tqdm(range(epochs), desc="Training", leave=False):
-        for batch in train_dl:
-            batch = [b.to(device) for b in batch]
-            loss = model(*batch)
-            loss = loss.mean()
-            loss.backward()
+    try:
+        for _ in tqdm(range(epochs), desc="Training", leave=False):
+            for batch in train_dl:
+                batch = [b.to(device) for b in batch]
+                loss = model(*batch)
+                loss = loss.mean()
+                loss.backward()
 
-            # save stats
-            stats.append(
-                {
-                    "train_losses": loss.item(),
-                    "grad_norms": [p.grad.norm(2).item() for p in model.parameters()],
-                    "param_norms": [p.norm(2).item() for p in model.parameters()],
-                }
-            )
+                # save stats
+                stats.append(
+                    {
+                        "train_losses": loss.item(),
+                        "grad_norms": [
+                            p.grad.norm(2).item() for p in model.parameters()
+                        ],
+                        "param_norms": [p.norm(2).item() for p in model.parameters()],
+                    }
+                )
 
-            # update params
-            optimizer.step()
-            optimizer.zero_grad()
+                # update params
+                optimizer.step()
+                optimizer.zero_grad()
+    except Exception as e:
+        print(f"Training failed: {e}")
 
     return stats
 
@@ -64,8 +69,9 @@ def main():
 
     # create experiment configs
     configs = []
+
     # add cp configs
-    for model_head, rank in itertools.product(["cp", "cp_cond"], range_exp(1, 4)):
+    for model_head, rank in itertools.product(["cp"], range_exp(1, 6)):
         configs.append(
             {
                 "model_head": model_head,

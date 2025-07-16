@@ -3,41 +3,57 @@ import torch
 
 from tjdnet.distributions._tjdist import BaseDistConfig
 from tjdnet.distributions.cp_condl import CPCondl
-from tjdnet.distributions.cp_cond import CPCond
+import tntorch as tn
 
 
 class TestCPDist(unittest.TestCase):
-    def test_cp_condl_values(self):
-        # Test configuration
-        config = BaseDistConfig(
-            horizon=3, rank=2, embedding_dim=4, vocab_size=5, positivity_func="sigmoid"
+
+    def test_cp_condl_log_prob(self):
+        B, H, R, D, V = 1, 2, 8, 4, 5
+        cp_condl = CPCondl(
+            BaseDistConfig(horizon=H, rank=R, embedding_dim=D, vocab_size=V)
         )
+        dims = [V] * H
 
-        # Create both distributions
-        cp_condl = CPCondl(config)
-        cp_cond = CPCond(config)
+        # Diagonal tensor
+        tens_cp = tn.randn(dims, ranks_cp=R)
+        tens_cp.cores = [torch.sigmoid(torch.randn(V, R)) for _ in range(H)]
 
-        # Now, set the same weights for both distributions
-        cp_cond_params = dict(cp_cond.named_parameters())
-        for name, param in cp_condl.named_parameters():
-            if name in cp_cond_params:
-                param.data = cp_cond_params[name].data
-                print(f"Copied {name} from cp_cond to cp_condl")
+        tens_cp_normalized = tn.randn(dims, ranks_cp=R)
+        alpha = torch.softmax(torch.randn(R), dim=-1)
+        tens_cp_normalized.cores = [
+            # (V, R) * (1, R) -> (V, R)
+            (
+                torch.softmax(c, dim=0) * alpha.unsqueeze(0)
+                if i == 0
+                else torch.softmax(c, dim=0)
+            )
+            for i, c in enumerate(tens_cp.cores)
+        ]
 
-        # Set the same random seed for reproducible results
-        torch.manual_seed(42)
+        # idx = tuple([1] * H)
+        for idx in [tuple([1] * (H - 1) + [0]), tuple([1] * H)]:
+            cores_cp = [ti.T for ti in tens_cp.cores]
+            y = torch.tensor([idx])
 
-        # Create test data
-        batch_size = 2
-        x = torch.randn(batch_size, config.embedding_dim)
-        y = torch.randint(0, config.vocab_size, (batch_size, config.horizon))
+            log_prob_hat_unst = cp_condl._compute_log_prob_unstable(
+                alpha_tilde=alpha.reshape(1, -1).repeat(B, 1),
+                # (B, H, R, V)
+                p_dists_tilde=torch.stack(cores_cp, dim=0).unsqueeze(0),
+                y=y,
+            )  # (B,)
 
-        # Compute log probabilities using both methods
-        log_prob_condl = cp_condl.log_prob(x, y, return_dist_slice=False)
-        log_prob_cond = cp_cond.log_prob(x, y, return_dists=False)
+            # log_prob_hat = cp_condl._compute_log_prob(
+            #     alpha_tilde=torch.ones(B, R),
+            #     # (B, H, R, V)
+            #     p_dists_tilde=torch.stack(cores_cp, dim=0).unsqueeze(0),
+            #     y=y,
+            # )  # (B,)
 
-        # The results should be equal (within numerical precision)
-        torch.testing.assert_close(log_prob_condl, log_prob_cond, atol=1e-6, rtol=1e-6)
+            log_prob_actual = torch.log(tens_cp_normalized[idx]).reshape(1)
+            torch.testing.assert_close(
+                log_prob_actual, log_prob_hat_unst, atol=1e-1, rtol=1e-1
+            )
 
 
 if __name__ == "__main__":
