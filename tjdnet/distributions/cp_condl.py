@@ -2,11 +2,7 @@ from typing import Callable, Optional
 
 import torch
 
-from tjdnet.distributions._base import (
-    AbstractDist,
-    BaseDistConfig,
-    BaseDistFromLinearConfig,
-)
+from tjdnet.distributions._base import AbstractDist, BaseDistConfig
 
 
 class CPCondl(AbstractDist):
@@ -36,14 +32,41 @@ class CPCondl(AbstractDist):
 
         # === params
         self.w_alpha = torch.nn.Linear(D, R)
-        self.w_cp = torch.nn.Linear(D, H * R * V)
-        # self.decoder = torch.nn.Parameter(torch.randn(D, V))  # (d, V)
+        self.w_cp_factor = torch.nn.Linear(D, H * R * D)
+        # self.decoder = torch.nn.init.kaiming_uniform_(
+        #     torch.nn.Parameter(torch.empty(D, V))
+        # )
+        self.decoder = torch.nn.Linear(D, V, bias=False)
+        self.w_cp = torch.nn.Sequential(self.w_cp_factor, self.decoder)
 
     @classmethod
-    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
-        raise NotImplementedError(
-            "from_linear method must be implemented in the subclass"
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
+        """Create a CP distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        vocab_size, embedding_dim = linear.weight.shape
+
+        obj = cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                embedding_dim=embedding_dim,
+            ),
+            **kwargs,
         )
+
+        # Initialize the parameters in obj.tensor_param_net
+        # with the parameters from the linear layer
+        obj.decoder.weight.data = linear.weight.data  # type: ignore
+        return obj
 
     def _compute_log_prob(
         self,

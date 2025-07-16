@@ -1,7 +1,7 @@
 from typing import Callable, Optional
 import torch
 
-from tjdnet.distributions._base import BaseDistFromLinearConfig
+from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions._tjdist import BaseDistConfig, TJDist
 
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched
@@ -19,53 +19,33 @@ class CPDist(TJDist):
         """
         super().__init__(config)
 
-    # @classmethod
-    # def from_pretrained(
-    #     cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
-    # ):
-    #     """Create a CP distribution from a linear layer.
-
-    #     Args:
-    #         linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
-    #         config (BaseDistFromLinearConfig): Configuration for the distribution.
-
-    #     Returns:
-    #         CPDist: CP distribution with the given configuration.
-    #     """
-
-    #     vocab_size, hidden_dim = linear.weight.shape
-    #     use_bias_decoder = False
-    #     if linear.bias is not None:
-    #         use_bias_decoder = True
-    #         raise Warning("CPDist: Skiping bias initialization.")
-
-    #     param_net_conf = config.param_net.to_dict()
-    #     param_net_conf["hidden_dim"] = hidden_dim
-    #     param_net_conf["out_dim_decoder"] = vocab_size
-    #     param_net_conf["use_bias_decoder"] = use_bias_decoder
-
-    #     obj = cls(
-    #         config=BaseDistConfig(
-    #             vocab_size=vocab_size,
-    #             horizon=config.horizon,
-    #             rank=config.rank,
-    #             param_net=TensorParamNetConfig(**param_net_conf),
-    #         ),
-    #         **kwargs,
-    #     )
-
-    #     # Initialize the parameters in obj.tensor_param_net
-    #     # with the parameters from the linear layer
-    #     obj.param_func.decoder.weight.data = linear.weight.data  # type: ignore
-    #     if use_bias_decoder:
-    #         obj.param_func.decoder.bias.data = linear.bias.data  # type: ignore
-    #     return obj
-
     @classmethod
-    def from_pretrained(
-        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
-    ):
-        raise NotImplementedError("CPDist does not support from_pretrained")
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
+        """Create a CP distribution from a linear layer.
+
+        Args:
+            linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
+            config (BaseDistFromLinearConfig): Configuration for the distribution.
+
+        Returns:
+            CPDist: CP distribution with the given configuration.
+        """
+
+        vocab_size, hidden_dim = linear.weight.shape
+        obj = cls(
+            config=BaseDistConfig(
+                vocab_size=vocab_size,
+                horizon=config.horizon,
+                rank=config.rank,
+                embedding_dim=hidden_dim,
+            ),
+            **kwargs,
+        )
+
+        # Initialize the parameters in obj.tensor_param_net
+        # with the parameters from the linear layer
+        obj.param_func.decoder.weight.data = linear.weight.data  # type: ignore
+        return obj
 
     def get_params(self, x: torch.Tensor, **kwargs):
         B = x.size(0)

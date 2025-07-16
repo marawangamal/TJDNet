@@ -3,8 +3,7 @@ from typing import Callable, Optional
 
 import torch
 
-from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
-from tjdnet.distributions._tjdist import BaseDistConfig
+from tjdnet.distributions._base import AbstractDist, BaseDistConfig
 
 
 class CPCond(AbstractDist):
@@ -41,7 +40,7 @@ class CPCond(AbstractDist):
         # self.decoder = torch.nn.Embedding(V, D)
 
     @classmethod
-    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig):
         raise NotImplementedError(
             "from_linear method must be implemented in the subclass"
         )

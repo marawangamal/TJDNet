@@ -12,14 +12,6 @@ T = TypeVar("T", bound="AbstractDist")
 
 
 @dataclass
-class BaseDistFromLinearConfig:
-    horizon: int
-    rank: int
-    embedding_dim: int = 768
-    positivity_func: PositivityFuncType = "sigmoid"
-
-
-@dataclass
 class BaseDistConfig:
     vocab_size: int
     horizon: int
@@ -70,7 +62,7 @@ class AbstractDist(ABC, torch.nn.Module):
     @classmethod
     @abstractmethod
     def from_pretrained(
-        cls: Type[T], linear: torch.nn.Linear, config: BaseDistFromLinearConfig
+        cls: Type[T], linear: torch.nn.Linear, config: BaseDistConfig
     ) -> T:
         """Initialize the distribution from a linear layer.
 

@@ -2,7 +2,7 @@ import os, datetime
 from typing import Callable, Optional
 import torch
 
-from tjdnet.distributions._base import BaseDistFromLinearConfig
+from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.distributions._tjdist import BaseDistConfig, TJDist
 
 from tjdnet.tensorops.cp import select_margin_cp_tensor_batched_w_decoder
@@ -54,9 +54,7 @@ class CPME(TJDist):
         return self.positivity_func(self.decoder)
 
     @classmethod
-    def from_pretrained(
-        cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
-    ):
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
         raise NotImplementedError("CPDist does not support from_pretrained")
 
     def get_params(self, x: torch.Tensor, **kwargs):

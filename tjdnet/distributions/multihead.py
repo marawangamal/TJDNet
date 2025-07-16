@@ -2,7 +2,7 @@ from typing import Callable, List, Optional
 import torch
 import torch.nn as nn
 
-from tjdnet.distributions._base import AbstractDist, BaseDistFromLinearConfig
+from tjdnet.distributions._base import AbstractDist, BaseDistConfig
 from tjdnet.distributions._tjdist import BaseDistConfig
 
 
@@ -24,7 +24,7 @@ class MultiHeadDist(AbstractDist):
         )
 
     @classmethod
-    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig):
+    def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig):
         raise NotImplementedError(
             "from_linear method must be implemented in the subclass"
         )
