@@ -216,7 +216,9 @@ class CPCondl(AbstractDist):
             return_logits (bool, optional): Whether to return logits. Defaults to False.
 
         Returns:
-            torch.Tensor: Sampled tokens. Shape (B, H).
+            tuple:
+                - Sampled tokens. Shape (B, H).
+                - Logits of shape (B, H, V).
         """
 
         B, H = (x.size(0), self.config.horizon)
@@ -231,7 +233,7 @@ class CPCondl(AbstractDist):
             logits = logits - log_z
             yh = sample_fn(logits.exp())  # (B,)
             y_out = torch.cat([y_out, yh.unsqueeze(1)], dim=1)
-        return y_out
+        return y_out, []
 
 
 if __name__ == "__main__":
