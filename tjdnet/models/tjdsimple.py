@@ -84,20 +84,20 @@ class TJDSimple(nn.Module):
             embedding_dim=self.embedding_dim,
             positivity_func=config.positivity_func,
         )
-        # try:
-        #     self.dist_head = TJD_DISTS[config.model_head].from_pretrained(
-        #         self.lm_head, dist_config
-        #     )
-        #     # set decoder requires_grad to False
-        #     if hasattr(self.dist_head, "decoder"):
-        #         for param in self.dist_head.decoder.parameters():
-        #             param.requires_grad = False
-        #         print("Dist head decoder frozen")
-        #     print("Initialized dist head from pretrained")
-        # except:
-        #     self.dist_head = TJD_DISTS[config.model_head](dist_config)
-        #     print("Initialized dist head from scratch")
-        self.dist_head = TJD_DISTS[config.model_head](dist_config)
+        try:
+            self.dist_head = TJD_DISTS[config.model_head].from_pretrained(
+                self.lm_head, dist_config
+            )
+            # set decoder requires_grad to False
+            if hasattr(self.dist_head, "decoder"):
+                for param in self.dist_head.decoder.parameters():
+                    param.requires_grad = False
+                print("Dist head decoder frozen")
+            print("Initialized dist head from pretrained")
+        except:
+            self.dist_head = TJD_DISTS[config.model_head](dist_config)
+            print("Initialized dist head from scratch")
+        # self.dist_head = TJD_DISTS[config.model_head](dist_config)
 
         # Apply LoRA if needed
         if config.train_mode == "lora":
