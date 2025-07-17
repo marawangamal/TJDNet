@@ -40,7 +40,7 @@ class CPCondl(AbstractDist):
         )
 
     def w_cp(self, x: torch.Tensor):
-        return torch.einsum("erd,dv,->brhv", x, self.w_cp_fac, self.decoder)
+        return torch.einsum("be,ehrd,dv->bhrv", x, self.w_cp_fac, self.decoder)
 
     def get_output_embeddings(self):
         return torch.einsum(
