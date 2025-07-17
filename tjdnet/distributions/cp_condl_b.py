@@ -5,7 +5,7 @@ import torch
 from tjdnet.distributions._base import AbstractDist, BaseDistConfig
 
 
-class CPCondl(AbstractDist):
+class CPCondlB(AbstractDist):
     def __init__(self, config: BaseDistConfig):
         super().__init__()
         """Parameterized CP tensor network distribution (log space version).
@@ -31,7 +31,7 @@ class CPCondl(AbstractDist):
         )
 
         # === params
-        self.w_alpha = torch.nn.Linear(D, R)
+        self.alpha = torch.nn.init.kaiming_uniform_(torch.nn.Parameter(torch.empty(R)))
         self.w_cp_fac = torch.nn.init.kaiming_uniform_(
             torch.nn.Parameter(torch.empty(D, H, R, D))
         )
@@ -44,7 +44,7 @@ class CPCondl(AbstractDist):
 
     def get_output_embeddings(self):
         return torch.einsum(
-            "rd,ehrd,dv->brhv", self.w_alpha.weight, self.w_cp_fac[:, 0], self.decoder
+            "r,erd,dv->ev", self.alpha, self.w_cp_fac[:, 0], self.decoder
         )
 
     def set_output_embeddings(self, new_embeddings):
@@ -91,20 +91,18 @@ class CPCondl(AbstractDist):
     ):
         B, H, R, V = (
             y.size(0),
-            y.size(1),
+            self.config.horizon,
             self.config.rank,
             self.config.vocab_size,
         )
-        assert H <= self.config.horizon, f"y > horizon"
+        assert y.size(1) <= H, f"y > horizon"
         if return_dist_slice:
             raise NotImplementedError("return_dist_slice not implemented")
 
         # log-softmax of unnormalized mixture weights. Shape: (B, R)
         lsm_alpha = torch.log_softmax(alpha_tilde, dim=-1)  # (B, R)
         # log-softmax of unnormalized conditional probs. Shape: (B, H, R, V)
-        lsm_cp_cores = torch.log_softmax(
-            p_dists_tilde[:, :H].reshape(B, H, R, V), dim=-1
-        )
+        lsm_cp_cores = torch.log_softmax(p_dists_tilde.reshape(B, H, R, V), dim=-1)
 
         # Update prior using intermediate tokens
         z = (
@@ -123,7 +121,6 @@ class CPCondl(AbstractDist):
         self,
         x: torch.Tensor,
         y: torch.Tensor,
-        return_dist_slice: bool = False,
         **kwargs,
     ):
         """Computes logP(y|x) for CPCondl distribution.
@@ -137,10 +134,8 @@ class CPCondl(AbstractDist):
             torch.Tensor: log(p(y|x)). Shape: (B,)
 
         """
-        if return_dist_slice:
-            raise NotImplementedError("return_dist_slice not implemented")
         return self._compute_log_prob(
-            self.w_alpha(x),  # (B, R)
+            self.alpha.reshape(1, -1).expand(x.size(0), -1),  # (B, R)
             self.w_cp(x),  # (B, H*R*V)
             y,  # (B, H)
         )
@@ -171,7 +166,9 @@ class CPCondl(AbstractDist):
         assert y.size(1) <= H, f"y > horizon"
 
         # log-softmax of unnormalized mixture weights. Shape: (B, R)
-        lsm_alpha = torch.log_softmax(self.w_alpha(x), dim=-1)  # (B, R)
+        lsm_alpha = torch.log_softmax(
+            self.alpha.reshape(1, -1).expand(x.size(0), -1), dim=-1
+        )  # (B, R)
         # log-softmax of unnormalized conditional probs. Shape: (B, H, R, V)
         lsm_cp_cores = torch.log_softmax(self.w_cp(x).reshape(B, H, R, V), dim=-1)
 
@@ -243,7 +240,9 @@ class CPCondl(AbstractDist):
 
 if __name__ == "__main__":
     H, R, D, V = 3, 2, 4, 5
-    cp_condl = CPCondl(BaseDistConfig(horizon=H, rank=R, embedding_dim=D, vocab_size=V))
+    cp_condl = CPCondlB(
+        BaseDistConfig(horizon=H, rank=R, embedding_dim=D, vocab_size=V)
+    )
     x = torch.randn(2, D)
     y = torch.randint(0, V, (2, H))
     print(cp_condl.log_prob(x, y))
