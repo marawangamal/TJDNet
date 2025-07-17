@@ -63,27 +63,15 @@ class Countdown(AbstractDataset):
 
     def load_raw_data(self):
         # Generate synthetic countdown problems since reasoning-gym dataset might not be available
-        n_samples = self.max_num_samples if self.max_num_samples is not None else 1000
-        train_ds = reasoning_gym.create_dataset("countdown", size=n_samples, seed=42)
-        eval_ds = reasoning_gym.create_dataset("countdown", size=100, seed=42)
-        test_ds = reasoning_gym.create_dataset("countdown", size=100, seed=42)
-
-        # Convert to huggingface dataset
-        train_ds = Dataset.from_list(train_ds)
-        eval_ds = Dataset.from_list(eval_ds)
-        test_ds = Dataset.from_list(test_ds)
-
-        # Process the datasets
-        train_ds = self._process_train_dataset(train_ds, self.tokenizer)
-        eval_ds = self._process_train_dataset(eval_ds, self.tokenizer)
-        test_ds = self._process_test_dataset(test_ds, self.tokenizer)
-        return DatasetDict(
-            **{
-                "train": train_ds,
-                "eval": eval_ds,
-                "test": test_ds,
-            }
+        ds = load_dataset(
+            "mremila/countdown",
+            split="train",
+            cache_dir=self.cache_dir,
         )
+        ds = self._process_train_dataset(ds, self.tokenizer)
+        ds_dict = ds.train_test_split(test_size=200, seed=42, shuffle=True)  # type: ignore
+        ds_dict["eval"] = ds_dict["test"]
+        return DatasetDict(ds_dict)
 
 
 if __name__ == "__main__":

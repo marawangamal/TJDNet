@@ -20,56 +20,33 @@ class LModel(L.LightningModule):
         self,
         # model
         model: str = "gpt2",
-        train_mode: Literal["full", "lora"] = "lora",
-        lora_rank: int = 32,
         # tjdist parameters
         model_head: ModelHeadType = "cp",
         horizon: int = 1,
         rank: int = 1,
         positivity_func: PositivityFuncType = "sigmoid",
-        # trainer
+        # optimizer
         lr: float = 1e-3,
-        warmup_steps: int = 100,
-        gradient_clip_val: Optional[float] = None,
         # sampling parameters
         max_new_tokens: int = 128,
-        do_sample: bool = False,
+        do_sample: bool = True,
         top_k: int = 200,
-        seq_len: int = 128,
         dataset: str = "stemp",
-        debug: bool = False,
-        gen_mode: Literal["draft", "base", "speculative"] = "draft",
-        framework: Literal["tjd", "mtllama"] = "tjd",
     ):
         super().__init__()
         self.save_hyperparameters()
-
-        # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model)
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.dataset = DATASETS[dataset](tokenizer=self.tokenizer)
-
-        # Initialize MultiTokenLlama model (replacing TJDSimple)
-        if framework == "mtllama":
-            config = MultiTokenLlamaConfig(
+        self.model = TJDSimple(
+            config=TJDSimpleConfig(
                 model_name=model,
+                model_head=model_head,
                 horizon=horizon,
+                rank=rank,
+                positivity_func=positivity_func,
             )
-            self.model = MultiTokenLlama(config)
-        else:
-            self.model = TJDSimple(
-                config=TJDSimpleConfig(
-                    model_name=model,
-                    model_head=model_head,
-                    horizon=horizon,
-                    rank=rank,
-                    train_mode=train_mode,
-                    lora_rank=lora_rank,
-                    positivity_func=positivity_func,
-                )
-            )
-
-        # self.automatic_optimization = False
+        )
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams["lr"])
@@ -80,19 +57,6 @@ class LModel(L.LightningModule):
         loss = out.loss
         self.log("train_loss", loss, prog_bar=True)
         return loss
-        # opt = self.optimizers()
-        # opt.zero_grad()
-        # out = self.model.forward_backward(**batch)
-        # loss = out.loss
-        # if self.hparams["grad_clip_val"] is not None:
-        #     self.clip_gradients(
-        #         opt,
-        #         gradient_clip_val=self.hparams["grad_clip_val"],
-        #         gradient_clip_algorithm="norm",
-        #     )
-        # opt.step()
-        # self.log("train_loss", loss, prog_bar=True)
-        # return loss
 
     def validation_step(self, batch, batch_idx):
         out = self.model(**batch)
@@ -124,13 +88,6 @@ class LModel(L.LightningModule):
             device=batch["input_ids"].device,
         )
         corr = (y_pred == batch["labels"]).float().sum()
-
-        if self.hparams["debug"]:
-            print("inputs:", self.tokenizer.batch_decode(batch["input_ids"]))
-            print("outputs:", y_pred_str)
-            print("labels:", batch["labels"])
-            print("corr:", corr.item())
-
         return {"corr": corr.item()}
 
     def on_fit_start(self):
@@ -139,13 +96,6 @@ class LModel(L.LightningModule):
             self.logger.experiment.watch(self, log="all", log_freq=100)
         else:
             print(">> No logger found")
-
-    # def on_save_checkpoint(self, checkpoint):
-    #     state = checkpoint["state_dict"]
-    #     for name in list(state.keys()):
-    #         if not any([l in name for l in ["lora", "lm_head"]]):
-    #             state.pop(name)
-    #     return state
 
 
 class LDataModule(L.LightningDataModule):

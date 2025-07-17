@@ -83,45 +83,18 @@ class MyLightningCLI(LightningCLI):
             print("[INFO] Running test after fit...")
             self.trainer.test(ckpt_path="best")
 
-    def before_fit(self):
-        # Only run LR finder on the main process
-        if not self.config.fit["auto_lr_find"]:
-            print("🔍 Skipping LR finder as per configuration")
-            return
-
-        if self.trainer.global_rank == 0 and self.trainer.ckpt_path is None:
-            print("🔍 Running learning rate finder...")
-            lr_trainer = L.Trainer(
-                accelerator="gpu",
-                devices=1,
-                logger=False,
-                enable_checkpointing=False,
-                precision=self.config.fit.trainer.get("precision", 32),
-            )
-
-            tuner = Tuner(lr_trainer)
-            lr_finder = tuner.lr_find(
-                self.model,
-                datamodule=self.datamodule,
-                min_lr=1e-6,
-                max_lr=1e-3,
-                num_training=50,
-            )
-
-            if lr_finder:
-                suggested_lr = lr_finder.suggestion()
-                print(f"  ↳ suggested lr = {suggested_lr:.2e}")
-                self.model.hparams.lr = suggested_lr
-
     # TODO: if test, parse the config
     def before_instantiate_classes(self):
         cfg = self.config
 
+        # ================================ TESTING ================================
+        # If test, load the model config using the ckpt_path
         if "test" in cfg:
             self._load_model_config(cfg.test.ckpt_path)
             return
 
-        # 1. Set root dir
+        # ================================ TRAINING ================================
+        # 1. Set root dir (configs and ckpts will be saved here)
         run_name = get_experiment_name(
             {
                 **{
@@ -135,15 +108,21 @@ class MyLightningCLI(LightningCLI):
         run_dir = osp.join(EXPERIMENTS_DIR, run_name)
         cfg.fit.trainer.default_root_dir = run_dir
 
-        # 2. Auto-resume if <EXPERIMENTS_DIR>/<run_name> exists
-        last_ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "last.ckpt")
-        best_ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "best.ckpt")
-        if osp.exists(last_ckpt_path):
-            print(f"[INFO] Resuming from last checkpoint: {last_ckpt_path}")
-            cfg.fit.ckpt_path = last_ckpt_path
-        elif osp.exists(best_ckpt_path):
-            print(f"[INFO] Resuming from best checkpoint: {best_ckpt_path}")
-            cfg.fit.ckpt_path = best_ckpt_path
+        # 2. Resume from ckpt
+        # priority:
+        # - if ckpt_path specified, use it
+        # - if <EXPERIMENTS_DIR>/<run_name> exists, use the last or best checkpoint
+        if cfg.fit.ckpt_path is not None:
+            print(f"[INFO] Resuming from specified checkpoint: {cfg.fit.ckpt_path}")
+        else:
+            last_ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "last.ckpt")
+            best_ckpt_path = osp.join(EXPERIMENTS_DIR, run_name, "best.ckpt")
+            if osp.exists(last_ckpt_path):
+                print(f"[INFO] Resuming from last checkpoint: {last_ckpt_path}")
+                cfg.fit.ckpt_path = last_ckpt_path
+            elif osp.exists(best_ckpt_path):
+                print(f"[INFO] Resuming from best checkpoint: {best_ckpt_path}")
+                cfg.fit.ckpt_path = best_ckpt_path
 
         # 3. Add callbacks
         ckpt_best_cb = ModelCheckpoint(
@@ -179,6 +158,36 @@ class MyLightningCLI(LightningCLI):
             save_dir=osp.join(EXPERIMENTS_DIR, run_name),
         )
         cfg.fit.trainer.logger = wandb_logger
+
+    def before_fit(self):
+        # Only run LR finder on the main process
+        if not self.config.fit["auto_lr_find"]:
+            print("🔍 Skipping LR finder as per configuration")
+            return
+
+        if self.trainer.global_rank == 0 and self.trainer.ckpt_path is None:
+            print("🔍 Running learning rate finder...")
+            lr_trainer = L.Trainer(
+                accelerator="gpu",
+                devices=1,
+                logger=False,
+                enable_checkpointing=False,
+                precision=self.config.fit.trainer.get("precision", 32),
+            )
+
+            tuner = Tuner(lr_trainer)
+            lr_finder = tuner.lr_find(
+                self.model,
+                datamodule=self.datamodule,
+                min_lr=1e-6,
+                max_lr=1e-3,
+                num_training=50,
+            )
+
+            if lr_finder:
+                suggested_lr = lr_finder.suggestion()
+                print(f"  ↳ suggested lr = {suggested_lr:.2e}")
+                self.model.hparams.lr = suggested_lr
 
     def _load_model_config(self, ckpt_path: str):
         """Load the model config from yaml file."""

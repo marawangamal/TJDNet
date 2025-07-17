@@ -19,8 +19,6 @@ class TJDSimpleConfig:
     model_head: ModelHeadType = "multihead"
     horizon: int = 3
     rank: int = 4
-    train_mode: Literal["full", "lora"] = "lora"
-    lora_rank: int = 32
     positivity_func: PositivityFuncType = "exp"
 
 
