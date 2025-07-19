@@ -32,15 +32,19 @@ class CPCondl(AbstractDist):
 
         # === params
         self.w_alpha = torch.nn.Linear(D, R)
-        self.w_cp_fac = torch.nn.init.kaiming_uniform_(
-            torch.nn.Parameter(torch.empty(D, H, R, D))
-        )
-        self.decoder = torch.nn.init.kaiming_uniform_(
-            torch.nn.Parameter(torch.empty(D, V))
-        )
+        self._w_cp = torch.nn.Linear(D, H * R * V)
+
+    #     self.w_cp_fac = torch.nn.init.kaiming_uniform_(
+    #         torch.nn.Parameter(torch.empty(D, H, R, D))
+    #     )
+    #     self.decoder = torch.nn.init.kaiming_uniform_(
+    #         torch.nn.Parameter(torch.empty(D, V))
+    #     )
 
     def w_cp(self, x: torch.Tensor):
-        return torch.einsum("be,ehrd,dv->bhrv", x, self.w_cp_fac, self.decoder)
+        # return torch.einsum("be,ehrd,dv->bhrv", x, self.w_cp_fac, self.decoder)
+        H, R, V = self.config.horizon, self.config.rank, self.config.vocab_size
+        return self._w_cp(x).reshape(-1, H, R, V)
 
     def get_output_embeddings(self):
         return torch.einsum(

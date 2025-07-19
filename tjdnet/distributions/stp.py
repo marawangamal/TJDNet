@@ -5,6 +5,7 @@ from tjdnet.distributions._base import (
     AbstractDist,
     BaseDistConfig,
     BaseDistConfig,
+    BaseDistOutput,
 )
 
 
@@ -23,6 +24,9 @@ class STPDist(AbstractDist):
             horizon (int): Horizon of the model (Number of tokens to predict)
         """
         super().__init__()
+
+        assert config.horizon == 1, "Horizon must be 1 for STPDist"
+
         self.vocab_size = config.vocab_size
         self.rank = config.rank
         self.horizon = config.horizon
@@ -34,63 +38,18 @@ class STPDist(AbstractDist):
 
     @classmethod
     def from_pretrained(cls, linear: torch.nn.Linear, config: BaseDistConfig, **kwargs):
-        raise NotImplementedError("CPDist does not support from_pretrained")
+        if linear.bias is not None:
+            raise ValueError("Linear bias is not supported for STPDist")
+        w = linear.weight  # (V, D)
+        obj = cls(config)
+        obj.decoder.weight = w
+        return obj
 
-    # @classmethod
-    # def from_pretrained(
-    #     cls, linear: torch.nn.Linear, config: BaseDistFromLinearConfig, **kwargs
-    # ):
-    #     """Create a CP distribution from a linear layer.
+    def get_output_embeddings(self):
+        return self.decoder.weight  # (V, D)
 
-    #     Args:
-    #         linear (torch.nn.Linear): Linear layer to use as a base. Shape: (D, V)
-    #         config (BaseDistFromLinearConfig): Configuration for the distribution.
-
-    #     Returns:
-    #         CPDist: CP distribution with the given configuration.
-    #     """
-    #     # ==== Assertions ====
-    #     rules = [
-    #         {
-    #             "fn": lambda config: config.rank == 1,
-    #             "msg": "Rank must be 1 for base distribution",
-    #         },
-    #         {
-    #             "fn": lambda config: config.horizon == 1,
-    #             "msg": "Horizon must be 1 for base distribution",
-    #         },
-    #     ]
-    #     for rule in rules:
-    #         if not rule["fn"](config):
-    #             raise ValueError(rule["msg"])
-    #     # ====================
-
-    #     vocab_size, hidden_dim = linear.weight.shape
-    #     use_bias_encoder = False
-    #     if linear.bias is not None:
-    #         use_bias_encoder = True
-    #         raise Warning("BaseDist: Skiping bias initialization.")
-
-    #     param_net_conf = config.param_net.to_dict()
-    #     param_net_conf["hidden_dim"] = hidden_dim
-    #     param_net_conf["use_decoder"] = False
-
-    #     obj = cls(
-    #         config=BaseDistConfig(
-    #             vocab_size=vocab_size,
-    #             horizon=config.horizon,
-    #             rank=config.rank,
-    #             param_net=config.param_net,
-    #         ),
-    #         **kwargs,
-    #     )
-
-    #     # Initialize the parameters in obj.tensor_param_net
-    #     # with the parameters from the linear layer
-    #     obj.param_func.w.weight.data = linear.weight.data  # type: ignore
-    #     if use_bias_encoder:
-    #         obj.param_func.w.bias.data = linear.bias.data  # type: ignore
-    #     return obj
+    def set_output_embeddings(self, new_embeddings):
+        self.decoder.weight = new_embeddings
 
     def sample(
         self,
@@ -110,7 +69,7 @@ class STPDist(AbstractDist):
             return y_hat, py
         return y_hat, py / py.sum(dim=-1, keepdim=True)
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor):
+    def forward(self, x: torch.Tensor, y: Optional[torch.Tensor] = None):
         """Computes loss for CPB distribution.
 
         Args:
@@ -126,7 +85,9 @@ class STPDist(AbstractDist):
 
         # CE loss (should be equivalent)
         preds = self.decoder(x)  # (B, V)
-        loss = torch.nn.functional.cross_entropy(
-            preds, y.squeeze(-1), reduction="none"
-        )  # (B,)
-        return loss
+        if y is not None:
+            loss = torch.nn.functional.cross_entropy(
+                preds, y.squeeze(-1), reduction="none"
+            )
+            return BaseDistOutput(loss=loss, logits=preds)
+        return BaseDistOutput(logits=preds)

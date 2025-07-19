@@ -1,3 +1,4 @@
+import copy
 from tjdnet.distributions import TJD_DISTS
 from tjdnet.distributions._base import BaseDistConfig
 from tjdnet.types import ModelHeadType, PositivityFuncType
@@ -52,10 +53,11 @@ class MultiTokenHFConfig(PretrainedConfig):
     def __init__(
         self,
         model_name: str = "gpt2",
-        horizon: int = 2,
+        horizon: int = 1,
         rank: int = 1,
-        model_head: ModelHeadType = "cp",
+        model_head: ModelHeadType = "stp",
         positivity_func: PositivityFuncType = "sigmoid",
+        pretrained: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -64,6 +66,7 @@ class MultiTokenHFConfig(PretrainedConfig):
         self.model_head = model_head
         self.rank = rank
         self.positivity_func = positivity_func
+        self.pretrained = pretrained
 
 
 class MultiTokenHF(PreTrainedModel, GenerationMixin):
@@ -72,18 +75,25 @@ class MultiTokenHF(PreTrainedModel, GenerationMixin):
 
     def __init__(self, config: MultiTokenHFConfig):
         super().__init__(config)
-        self.backbone, _ = get_backbone(config.model_name, pretrained=False)
+        self.backbone, lm_head = get_backbone(
+            config.model_name, pretrained=config.pretrained
+        )
         self.vocab_size, self.embedding_dim = get_model_dims(config.model_name)
         self.horizon = config.horizon
-        self.lm_head = TJD_DISTS[config.model_head](
-            BaseDistConfig(
-                vocab_size=self.vocab_size,
-                horizon=self.horizon,
-                embedding_dim=self.embedding_dim,
-                rank=config.rank,
-                positivity_func=config.positivity_func,
-            )
+
+        llm_head_config = BaseDistConfig(
+            vocab_size=self.vocab_size,
+            horizon=self.horizon,
+            embedding_dim=self.embedding_dim,
+            rank=config.rank,
+            positivity_func=config.positivity_func,
         )
+        if config.pretrained:
+            self.lm_head = TJD_DISTS[config.model_head].from_pretrained(
+                copy.deepcopy(lm_head), llm_head_config
+            )
+        else:
+            self.lm_head = TJD_DISTS[config.model_head](llm_head_config)
 
     def get_output_embeddings(self):
         return self.lm_head.get_output_embeddings()
@@ -136,7 +146,7 @@ class MultiTokenHF(PreTrainedModel, GenerationMixin):
 
             # Create targets: (B*(T-H), H)
             y = get_windowed_input_ids(input_ids, self.horizon)
-            if use_memory_efficient_loss:
+            if use_memory_efficient_loss and self.horizon > 1:
                 shift = torch.randint(0, self.horizon, (1,)).item()
                 x = x[:, shift :: self.horizon]
                 y = y[:, shift :: self.horizon]
@@ -144,26 +154,11 @@ class MultiTokenHF(PreTrainedModel, GenerationMixin):
             # Merge batch and sequence dims
             x = x.reshape(-1, self.embedding_dim)  # (B*(T-H), D)
             y = y.reshape(-1)  # (B*(T-H),)
-
-            # # Compute loss from each head
-            # NOTE: this is incorrect but simpler for testing memory usage
-            # total_loss = 0.0
-            # for head in self.heads:
-            #     logits = head(x)  # (B*(T-H), vocab_size)
-            #     loss = nn.functional.cross_entropy(logits, y)
-            #     total_loss += loss
-
             output = self.lm_head(x, y)
             loss = output.loss.mean()
             logits = output.logits
-            # Compute loss from each head
-            # logits = torch.stack([head(x) for head in self.heads], dim=1)  # (B', H, V)
-            # losses = nn.functional.cross_entropy(
-            #     logits.reshape(-1, self.vocab_size), y.reshape(-1), reduction="none"
-            # )  # (B',)
-            # loss = losses.mean()
             return CausalLMOutput(loss=loss, logits=logits)
 
         # For inference: return logits from last position
-        logits = self.lm_head(hidden_states[:, -1:, :])
-        return CausalLMOutput(logits=logits)
+        output = self.lm_head(hidden_states[:, -1:, :])
+        return CausalLMOutput(logits=output.logits)

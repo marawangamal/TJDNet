@@ -1,0 +1,15 @@
+# Example configuration for generating Reasoning Gym datasets for Hugging Face
+# Used with save_hf_dataset.py
+reasoning_gym:
+  # Total size of the dataset to generate
+  dataset_size: 50000
+
+  # Datasets to include in the composite dataset
+  datasets:
+    countdown:
+      min_numbers: 2
+      max_numbers: 3
+
+# Hugging Face upload settings
+huggingface:
+  repo_id: "mremila/countdown"

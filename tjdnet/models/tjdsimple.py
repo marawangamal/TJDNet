@@ -136,9 +136,13 @@ class TJDSimple(nn.Module):
                     f"Batch size mismatch: z.shape[0]={z.shape[0]}, y.shape[0]={y.shape[0]}"
                 )
 
-            loss = self.dist_head(z, y).mean()
+            output = self.dist_head(z, y)
+            loss = output.loss.mean()
             return ModelOutput(
-                **{"loss": loss, "nll": loss if use_memory_efficient_loss else -1}
+                **{
+                    "loss": loss,
+                    "nll": loss if use_memory_efficient_loss else -1,
+                }
             )
 
         return ModelOutput(**{"hidden_states": hidden_states})

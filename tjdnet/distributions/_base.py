@@ -21,6 +21,12 @@ class BaseDistConfig:
     rank_active: int = 2
 
 
+@dataclass
+class BaseDistOutput:
+    logits: torch.Tensor
+    loss: Optional[torch.Tensor] = None
+
+
 class AbstractDist(ABC, torch.nn.Module):
     @abstractmethod
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
